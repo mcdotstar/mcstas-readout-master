@@ -5,6 +5,8 @@
 #include "reader.h"
 #include "ReadoutClass.h"
 
+#include "streamer.h"
+
 constexpr size_t PAGESIZE = 4u << 30;  // this should be user configurable
 
 size_t element_size(ReadoutType type){
@@ -12,7 +14,7 @@ size_t element_size(ReadoutType type){
     case ReadoutType::CAEN: return sizeof(CAEN_event);
     case ReadoutType::TTLMonitor: return sizeof(TTLMonitor_event);
     case ReadoutType::VMM3: return sizeof(VMM3_event);
-    case ReadoutType::DREAM: return sizeof(DREAM_event);
+    case ReadoutType::DREAM: return sizeof(CDT_event);
     default: throw std::runtime_error("Readout type not implemented");
   }
 }

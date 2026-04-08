@@ -32,15 +32,15 @@ class Writer{
   int verbosity{0};
 public:
   RL_API DetectorType detector_type() const {return detector;}
-  RL_API void detector_type(DetectorType type) {detector = type;}
+  RL_API void detector_type(const DetectorType type) {detector = type;}
   RL_API ReadoutType readout_type() const {return readout;}
-  RL_API void readout_type(ReadoutType type) {readout = type;}
-  RL_API void verbose(int v) {verbosity = v;}
+  RL_API void readout_type(const ReadoutType type) {readout = type;}
+  RL_API void verbose(const int v) {verbosity = v;}
 
   RL_API explicit Writer(
       const std::string & filename,
-      DetectorType detectorType,
-      ReadoutType readoutType,
+      const DetectorType detectorType,
+      const ReadoutType readoutType,
       const std::string & dataset_name = "events"
       )
       : filename{filename}, detector{detectorType}, readout{readoutType} {
@@ -80,12 +80,14 @@ public:
       if (verbosity > 1) std::cout << "No readout saved to file due to no dataset available" << std::endl;
       return;
     }
-    const auto type = readoutType_from_detectorType(detector);
-    switch (type) {
+    switch (readoutType_from_detectorType(detector)) {
       case ReadoutType::CAEN: return saveReadout(CAEN_event(Ring, FEN, tof, weight, static_cast<const CAEN_readout_t*>(data)));
       case ReadoutType::TTLMonitor: return saveReadout(TTLMonitor_event(Ring, FEN, tof, weight, static_cast<const TTLMonitor_readout_t*>(data)));
-      case ReadoutType::DREAM: return saveReadout(DREAM_event(Ring, FEN, tof, weight, static_cast<const DREAM_readout_t*>(data)));
+      case ReadoutType::CDT: return saveReadout(CDT_event(Ring, FEN, tof, weight, static_cast<const CDT_readout_t*>(data)));
       case ReadoutType::VMM3: return saveReadout(VMM3_event(Ring, FEN, tof, weight, static_cast<const VMM3_readout_t*>(data)));
+      case ReadoutType::BM0: return saveReadout(BM0_event(Ring, FEN, tof, weight, static_cast<const BM0_readout_t*>(data)));
+      case ReadoutType::BM2: return saveReadout(BM2_event(Ring, FEN, tof, weight, static_cast<const BM2_readout_t*>(data)));
+      case ReadoutType::BMI: return saveReadout(BMI_event(Ring, FEN, tof, weight, static_cast<const BMI_readout_t*>(data)));
       default: throw std::runtime_error("This readout data type not implemented yet!");
     }
   }
@@ -107,8 +109,11 @@ private:
     switch (readout){
       case ReadoutType::CAEN: return create_datatype<CAEN_event>();
       case ReadoutType::TTLMonitor: return create_datatype<TTLMonitor_event>();
-      case ReadoutType::DREAM: return create_datatype<DREAM_event>();
+      case ReadoutType::CDT: return create_datatype<CDT_event>();
       case ReadoutType::VMM3: return create_datatype<VMM3_event>();
+      case ReadoutType::BM0: return create_datatype<BM0_event>();
+      case ReadoutType::BM2: return create_datatype<BM2_event>();
+      case ReadoutType::BMI: return create_datatype<BMI_event>();
       default: throw std::runtime_error("Saving this readout type is not implemented yet!");
     }
   }

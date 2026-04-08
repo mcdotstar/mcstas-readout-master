@@ -30,22 +30,33 @@ enum DetectorType {
   Reserved = 0x00,
   TTLMonitor = 0x10,
   LOKI = 0x30,
+  TBL3H3 = 0x32,
   BIFROST = 0x34,
   MIRACLES = 0x38,
-  CSPEC = 0x40,
-  NMX = 0x44,
+  CSPEC = 0x3c,
+  TREX = 0x40,
+  NMX = 0x42,
   FREIA = 0x48,
-  TREX = 0x50,
+  TBLVMM = 0x49,
+  ESTIA=0x4c,
+  BEER=0x50,
   DREAM = 0x60,
-  MAGIC = 0x64
+  MAGIC = 0x64,
+  HEIMDAL = 0x68,
+  CBM0 = 0xf0,
+  CBM1 = 0xf1,
+  CBM2 = 0xf2,
+  CBMI = 0xfa,
 };
 
 enum class ReadoutType {
   TTLMonitor,
   CAEN,
   VMM3,
-  DREAM,
-  MAGIC,
+  CDT,
+  BM0,
+  BM2,
+  BMI,
 };
 
 RL_API DetectorType detectorType_from_int(int);

@@ -1,6 +1,8 @@
 #ifndef READOUT_WRAPPER
 #define READOUT_WRAPPER
 
+#include "Readout_structs.h"
+
 #ifdef WIN32
 // Export symbols if compile flags "READOUT_SHARED" and "READOUT_EXPORT" are set on Windows.
     #ifdef READOUT_SHARED
@@ -20,41 +22,7 @@
 
 #ifdef __cplusplus
 extern "C" {
-#include <cstdint>
 #endif
-struct CAEN_readout {
-  uint8_t channel;
-  uint16_t a;
-  uint16_t b;
-  uint16_t c;
-  uint16_t d;
-};
-
-struct TTLMonitor_readout {
-  uint8_t channel;
-  uint8_t pos;
-  uint16_t adc;
-};
-
-struct DREAM_readout {
-  uint8_t om;
-  uint8_t cathode;
-  uint8_t anode;
-};
-
-struct VMM3_readout {
-  uint16_t bc;
-  uint16_t otadc;
-  uint8_t geo;
-  uint8_t tdc;
-  uint8_t vmm;
-  uint8_t channel;
-};
-
-typedef struct CAEN_readout CAEN_readout_t;
-typedef struct TTLMonitor_readout TTLMonitor_readout_t;
-typedef struct DREAM_readout DREAM_readout_t;
-typedef struct VMM3_readout VMM3_readout_t;
 
 struct readout;
 typedef struct readout readout_t;

@@ -117,7 +117,7 @@ public:
     if (readout != ReadoutType::DREAM) { throw std::runtime_error("Non VMM3 readout type"); }
     if (index >= size()) { throw std::runtime_error("Out of bounds event requested"); }
     if (index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
-    std::vector<DREAM_event> event(count);
+    std::vector<CDT_event> event(count);
     dataset->select({index}, {count}).read_raw(event.data(), datatype.value());
     return event;
   }
