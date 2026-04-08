@@ -14,7 +14,10 @@ size_t element_size(ReadoutType type){
     case ReadoutType::CAEN: return sizeof(CAEN_event);
     case ReadoutType::TTLMonitor: return sizeof(TTLMonitor_event);
     case ReadoutType::VMM3: return sizeof(VMM3_event);
-    case ReadoutType::DREAM: return sizeof(CDT_event);
+    case ReadoutType::CDT: return sizeof(CDT_event);
+    case ReadoutType::BM0: return sizeof(BM0_event);
+    case ReadoutType::BM2: return sizeof(BM2_event);
+    case ReadoutType::BMI: return sizeof(BMI_event);
     default: throw std::runtime_error("Readout type not implemented");
   }
 }
@@ -37,8 +40,20 @@ void load_replay_VMM3(const Reader & reader, Readout & readout, size_t first, si
   auto data = reader.get_VMM3(first, number);
   for (auto i: indexes) data[i].add(readout);
 }
-void load_replay_DREAM(const Reader & reader, Readout & readout, size_t first, size_t number, const std::vector<size_t> & indexes){
-  auto data = reader.get_DREAM(first, number);
+void load_replay_CDT(const Reader & reader, Readout & readout, size_t first, size_t number, const std::vector<size_t> & indexes){
+  auto data = reader.get_CDT(first, number);
+  for (auto i: indexes) data[i].add(readout);
+}
+void load_replay_BM0(const Reader & reader, Readout & readout, size_t first, size_t number, const std::vector<size_t> & indexes){
+  auto data = reader.get_BM0(first, number);
+  for (auto i: indexes) data[i].add(readout);
+}
+void load_replay_BM2(const Reader & reader, Readout & readout, size_t first, size_t number, const std::vector<size_t> & indexes){
+  auto data = reader.get_BM2(first, number);
+  for (auto i: indexes) data[i].add(readout);
+}
+void load_replay_BMI(const Reader & reader, Readout & readout, size_t first, size_t number, const std::vector<size_t> & indexes){
+  auto data = reader.get_BMI(first, number);
   for (auto i: indexes) data[i].add(readout);
 }
 
@@ -54,7 +69,10 @@ void load_replay(const Reader & reader, Readout & readout, size_t first, size_t 
     case ReadoutType::CAEN: return load_replay_CAEN(reader, readout, first, number, indexes);
     case ReadoutType::TTLMonitor: return load_replay_TTLMonitor(reader, readout, first, number, indexes);
     case ReadoutType::VMM3: return load_replay_VMM3(reader, readout, first, number, indexes);
-    case ReadoutType::DREAM: return load_replay_DREAM(reader, readout, first, number, indexes);
+    case ReadoutType::CDT: return load_replay_CDT(reader, readout, first, number, indexes);
+    case ReadoutType::BM0: return load_replay_BM0(reader, readout, first, number, indexes);
+    case ReadoutType::BM2: return load_replay_BM2(reader, readout, first, number, indexes);
+    case ReadoutType::BMI: return load_replay_BMI(reader, readout, first, number, indexes);
     default: throw std::runtime_error("Readout type not implemented");
   }
 }
@@ -68,8 +86,17 @@ void chunk_replay_TTLMonitor(const Reader & reader, Readout & readout, const std
 void chunk_replay_VMM3(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
   for (auto i: indexes) reader.get_VMM3(i, 1).front().add(readout);
 }
-void chunk_replay_DREAM(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
-  for (auto i: indexes) reader.get_DREAM(i, 1).front().add(readout);
+void chunk_replay_CDT(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
+  for (auto i: indexes) reader.get_CDT(i, 1).front().add(readout);
+}
+void chunk_replay_BM0(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
+  for (auto i: indexes) reader.get_BM0(i, 1).front().add(readout);
+}
+void chunk_replay_BM2(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
+  for (auto i: indexes) reader.get_BM2(i, 1).front().add(readout);
+}
+void chunk_replay_BMI(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
+  for (auto i: indexes) reader.get_BMI(i, 1).front().add(readout);
 }
 
 void chunk_replay(const Reader & reader, Readout & readout, size_t first, size_t number, size_t every, int control){
@@ -84,7 +111,10 @@ void chunk_replay(const Reader & reader, Readout & readout, size_t first, size_t
     case ReadoutType::CAEN: return chunk_replay_CAEN(reader, readout, indexes);
     case ReadoutType::TTLMonitor: return chunk_replay_TTLMonitor(reader, readout, indexes);
     case ReadoutType::VMM3: return chunk_replay_VMM3(reader, readout, indexes);
-    case ReadoutType::DREAM: return chunk_replay_DREAM(reader, readout, indexes);
+    case ReadoutType::CDT: return chunk_replay_CDT(reader, readout, indexes);
+    case ReadoutType::BM0: return chunk_replay_BM0(reader, readout, indexes);
+    case ReadoutType::BM2: return chunk_replay_BM2(reader, readout, indexes);
+    case ReadoutType::BMI: return chunk_replay_BMI(reader, readout, indexes);
     default: throw std::runtime_error("Readout type not implemented");
   }
 }

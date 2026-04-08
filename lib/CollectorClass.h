@@ -12,6 +12,7 @@
 #include <optional>
 #include <random>
 #include <map>
+#include <set>
 
 #include "Structs.h"
 #include "Readout.h"
@@ -38,170 +39,107 @@
 #define RL_API
 #endif
 
+/// \brief Validate that a given file is a valid collector file, and return the number of scan points it contains (0 if it's not a point-based collector)
+///
+/// \returns the number of scan points in the file, or -1 if the file is not a valid collector file
+int validate_collector_file(const std::string & filename);
+int validate_collector_file_impl(HighFive::File & file, const std::string & filename);
 
-class Collector {
+bool validate_collector_files(
+  const std::vector<std::string> & in_filenames, int point, int points,
+  std::set<std::string> & datasets,
+  std::map<std::string, size_t> & sizes,
+  std::set<std::string> & valid_files,
+  std::string & collector_name,
+  std::set<std::string> & parameters
+  );
+void merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, int point, int points);
+HighFive::CompoundType hdf_compound_type(ReadoutType readout);
+RL_API void ensure_file_data_type(HighFive::File file, const std::string & type_name, const HighFive::CompoundType & hc_type);
+
+// A singleton object to hold the current runtime's output file for the collector
+class CollectorSink {
+protected:
+  CollectorSink() = default;
+
+  std::set<std::string> users_;
+  std::optional<std::string> filename_{std::nullopt};
+  std::optional<HighFive::File> file_{std::nullopt};
+  std::optional<HighFive::Group> collector_, parameters_{std::nullopt};
+
+  static CollectorSink * instance_;
+
 public:
-  using key_t = std::pair<uint8_t, uint8_t>; // Ring, FEN
+  CollectorSink(CollectorSink &other) = delete;
+  void operator=(const CollectorSink &) = delete;
+  static CollectorSink * instance();
+  static void destroy();
 
-  RL_API static std::string key_dataset_name(const key_t& key, const int num_digits_ring, const int num_digits_fen) {
-    std::stringstream ss;
-    ss << "ring_" << std::setfill('0') << std::setw(num_digits_ring) << static_cast<int>(key.first)
-       << "_fen_" << std::setfill('0') << std::setw(num_digits_fen) << static_cast<int>(key.second);
-    return ss.str();
-  }
-private:
-  std::string filename;
-  std::optional<HighFive::File> file;
-  std::optional<HighFive::Group> group;
-  std::optional<HighFive::DataSet> dataset;
-  std::optional<HighFive::Group> parameters;
-  std::map<key_t, HighFive::DataSet> datasets;
-  std::map<key_t, double> weights;
-  std::optional<HighFive::DataType> datatype;
-  DetectorType detector{DetectorType::Reserved};
-  ReadoutType readout{ReadoutType::CAEN};
+  bool is_setup() const { return filename_.has_value(); }
 
-public:
-  RL_API explicit Collector(
-    std::string filename,
-    const int scan_point=0,
-    const int total_points=0,
-    const int rings=0,
-    const int fens=0,
-    std::optional<std::string> dataset_name = std::nullopt,
-    const int Type=0x34
-  ): filename{std::move(filename)}, detector{detectorType_from_int(Type)}, readout{readoutType_from_detectorType(detector)} {
+  void setup(const std::string& filename, const int point, const int points) {
+    filename_ = filename;
     try {
-      file = HighFive::File(filename, HighFive::File::OpenOrCreate);
+      file_ = HighFive::File(filename, HighFive::File::OpenOrCreate);
     } catch (HighFive::Exception & ex) {
       std::cout << "Error opening file " << filename << " for writing:\n" << ex.what();
-      file = std::nullopt;
-      return;
+      throw;
     }
-    // we want to output an events list which can grow forever
-    auto dataspace = HighFive::DataSpace({0}, {HighFive::DataSpace::UNLIMITED});
-    // but should chunk file operations to avoid too much disk IO?
-    HighFive::DataSetCreateProps props;
-    props.add(HighFive::Chunking(std::vector<hsize_t>{100}));
-
-    // Assign useful information as attributes:
-    /* FIXME C++20 has char8_t but C++17 does not, so these strings _might_ already be chars
-     *       instead of unsigned chars. If that's the case this lambda is a non-op.
-     */
+    if (points == 0) {
+      collector_ = file_->getGroup("/");
+    } else {
+      std::stringstream ss;
+      const auto num_digits = static_cast<int>(std::to_string(points).length());
+      ss << "point_" << std::setfill('0') << std::setw(num_digits) << point;
+      collector_ = file_->createGroup(ss.str());
+      collector_->createAttribute("collector_type", "point");
+      collector_->createAttribute<int>("scan_point", point);
+    }
     auto u8str = [](const auto * p){return std::string(reinterpret_cast<const char *>(p));};
 
-    auto hc_type = hdf_compound_type();
-    try {
-      if (auto existing_type = file->getDataType(readoutType_name(readout)); existing_type != hc_type) {
-        std::cout << "Warning: file already has a type for " << readoutType_name(readout) << " which does not match the expected structure. This may cause problems when writing events.\n";
+    file_->createAttribute<std::string>("program", "libreadout");
+    file_->createAttribute<std::string>("version", u8str(libreadout::version::version_number));
+    file_->createAttribute<std::string>("revision", u8str(libreadout::version::git_revision));
+    file_->createAttribute<int>("points", points);
+  }
+
+  void teardown() {
+    if (users_.empty()) {
+      if (file_.has_value()) {
+        file_->flush();
+        file_ = std::nullopt;
       }
-    } catch (HighFive::Exception & ex) {
-      std::cout << "No existing type for " << readoutType_name(readout) << " found in file, committing new type.\n";
-      hc_type.commit(file.value(), readoutType_name(readout));
-      file->createAttribute<std::string>("program", "libreadout");
-      file->createAttribute<std::string>("version", u8str(libreadout::version::version_number));
-      file->createAttribute<std::string>("revision", u8str(libreadout::version::git_revision));
-      file->createAttribute<int>("total_points", total_points);
-    }
-    // build and create a group
-    if (total_points > 0) {
-      std::stringstream ss;
-      auto num_digits = static_cast<int>(std::to_string(total_points).length());
-      ss << "point_" << std::setfill('0') << std::setw(num_digits) << scan_point;
-      group = file.value().createGroup(ss.str());
-      group->createAttribute<int>("scan_point", scan_point);
-    } else {
-      group = file.value().getGroup("/");
-    }
-
-    group->createAttribute<int>("rings", rings);
-    group->createAttribute<int>("fens", fens);
-
-    dataset_name = dataset_name.value_or("events");
-
-    if (rings > 0 && fens > 0) {
-      auto num_digits_ring = static_cast<int>(std::to_string(rings).length());
-      auto num_digits_fen = static_cast<int>(std::to_string(fens).length());
-
-      auto events_group = group->createGroup(dataset_name.value());
-
-      for (int ring=0; ring < rings; ++ring) {
-        for (int fen=0; fen < fens; ++fen) {
-          key_t key{static_cast<uint8_t>(ring), static_cast<uint8_t>(fen)};
-          auto ds_name = key_dataset_name(key, num_digits_ring, num_digits_fen);
-          datasets[key] = events_group.createDataSet(ds_name, dataspace, hc_type, props);
-          datasets[key].createAttribute("detector", detectorType_name(detector));
-          datasets[key].createAttribute("readout", readoutType_name(readout));
-          datasets[key].createAttribute<int>("ring", ring);
-          datasets[key].createAttribute<int>("fen", fen);
-          if (total_points > 0) {
-            datasets[key].createAttribute<int>("scan_point", scan_point);
-          }
-          weights[key] = 0.0; // initialize weight for this dataset
-        }
-      }
-    } else {
-      dataset = group.value().createDataSet(dataset_name.value(), dataspace, hc_type, props);
-      dataset->createAttribute("detector", detectorType_name(detector));
-      dataset->createAttribute("readout", readoutType_name(readout));
-      if (total_points > 0) {
-        dataset->createAttribute<int>("scan_point", scan_point);
-      }
-      weights[key_t{0, 0}] = 0.0; // initialize weight for single dataset
+      filename_ = std::nullopt;
+      collector_ = std::nullopt;
+      parameters_ = std::nullopt;
     }
   }
 
-  // Add a readout with time and weight information to the writer's storage
-  RL_API void addReadout(uint8_t Ring, uint8_t FEN, const double tof, const double weight, const void * data) {
-    const key_t key{Ring, FEN};
-    if (weights.contains(key)) {
-      weights[key] += weight; // accumulate weight for this dataset
-    } else {
-      weights[key_t{0, 0}] += weight; // no separate datasets, accumulate in default
+  RL_API std::optional<HighFive::DataSet> addCollector(
+    const std::string& name,
+    const HighFive::DataSpace& dataspace,
+    const HighFive::DataType& datatype,
+    const HighFive::DataSetCreateProps& props = HighFive::DataSetCreateProps()
+    ) {
+    using namespace HighFive;
+    if (!file_.has_value()) {
+      std::cerr << "File not initialized, cannot add dataset!" << std::endl;
+      return std::nullopt;
     }
-    switch (readout) {
-      case ReadoutType::CAEN: {
-        const CAEN_event event{Ring, FEN, tof, weight, static_cast<const CAEN_readout_t*>(data)};
-        return saveReadout(key, event);
-      }
-      case ReadoutType::TTLMonitor: {
-        const TTLMonitor_event event{Ring, FEN, tof, weight, static_cast<const TTLMonitor_readout_t*>(data)};
-        return saveReadout(key, event);
-      }
-      case ReadoutType::CDT: {
-        const CDT_event event{Ring, FEN, tof, weight, static_cast<const CDT_readout_t*>(data)};
-        return saveReadout(key, event);
-      }
-      case ReadoutType::VMM3: {
-        const VMM3_event event{Ring, FEN, tof, weight, static_cast<const VMM3_readout_t*>(data)};
-        return saveReadout(key, event);
-      }
-      case ReadoutType::BM0: {
-        const BM0_event event{Ring, FEN, tof, weight, static_cast<const BM0_readout_t*>(data)};
-        return saveReadout(key, event);
-      }
-      case ReadoutType::BM2: {
-        const BM2_event event{Ring, FEN, tof, weight, static_cast<const BM2_readout_t*>(data)};
-        return saveReadout(key, event);
-      }
-      case ReadoutType::BMI: {
-        const BMI_event event{Ring, FEN, tof, weight, static_cast<const BMI_readout_t*>(data)};
-        return saveReadout(key, event);
-      }
-      default:
-        throw std::runtime_error("Saving this readout type is not implemented yet!");
+    if (!collector_.has_value()) {
+      collector_ = file_->getGroup("/");
     }
+    if (collector_->exist(name)) {
+      std::cerr << "Dataset " << name << " already exists!" << std::endl;
+      return collector_->getDataSet(name);
+    }
+    auto ds = collector_->createDataSet(name, dataspace, datatype, props);
+    users_.insert(name);
+    return ds;
   }
 
-  ~Collector() {
-    // add any weights as attributes to the datasets before closing the file
-    if (datasets.size() > 0) {
-      for (auto& [key, ds] : datasets) {
-        ds.createAttribute<double>("total_weight", weights[key]);
-      }
-    } else if (dataset.has_value()) {
-      dataset->createAttribute<double>("total_weight", weights[key_t{0, 0}]);
-    }
+  RL_API [[nodiscard]] auto removeCollector(const std::string& name) {
+    return users_.erase(name);
   }
 
   template<class T>
@@ -212,63 +150,151 @@ public:
     const std::optional<std::string> & description = std::nullopt
     ) {
     using namespace HighFive;
-    if (!file.has_value()) {
+    if (!file_.has_value()) {
       std::cerr << "File not initialized, cannot add parameter!" << std::endl;
       return;
     }
-    if (!parameters.has_value()) {
-      parameters = group->createGroup("parameters");
+    if (!parameters_.has_value()) {
+      parameters_ = collector_->createGroup("parameters");
     }
-    auto ds = parameters->createDataSet(name, DataSpace(1), create_datatype<T>());
-    ds.write(value);
-    if (unit.has_value()) {
-      ds.createAttribute("unit", unit.value());
-    }
-    if (description.has_value()) {
-      ds.createAttribute("description", description.value());
+    if (!parameters_->exist(name)) {
+      auto ds = parameters_->createDataSet(name, DataSpace(1), create_datatype<T>());
+      ds.write(value);
+      if (unit.has_value()) {
+        ds.createAttribute("unit", unit.value());
+      }
+      if (description.has_value()) {
+        ds.createAttribute("description", description.value());
+      }
+    } else {
+      // verify that the existing dataset matches the new value's type
+      auto existing_ds = parameters_->getDataSet(name);
+      if (existing_ds.getDataType() != create_datatype<T>()) {
+        std::cerr << "Parameter " << name << " already exists with a different type!" << std::endl;
+      }
+      if (unit.has_value() && !existing_ds.hasAttribute("unit") && existing_ds.getAttribute("unit").read<std::string>() != unit.value()) {
+        std::cerr << "Parameter " << name << " already exists with a different unit!" << std::endl;
+      }
+      if (description.has_value() && !existing_ds.hasAttribute("description") && existing_ds.getAttribute("description").read<std::string>() != description.value()) {
+        std::cerr << "Parameter " << name << " already exists with a different description!" << std::endl;
+      }
+      if (existing_ds.read<T>() != value) {
+        std::cerr << "Parameter " << name << " already exists with a different value! Overwriting." << std::endl;
+        existing_ds.write(value);
+      }
     }
   }
 
-  static void merge_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, int scan_point, int total_points) {
-    // This function would implement merging of multiple files into one, handling the combination of datasets and attributes appropriately.
-    // The implementation would depend on the specific requirements for merging (e.g., how to handle overlapping datasets, how to combine weights, etc.).
-    // For now, we can just print a message indicating that this function is a placeholder.
-    std::cout << "Merging files into " << out_filename << " with scan point " << scan_point << " and total points " << total_points << ".\n";
-    // Actual merging logic would go here.
+  void ensure_data_type(const std::string & type_name, const HighFive::CompoundType & hc_type) const {
+    if (!file_.has_value()) {
+      std::cerr << "File not initialized, cannot ensure data type!" << std::endl;
+      return;
+    }
+    ensure_file_data_type(file_.value(), type_name, hc_type);
+  }
+};
+
+
+class Collector {
+  std::string name_;
+  std::optional<HighFive::DataSet> dataset_;
+  double weight_{0};
+  DetectorType detector_{DetectorType::Reserved};
+  ReadoutType readout_{ReadoutType::CAEN};
+
+public:
+  RL_API explicit Collector(
+    const std::string &filename,
+    const std::string &name,
+    const int scan_point=0,
+    const int total_points=0,
+    const int Type=0x34
+  ): name_{name}, detector_{detectorType_from_int(Type)}, readout_{readoutType_from_detectorType(detector_)} {
+    const auto sink = CollectorSink::instance();
+    if (!sink->is_setup()) {
+      sink->setup(filename, scan_point, total_points);
+    }
+    // we want to output an events list which can grow forever
+    const auto dataspace = HighFive::DataSpace({0}, {HighFive::DataSpace::UNLIMITED});
+    // but should chunk file operations to avoid too much disk IO?
+    HighFive::DataSetCreateProps props;
+    props.add(HighFive::Chunking(std::vector<hsize_t>{100}));
+
+    const auto compound_type = hdf_compound_type(readout_);
+    sink->ensure_data_type(readoutType_name(readout_), compound_type);
+    dataset_ = sink->addCollector(name_, dataspace, compound_type, props);
+    dataset_->createAttribute("detector", detectorType_name(detector_));
+    dataset_->createAttribute("readout", readoutType_name(readout_));
+  }
+
+  // Add a readout with time and weight information to the writer's storage
+  RL_API void addReadout(uint8_t Ring, uint8_t FEN, const double tof, const double weight, const void * data) {
+    weight_ += weight;
+    switch (readout_) {
+      case ReadoutType::CAEN: {
+        const CAEN_event event{Ring, FEN, tof, weight, static_cast<const CAEN_readout_t*>(data)};
+        return saveReadout(event);
+      }
+      case ReadoutType::TTLMonitor: {
+        const TTLMonitor_event event{Ring, FEN, tof, weight, static_cast<const TTLMonitor_readout_t*>(data)};
+        return saveReadout(event);
+      }
+      case ReadoutType::CDT: {
+        const CDT_event event{Ring, FEN, tof, weight, static_cast<const CDT_readout_t*>(data)};
+        return saveReadout(event);
+      }
+      case ReadoutType::VMM3: {
+        const VMM3_event event{Ring, FEN, tof, weight, static_cast<const VMM3_readout_t*>(data)};
+        return saveReadout(event);
+      }
+      case ReadoutType::BM0: {
+        const BM0_event event{Ring, FEN, tof, weight, static_cast<const BM0_readout_t*>(data)};
+        return saveReadout(event);
+      }
+      case ReadoutType::BM2: {
+        const BM2_event event{Ring, FEN, tof, weight, static_cast<const BM2_readout_t*>(data)};
+        return saveReadout(event);
+      }
+      case ReadoutType::BMI: {
+        const BMI_event event{Ring, FEN, tof, weight, static_cast<const BMI_readout_t*>(data)};
+        return saveReadout(event);
+      }
+      default:
+        throw std::runtime_error("Saving this readout type is not implemented yet!");
+    }
+  }
+
+  template<class ... Args> void addParameter(Args && ... args) {
+    CollectorSink::instance()->addParameter(std::forward<Args>(args)...);
+  }
+
+  ~Collector() {
+    // add any weights as attributes to the datasets before closing the file
+    if (dataset_.has_value()) {
+      dataset_->createAttribute<double>("total_weight", weight_);
+    }
+    const auto sink = CollectorSink::instance();
+    if (const auto count = sink->removeCollector(name_); count != 1) {
+      std::cerr << "Warning: removed collector " << name_ << " from sink " << count << " times, but expected to remove exactly one." << std::endl;
+    }
+    // try closing the sink file (internally it checks if any collectors are still using it):
+    sink->teardown();
   }
 
 private:
   template<class T>
-  void saveReadout(const key_t key, T data) {
-    auto & ds = dataset;
-    if (datasets.contains(key)) {
-      ds = datasets[key];
-    }
-    if (!ds.has_value()) {
+  void saveReadout(T data) {
+    if (!dataset_.has_value()) {
       std::cerr << "Dataset not initialized, cannot save readout!" << std::endl;
       return;
     }
-    auto & d = ds.value();
+    auto & d = dataset_.value();
     // the dataset should be 1-D ... hopefully that's true
     auto pos = d.getDimensions().back();
     auto size = pos + 1;
     d.resize({size});
-    d.select({pos}, {1}).write(data); // select(offset, count)
-
+    d.select({pos}, {1}).write(data
+      ); // select(offset, count)
   }
-
-  HighFive::CompoundType hdf_compound_type() const {
-    using namespace HighFive;
-    switch (readout){
-      case ReadoutType::CAEN: return create_datatype<CAEN_event>();
-      case ReadoutType::TTLMonitor: return create_datatype<TTLMonitor_event>();
-      case ReadoutType::CDT: return create_datatype<CDT_event>();
-      case ReadoutType::VMM3: return create_datatype<VMM3_event>();
-      case ReadoutType::BM0: return create_datatype<BM0_event>();
-      case ReadoutType::BM2: return create_datatype<BM2_event>();
-      case ReadoutType::BMI: return create_datatype<BMI_event>();
-      default: throw std::runtime_error("Saving this readout type is not implemented yet!");
-    }
-  }
-
 };
+

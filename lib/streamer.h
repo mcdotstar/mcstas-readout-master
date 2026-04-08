@@ -69,10 +69,25 @@ public:
     const auto samples = static_cast<size_t>(weight * fraction);
     return sampler_t<VMM3_event>(samples, seed);
   }
-  RL_API sampler_t<CDT_event> get_DREAM_sampler(const double fraction, const uint32_t seed) const {
-    if (readout_ != ReadoutType::DREAM) { throw std::runtime_error("Non DREAM readout type"); }
+  RL_API sampler_t<CDT_event> get_CDT_sampler(const double fraction, const uint32_t seed) const {
+    if (readout_ != ReadoutType::CDT) { throw std::runtime_error("Non CDT readout type"); }
     const auto samples = static_cast<size_t>(weight * fraction);
     return sampler_t<CDT_event>(samples, seed);
+  }
+  RL_API sampler_t<BM0_event> get_BM0_sampler(const double fraction, const uint32_t seed) const {
+    if (readout_ != ReadoutType::BM0) { throw std::runtime_error("Non BM0 readout type"); }
+    const auto samples = static_cast<size_t>(weight * fraction);
+    return sampler_t<BM0_event>(samples, seed);
+  }
+  RL_API sampler_t<BM2_event> get_BM2_sampler(const double fraction, const uint32_t seed) const {
+    if (readout_ != ReadoutType::BM2) { throw std::runtime_error("Non BM2 readout type"); }
+    const auto samples = static_cast<size_t>(weight * fraction);
+    return sampler_t<BM2_event>(samples, seed);
+  }
+  RL_API sampler_t<BMI_event> get_BMI_sampler(const double fraction, const uint32_t seed) const {
+    if (readout_ != ReadoutType::BMI) { throw std::runtime_error("Non BMI readout type"); }
+    const auto samples = static_cast<size_t>(weight * fraction);
+    return sampler_t<BMI_event>(samples, seed);
   }
 
   RL_API [[nodiscard]] size_t size() const {
@@ -114,8 +129,20 @@ public:
         for (const auto & sample : get_samples(get_VMM3_sampler(fraction, seed), chunk_size)) sample.add(sender);
         break;
       }
-      case ReadoutType::DREAM: {
-        for (const auto & sample : get_samples( get_DREAM_sampler(fraction, seed), chunk_size)) sample.add(sender);
+      case ReadoutType::CDT: {
+        for (const auto & sample : get_samples( get_CDT_sampler(fraction, seed), chunk_size)) sample.add(sender);
+        break;
+      }
+      case ReadoutType::BM0: {
+        for (const auto & sample : get_samples(get_BM0_sampler(fraction, seed), chunk_size)) sample.add(sender);
+        break;
+      }
+      case ReadoutType::BM2: {
+        for (const auto & sample : get_samples(get_BM2_sampler(fraction, seed), chunk_size)) sample.add(sender);
+        break;
+      }
+      case ReadoutType::BMI: {
+        for (const auto & sample : get_samples(get_BMI_sampler(fraction, seed), chunk_size)) sample.add(sender);
         break;
       }
       default: throw std::runtime_error("This readout type not implemented yet!");
@@ -133,7 +160,7 @@ public:
 class Streamer{
   std::string filename;
   std::optional<HighFive::File> file;
-  std::vector<HighFive::Group> points;
+  std::vector<HighFive::Group> collectors;
   std::optional<HighFive::Group> parameters;
   std::optional<HighFive::DataType> datatype;
   std::set<std::string> keys;
@@ -150,11 +177,12 @@ public:
       std::cout << "Error opening file " << filename << ":\n" << ex.what();
       file = std::nullopt;
       return;
-    }    
-    std::string program;
-    if (file->hasAttribute("program")) file->getAttribute("program").read(program);
-    if (program != "libreadout") {
-      throw std::runtime_error("The provided HDF file was not produced using libreadout");
+    }
+    const auto total_points = validate_collector_file_impl(file.value(), filename);
+    if (total_points < 0) {
+      std::cout << "File " << filename << " is not a valid collector file.\n";
+      file = std::nullopt;
+      return;
     }
     const auto version = file->getAttribute("version").read<std::string>();
     const auto this_version = std::string(reinterpret_cast<const char *>(libreadout::version::version_number));
@@ -163,60 +191,39 @@ public:
       std::cout << " not current " << this_version << std::endl;
     }
 
-    if (!file->hasAttribute("total_points")) {
-      std::stringstream s;
-      s << "libreadout " << this_version << " expects a file attribute, \"total_points\", which is not present";
-      throw std::runtime_error(s.str());
-    }
-    const auto total_points = file->getAttribute("total_points").read<int>();
-
     const auto root = file->getGroup("/");
     if (total_points == 0) {
-      points.push_back(root);
+      collectors.push_back(root);
     } else {
-      points.reserve(total_points);
+      collectors.reserve(total_points);
       for (size_t i=0; i < root.getNumberObjects(); ++i) {
         if (auto name = root.getObjectName(i); root.getObjectType(name) == HighFive::ObjectType::Group) {
           if (auto group = root.getGroup(name); group.hasAttribute("scan_point")) {
-            points.push_back(group);
+            collectors.push_back(group);
           }
         }
       }
-      std::ranges::sort(points, [](const HighFive::Group & a, const HighFive::Group & b){
+      std::ranges::sort(collectors, [](const HighFive::Group & a, const HighFive::Group & b){
         const int sa = a.getAttribute("scan_point").read<int>();
         const int sb = b.getAttribute("scan_point").read<int>();
         return sa < sb;
       });
     }
     auto get_keys = [](const HighFive::Group & group) {
-      std::set<std::string> keys;
-      if (group.hasAttribute("rings") && group.hasAttribute("fens")) {
-        const auto rings = group.getAttribute("rings").read<int>();
-        const auto fens = group.getAttribute("fens").read<int>();
-        const auto num_digits_ring = static_cast<int>(std::to_string(rings).length());
-        const auto num_digits_fen = static_cast<int>(std::to_string(fens).length());
-        for (int ring=0; ring < rings; ++ring) {
-          for (int fen=0; fen < fens; ++fen) {
-            Collector::key_t key{static_cast<uint8_t>(ring), static_cast<uint8_t>(fen)};
-            auto ds_name = Collector::key_dataset_name(key, num_digits_ring, num_digits_fen);
-            try {
-              if (auto ds = group.getDataSet(ds_name); ds.hasAttribute("ring") && ds.hasAttribute("fen")) {
-                if (ds.getAttribute("fen").read<int>() == ring && ds.getAttribute("fen").read<int>() == fen) {
-                  keys.insert(ds_name);
-                }
-              }
-            } catch (HighFive::Exception & ex) {
-              std::cout << "Dataset " << ds_name << " not found in group " << group.getPath() << ":\n" << ex.what() << std::endl;
-            }
+      std::set<std::string> the_keys;
+      for (size_t i=0; i < group.getNumberObjects(); ++i) {
+        if (auto name = group.getObjectName(i); group.getObjectType(name) == HighFive::ObjectType::Dataset) {
+          if (auto ds = group.getDataSet(name); ds.hasAttribute("detector") && ds.hasAttribute("readout")) {
+            the_keys.insert(name);
           }
         }
       }
-      return keys;
+      return the_keys;
     };
     // The rings and fens are supposed to be constant across points:
-    keys = get_keys(points.front());
+    keys = get_keys(collectors.front());
     // Verify that assumption by checking all points and warning if it is not true:
-    for (const auto & point : points) {
+    for (const auto & point : collectors) {
       if (get_keys(point) != keys) {
         std::cout << "Warning: rings and fens are not consistent across scan points, this may cause problems when streaming events.\n";
         break;
@@ -229,19 +236,19 @@ public:
     std::map<std::pair<DetectorType, ReadoutType>, Sender> senders;
     for (const auto & key: keys) {
       try {
-        SubStreamer sub(points.front().getDataSet(key));
+        SubStreamer sub(collectors.front().getDataSet(key));
         auto key_tuple = std::make_pair(sub.detector(), sub.readout());
         if (!senders.contains(key_tuple)) {
           senders[key_tuple] = Sender(sub.detector(), sub.readout());
         }
       } catch (HighFive::Exception & ex) {
-        std::cout << "Dataset for key " << key << " not found in group " << points.front().getPath() << ":\n" << ex.what() << std::endl;
+        std::cout << "Dataset for key " << key << " not found in group " << collectors.front().getPath() << ":\n" << ex.what() << std::endl;
       } catch (std::exception & ex) {
-        std::cout << "Error initializing sender for key " << key << " in group " << points.front().getPath() << ":\n" << ex.what() << std::endl;
+        std::cout << "Error initializing sender for key " << key << " in group " << collectors.front().getPath() << ":\n" << ex.what() << std::endl;
       }
     }
 
-    for (const auto & point : points) {
+    for (const auto & point : collectors) {
       send(senders, point, fraction, seed);
     }
   }

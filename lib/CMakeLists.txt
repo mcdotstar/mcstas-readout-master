@@ -7,6 +7,7 @@ list(APPEND LIB_SOURCES
         replay.cpp
         collector.cpp
         Sender.cpp
+        CollectorClass.cpp
 )
 
 foreach(LIB_SOURCE IN LISTS LIB_SOURCES)

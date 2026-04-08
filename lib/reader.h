@@ -113,11 +113,35 @@ public:
     dataset->select({index}, {count}).read_raw(event.data(), datatype.value());
     return event;
   }
-  RL_API auto get_DREAM(size_t index, size_t count) const{
-    if (readout != ReadoutType::DREAM) { throw std::runtime_error("Non VMM3 readout type"); }
+  RL_API auto get_CDT(size_t index, size_t count) const{
+    if (readout != ReadoutType::CDT) { throw std::runtime_error("Non CDT readout type"); }
     if (index >= size()) { throw std::runtime_error("Out of bounds event requested"); }
     if (index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
     std::vector<CDT_event> event(count);
+    dataset->select({index}, {count}).read_raw(event.data(), datatype.value());
+    return event;
+  }
+  RL_API auto get_BM0(size_t index, size_t count) const{
+    if (readout != ReadoutType::BM0) { throw std::runtime_error("Non BM0 readout type"); }
+    if (index >= size()) { throw std::runtime_error("Out of bounds event requested"); }
+    if (index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
+    std::vector<BM0_event> event(count);
+    dataset->select({index}, {count}).read_raw(event.data(), datatype.value());
+    return event;
+  }
+  RL_API auto get_BM2(size_t index, size_t count) const{
+    if (readout != ReadoutType::BM2) { throw std::runtime_error("Non BM2 readout type"); }
+    if (index >= size()) { throw std::runtime_error("Out of bounds event requested"); }
+    if (index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
+    std::vector<BM2_event> event(count);
+    dataset->select({index}, {count}).read_raw(event.data(), datatype.value());
+    return event;
+  }
+  RL_API auto get_BMI(size_t index, size_t count) const {
+    if (readout != ReadoutType::BMI) { throw std::runtime_error("Non BMI readout type"); }
+    if (index >= size()) { throw std::runtime_error("Out of bounds event requested"); }
+    if (index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
+    std::vector<BMI_event> event(count);
     dataset->select({index}, {count}).read_raw(event.data(), datatype.value());
     return event;
   }
