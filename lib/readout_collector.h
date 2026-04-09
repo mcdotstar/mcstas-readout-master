@@ -1,7 +1,7 @@
 #ifndef COLLECTOR_WRAPPER
 #define COLLECTOR_WRAPPER
 
-#include "Readout_structs.h"
+#include "readout_structs.h"
 
 #ifdef __cplusplus
 extern "C" {

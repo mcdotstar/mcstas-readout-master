@@ -11,7 +11,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include <collector.h>
+#include <readout_collector.h>
 
 void collector_error(char * named, char * variable);
 

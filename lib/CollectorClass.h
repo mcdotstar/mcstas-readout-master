@@ -8,6 +8,7 @@
 #pragma once
 
 #include <string>
+#include <iomanip>
 #include <utility>
 #include <optional>
 #include <random>

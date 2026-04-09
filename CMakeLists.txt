@@ -188,20 +188,23 @@ if (READOUT_DEVELOPMENT_MODE)
             "${CMAKE_CURRENT_SOURCE_DIR}/lib/Readout.h"
             "${CMAKE_BINARY_DIR}/include/Readout.h"
         COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/lib/collector.h"
-            "${CMAKE_BINARY_DIR}/include/collector.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_orig.h"
+            "${CMAKE_BINARY_DIR}/include/readout_orig.h"
         COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/lib/CollectorClass.h"
-            "${CMAKE_BINARY_DIR}/include/CollectorClass.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_collector.h"
+            "${CMAKE_BINARY_DIR}/include/readout_collector.h"
         COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/lib/Structs.h"
-            "${CMAKE_BINARY_DIR}/include/Structs.h"
-        COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/lib/enums.h"
-            "${CMAKE_BINARY_DIR}/include/enums.h"
-        COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/lib/Readout_structs.h"
-            "${CMAKE_BINARY_DIR}/include/Readout_structs.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_structs.h"
+            "${CMAKE_BINARY_DIR}/include/readout_structs.h"
+#        COMMAND ${CMAKE_COMMAND} -E copy
+#            "${CMAKE_CURRENT_SOURCE_DIR}/lib/CollectorClass.h"
+#            "${CMAKE_BINARY_DIR}/include/CollectorClass.h"
+#        COMMAND ${CMAKE_COMMAND} -E copy
+#            "${CMAKE_CURRENT_SOURCE_DIR}/lib/Structs.h"
+#            "${CMAKE_BINARY_DIR}/include/Structs.h"
+#        COMMAND ${CMAKE_COMMAND} -E copy
+#            "${CMAKE_CURRENT_SOURCE_DIR}/lib/enums.h"
+#            "${CMAKE_BINARY_DIR}/include/enums.h"
     )
     
     # Copy components to build directory (more reliable than symlink for directories)
@@ -238,3 +241,13 @@ configure_file("${PROJECT_SOURCE_DIR}/cmake/readout_config.h.in" "${CMAKE_BINARY
 # Copy the component file to the include directory too
 file(GLOB ALL_COMPONENTS "${CMAKE_CURRENT_SOURCE_DIR}/share/Readout/*.comp")
 install(FILES ${ALL_COMPONENTS} DESTINATION ${Readout_DATADIR})
+file(GLOB ALL_MCCODE_LIBS "${CMAKE_CURRENT_SOURCE_DIR}/share/Readout/lib-*")
+install(FILES ${ALL_MCCODE_LIBS} DESTINATION ${Readout_DATADIR})
+
+# Copy the separate headers
+install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_orig.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_collector.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_structs.h"
+        DESTINATION ${Readout_INCDIR}
+)

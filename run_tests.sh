@@ -119,7 +119,9 @@ fi
 
 trap 'if [ "$CLEANUP_LINK" = 1 ]; then rm -f "$READOUT_CONFIG_LINK"; fi' EXIT
 
-cd "$SCRIPT_DIR"
+# Run from a location without the source share underneath; otherwise mcstas-anltr will find
+# the in-source share/ directory in addition to the build share/ which prevents instrument construction
+cd "$BUILD_DIR"  
 bash "$TEST_SCRIPT"
 EXIT_CODE=$?
 

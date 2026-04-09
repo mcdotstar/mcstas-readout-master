@@ -1,11 +1,11 @@
 list(APPEND LIB_SOURCES
-        Readout.cpp
+        readout_orig.cpp
+        readout_collector.cpp
         Readout_merge.cpp
         ReadoutClass.cpp
         enums.cpp
         hdf_interface.cpp
         replay.cpp
-        collector.cpp
         Sender.cpp
         SenderConfigs.cpp
         CollectorClass.cpp
