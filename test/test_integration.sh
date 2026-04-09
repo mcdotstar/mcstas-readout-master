@@ -31,7 +31,6 @@ rm -f "${temp_file}"
 # And give it some content
 /bin/cat <<EOF > "$temp_file"
 DEFINE INSTRUMENT test_instrument(int dummy=0, scale/"m"=1, int point=0, int total_points=0, string filename="output")
-DEPENDENCY "${compileflags}"
 USERVARS
 %{
 int RING;
