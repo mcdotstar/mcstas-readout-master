@@ -149,5 +149,5 @@ public:
   RL_API auto all_CAEN() const {return get_CAEN(0, size());}
   RL_API auto all_TTLMonitor() const {return get_TTLMonitor(0, size());}
   RL_API auto all_VMM3() const {return get_VMM3(0, size());}
-  RL_API auto all_DREAM() const {return get_DREAM(0, size());}
+  RL_API auto all_DREAM() const {return get_CDT(0, size());}
 };

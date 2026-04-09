@@ -231,7 +231,11 @@ public:
     }
   }
 
-  void scan(const double fraction, const uint32_t seed) const {
+  void scan(const double, const uint32_t) const {
+    throw std::runtime_error("Streamer::scan requires SenderConfigs to initialize Sender endpoints");
+  }
+
+  void scan(const double fraction, const uint32_t seed, const SenderConfigs & sender_configs) const {
     // create a map of senders (typically only one, but maybe more if we've mixed readout types in the same file)
     std::map<std::pair<DetectorType, ReadoutType>, Sender> senders;
     for (const auto & key: keys) {
@@ -239,7 +243,11 @@ public:
         SubStreamer sub(collectors.front().getDataSet(key));
         auto key_tuple = std::make_pair(sub.detector(), sub.readout());
         if (!senders.contains(key_tuple)) {
-          senders[key_tuple] = Sender(sub.detector(), sub.readout());
+          senders.emplace(
+              std::piecewise_construct,
+              std::forward_as_tuple(key_tuple),
+              std::forward_as_tuple(sender_configs.at(sub.detector(), sub.readout()))
+          );
         }
       } catch (HighFive::Exception & ex) {
         std::cout << "Dataset for key " << key << " not found in group " << collectors.front().getPath() << ":\n" << ex.what() << std::endl;
@@ -254,15 +262,19 @@ public:
   }
 
   void send(std::map<std::pair<DetectorType, ReadoutType>, Sender>& senders, const HighFive::Group & point, const double fraction, const uint32_t seed) const {
+    auto do_send = [&](const std::string & key) {
+       try {
+         const SubStreamer sub(point.getDataSet(key));
+         sub.add_samples(senders.at({sub.detector(), sub.readout()}), fraction, seed);
+       } catch (HighFive::Exception & ex) {
+         std::cout << "Dataset for key " << key << " not found in group " << point.getPath() << ":\n" << ex.what() << std::endl;
+       } catch (std::exception & ex) {
+         std::cout << "Error sending events for key " << key << " in group " << point.getPath() << ":\n" << ex.what() << std::endl;
+       }
+    };
+    // TODO consider parallelizing this loop if there are many keys, but be careful about thread safety of the senders and the underlying sockets
     for (const auto & key : keys) {
-      try {
-        SubStreamer sub(point.getDataSet(key));
-        sub.add_samples(senders.at({sub.detector(), sub.readout()}), fraction, seed);
-      } catch (HighFive::Exception & ex) {
-        std::cout << "Dataset for key " << key << " not found in group " << point.getPath() << ":\n" << ex.what() << std::endl;
-      } catch (std::exception & ex) {
-        std::cout << "Error sending events for key " << key << " in group " << point.getPath() << ":\n" << ex.what() << std::endl;
-      }
+      do_send(key);
     }
   }
 

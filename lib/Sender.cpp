@@ -231,7 +231,7 @@ int Sender::send() {
 }
 
 
-int check_and_send_tcp(const std::string & addr, const uint16_t port, std::string && message, const int verbosity){
+static int check_and_send_tcp(const std::string & addr, const uint16_t port, std::string && message, const int verbosity){
   const cluon::TCPConnection connection(addr, port,
      [](std::string &&data, auto &&ts) noexcept {
        const auto timestamp(std::chrono::system_clock::to_time_t(ts));

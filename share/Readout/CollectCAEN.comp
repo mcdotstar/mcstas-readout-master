@@ -33,25 +33,7 @@ OUTPUT PARAMETERS ()
 DEPENDENCY "-Wl,-rpath,CMD(readout-config --show libdir) -LCMD(readout-config --show libdir) -lreadout -ICMD(readout-config --show includedir)"
 SHARE
 %{
-#include <signal.h>
-#include <unistd.h> // for execve
-#include <sys/time.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <collector.h>
-
-  void collect_caen_error(char* named, char* variable){
-    printf("CollectCAEN: %s: Particle variable %s inaccessible, exiting.\n", named, variable);
-    exit(-1);
-  }
-  int collect_caen_particle_getvar_int(_class_particle* p, char* name){
-      double bits = particle_getvar(p, name, 0);
-      return *(int*)&bits;
-  }
+%include "lib-readout"
 %}
 
 DECLARE
@@ -65,45 +47,44 @@ int a_present;
 int b_present;
 int c_present;
 int d_present;
+
+char * safe_filename;
+char * this_filename;
+char * this_dataset_name;
 %}
 
 INITIALIZE
 %{
-char extension[128] = "\0";
-char * this_filename;
-char * this_dataset_name;
+char * basepath = mcfull_file("", NULL); // get the full path to the output directory, if applicable
 
-if ((filename != NULL) && (filename[0] != '\0')){
+this_filename = NULL;
+safe_filename = NULL;
+if (filename == NULL || filename[0] == '\0') {
+  // no filename provided, so make a safe one to collect events
+  safe_filename = (char *) calloc(17, sizeof(char));
+  strcpy(safe_filename, "collected_events");
+} else {
+  safe_filename = (char *) calloc(strlen(filename)+1, sizeof(char));
+  strcpy(safe_filename, filename);
+}
 #if defined USE_MPI
 // the filename, if present should be unique for each MPI process
   MPI_MASTER(fprintf(stdout, "Message(%s): You are using HDF5 output with MPI, "
                              "hence your will get %i filenames %s.node_#i.h5 as output.\n",
-                             NAME_CURRENT_COMP, mpi_node_count, filename);
+                             NAME_CURRENT_COMP, mpi_node_count, safe_filename);
   );
-  sprintf(extension,"node_%i.h5",mpi_node_rank);
+  this_filename = (char *) calloc(collector_mpi_node_filename_size(basepath, safe_filename, mpi_node_rank, mpi_node_count), sizeof(char));
+  collector_mpi_node_filename(basepath, safe_filename, this_filename, mpi_node_rank, mpi_node_count);
 #else
-  sprintf(extension,"h5");
+  this_filename = (char *) calloc(collector_construct_filename_size(basepath, safe_filename), sizeof(char));
+  collector_construct_filename(basepath, safe_filename, this_filename);
 #endif
-  /*add output dir (if applicable) to the output filename and add extension if */
-  // Append the extension to the filename
-  //  -- do not use mcfull_file for this since it can not handle absolute filenames with a '.' in them
-  char * actual_filename = (char *) calloc(strlen(filename)+strlen(extension)+2, sizeof(char));
-  strcpy(actual_filename, filename);
-  strcat(actual_filename, ".");
-  strcat(actual_filename, extension);
-  // still use mcfull_file in case the filename does not include path information
-  this_filename = mcfull_file(actual_filename, NULL);
-  // release the memory now that we have the full filename
-  if (actual_filename) free(actual_filename);
-}
-if ((dataset_name != NULL) && (dataset_name[0] != '\0')){
-  this_dataset_name = (char *) calloc(strlen(dataset_name)+1, sizeof(char));
-  strcpy(this_dataset_name, dataset_name);
-} else {
-  this_dataset_name = (char *) calloc(strlen(NAME_CURRENT_COMP)+1, sizeof(char));
-  strcpy(this_dataset_name, NAME_CURRENT_COMP);
-}
-collect_ptr = collector_new(this_filename, point, total_points, ring_count, fen_count, this_dataset, ess_type);
+
+if (basepath) free(basepath);
+
+int have_dataset_name = (dataset_name != NULL) && (dataset_name[0] != '\0');
+this_dataset_name = (char *) calloc(strlen(have_dataset_name ? dataset_name : NAME_CURRENT_COMP)+1, sizeof(char));
+strcpy(this_dataset_name, have_dataset_name ? dataset_name : NAME_CURRENT_COMP);
 
 fen_present = ((fen != NULL) && (fen[0] != '\0')) ? 1 : 0;
 a_present = ((a_name != NULL) && (a_name[0] != '\0')) ? 1 : 0;
@@ -112,36 +93,52 @@ c_present = ((c_name != NULL) && (c_name[0] != '\0')) ? 1 : 0;
 d_present = ((d_name != NULL) && (d_name[0] != '\0')) ? 1 : 0;
 // Make sure the provided property names are accessible -- no error checking later
 int failure=0;
-particle_getvar(_particle, ring, &failure); if (failure) collect_caen_error(NAME_CURRENT_COMP, ring);
+particle_getvar(_particle, ring, &failure); if (failure) collector_error(NAME_CURRENT_COMP, ring);
 if (fen_present){
-    particle_getvar(_particle,  fen, &failure); if (failure) collect_caen_error(NAME_CURRENT_COMP,  fen);
+    particle_getvar(_particle,  fen, &failure); if (failure) collector_error(NAME_CURRENT_COMP,  fen);
 }
-particle_getvar(_particle, tube, &failure); if (failure) collect_caen_error(NAME_CURRENT_COMP, tube);
+particle_getvar(_particle, tube, &failure); if (failure) collector_error(NAME_CURRENT_COMP, tube);
 if (a_present){
   particle_getvar(_particle, a_name, &failure);
-  if (failure) collect_caen_error(NAME_CURRENT_COMP, a_name);
+  if (failure) collector_error(NAME_CURRENT_COMP, a_name);
 }
 if (b_present){
   particle_getvar(_particle, b_name, &failure);
-  if (failure) collect_caen_error(NAME_CURRENT_COMP, b_name);
+  if (failure) collector_error(NAME_CURRENT_COMP, b_name);
 }
 if (c_present){
   particle_getvar(_particle, c_name, &failure);
-  if (failure) collect_caen_error(NAME_CURRENT_COMP, c_name);
+  if (failure) collector_error(NAME_CURRENT_COMP, c_name);
 }
 if (d_present){
   particle_getvar(_particle, d_name, &failure);
-  if (failure) collect_caen_error(NAME_CURRENT_COMP, d_name);
+  if (failure) collector_error(NAME_CURRENT_COMP, d_name);
 }
-particle_getvar(_particle, tof, &failure); if (failure) collect_caen_error(NAME_CURRENT_COMP,  tof);
+particle_getvar(_particle, tof, &failure); if (failure) collector_error(NAME_CURRENT_COMP,  tof);
 
 p_or_pp = (strcmp(event_mode, "p") == 0) ? 0 : 1;
-if (p_or_pp && !strcmp(event_mode, "pp")) collect_caen_error(NAME_CURRENT_COMP, "Undefined event mode");
+if (p_or_pp && !strcmp(event_mode, "pp")) collector_error(NAME_CURRENT_COMP, "Undefined event mode");
+
+if (this_filename == NULL || this_filename[0] == '\0') {
+  collector_error(NAME_CURRENT_COMP, "Filename is empty after processing, cannot create Collector instance.");
+}
+
+collector_ptr = collector_new(this_filename, point, total_points, this_dataset_name, ess_type);
+
+if (collector_sink_users(this_filename) == 1){
+// this is the first instance to open the file -- take this opportunity to send parameter updates
+collector_sink_parameters(NAME_CURRENT_COMP);
+}
 
 %}
 
 TRACE
 %{
+// If we get here following a SAVE, the Collector instance needs to be recreated
+if (collector_ptr == NULL) {
+  collector_ptr = collector_new(this_filename, point, total_points, this_dataset_name, ess_type);
+}
+
 double pp = particle_getvar(_particle, "p", 0); // * sqrt((double)(mcget_ncount()));
 if (p_or_pp) pp *= pp;
 
@@ -149,13 +146,13 @@ int int_ring, int_fen, int_tube, int_A, int_B, int_C, int_D;
 double double_tof;
 
 if (pp) {
-  int_ring = collect_caen_particle_getvar_int(_particle, ring);
-  int_fen = fen_present ? collect_caen_particle_getvar_int(_particle, fen) : fen_value;
-  int_tube = collect_caen_particle_getvar_int(_particle, tube);
-  int_A = a_present ? collect_caen_particle_getvar_int(_particle, a_name) : a_value;
-  int_B = b_present ? collect_caen_particle_getvar_int(_particle, b_name) : b_value;
-  int_C = c_present ? collect_caen_particle_getvar_int(_particle, c_name) : c_value;
-  int_D = d_present ? collect_caen_particle_getvar_int(_particle, d_name) : d_value;
+  int_ring = collector_particle_getvar_int(_particle, ring);
+  int_fen = fen_present ? collector_particle_getvar_int(_particle, fen) : fen_value;
+  int_tube = collector_particle_getvar_int(_particle, tube);
+  int_A = a_present ? collector_particle_getvar_int(_particle, a_name) : a_value;
+  int_B = b_present ? collector_particle_getvar_int(_particle, b_name) : b_value;
+  int_C = c_present ? collector_particle_getvar_int(_particle, c_name) : c_value;
+  int_D = d_present ? collector_particle_getvar_int(_particle, d_name) : d_value;
   double_tof = particle_getvar(_particle, tof, 0);
 } else {
   int_ring = (int)(rand01() * 3);
@@ -183,52 +180,63 @@ collector_add(collector_ptr, RING, FEN, double_tof, pp, (const void *)(&readout_
 
 %}
 
+SAVE
+%{
+#if defined USE_MPI
+if (merge_mpi){
+  // Flush the MPI data files into the main file; this requires that we close and reopen all files!
+  collector_free(collector_ptr);
+  MPI_Barrier(MPI_COMM_WORLD);
+  int sink_status = collector_sink_open(this_filename);
+  MPI_MASTER(
+  if (sink_status == 0){
+    // the file is actually closed, otherwise another Component has it open for writing and we can not merge yet
+    // ..., 1, 0) means reset datasets (remove merged data) but keep the files in case we're headed back to TRACE
+    collector_merge_mpi(safe_filename, point, total_points, this_dataset_name, 1, 0);
+  } else if (verbose > 0) {
+    // the file is still open in another Component, so we can not merge yet
+    if (sink_status > 0) {
+      fprintf(stdout, "Message(%s): Output file %s still open in another Component, cannot merge MPI files yet.\n", NAME_CURRENT_COMP, this_filename);
+    } else {
+      fprintf(stdout, "Error(%s): File other than %s open in CollectorSink, error code %i.\n", NAME_CURRENT_COMP, this_filename, sink_status);
+    }
+  }
+  );
+  // we can only reopen after the actual merge has occurred, but that might happen in another component SAVE block
+  // -> wait for our next TRACE to reopen the file and continue writing to it
+}
+#endif
+
+%}
+
+
 FINALLY
 %{
-// Remove the interface component
-collector_destroy(collector_ptr);
+// Remove the interface component, which will also close the file and allow merging if wanted
+collector_free(collector_ptr);
 
 // combine output files if necessary: should be in a SAVE block before FINALLY, but files are not closed until now.
-if ((filename != NULL) && (filename[0] != '\0') && merge_mpi){
+if (merge_mpi){
 #if defined USE_MPI
-  MPI_Barrier(MPI_COMM_WORLD);
-  MPI_MASTER(
-      if (mpi_node_count > 1){
-        char extension[128] = "h5";
-        char * output_filename;
-
-        char * real_filename = calloc(strlen(filename)+strlen(extension)+2, sizeof(char));
-        strcpy(real_filename, filename);
-        strcat(real_filename, ".");
-        strcat(real_filename, extension);
-        output_filename = mcfull_file(real_filename, NULL);
-
-        char ** merge_filenames = calloc(mpi_node_count, sizeof(char*));
-        for (int i=0; i<mpi_node_count; i++){
-          char * merge_filename = calloc(strlen(filename)+strlen(extension)+100, sizeof(char));
-          sprintf(merge_filename, "%s.node_%i.h5", filename, i);
-          merge_filenames[i] = mcfull_file(merge_filename, NULL);
-          free(merge_filename);
+MPI_Barrier(MPI_COMM_WORLD);
+MPI_MASTER(
+    int sink_status = collector_sink_open(this_filename);
+    if (sink_status == 0){
+        collector_merge_mpi(safe_filename, point, total_points, this_dataset_name, 0, !keep_mpi_unmerged); // don't reset datasets in case we want to keep the files
+    } else if (verbose > 0) {
+        // the file is still open in another Component, so we can not merge yet
+        if (sink_status > 0) {
+          fprintf(stdout, "Message(%s): Output file %s still open in another Component, cannot merge MPI files.\n", NAME_CURRENT_COMP, this_filename);
+        } else {
+          fprintf(stderr, "Error(%s): File other than %s open in CollectorSink, error code %i.\n", NAME_CURRENT_COMP, this_filename, sink_status);
         }
-        collector_merge_files((const char *) output_filename, (const char **) merge_filenames, mpi_node_count, point, total_points);
-
-        /*remove the original unmerged files if wanted*/
-        if(!keep_mpi_unmerged){
-          int status=0;
-          for (int j=0; j<mpi_node_count; j++)
-            status += remove(merge_filenames[j]);
-          if (status)
-            fprintf(stderr,"Warning (%s): Could not remove one or more unmerged files.\n", NAME_CURRENT_COMP);
-        }
-
-        free(output_filename);
-        for (int i=0; i<mpi_node_count; i++){
-          free(merge_filenames[i]);
-        }
-      }
-  );
+    }
+);
 #endif
 }
+free(safe_filename);
+free(this_filename);
+free(this_dataset_name);
 %}
 
 MCDISPLAY

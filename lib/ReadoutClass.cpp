@@ -231,7 +231,7 @@ int Readout::send() {
   return error_code;
 }
 
-int check_and_send_tcp(const std::string & addr, uint16_t port, std::string && message, const int verbosity){
+static int check_and_send_tcp(const std::string & addr, uint16_t port, std::string && message, const int verbosity){
   cluon::TCPConnection connection(addr, port,
      [](std::string &&data, auto &&ts) noexcept {
        const auto timestamp(std::chrono::system_clock::to_time_t(ts));

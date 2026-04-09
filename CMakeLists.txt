@@ -111,6 +111,9 @@ set(Readout_LIBNAME "${CMAKE_SHARED_LIBRARY_PREFIX}${READOUT_LIBRARY_TARGET}${CM
 set_target_properties(${READOUT_LIBRARY_TARGET} PROPERTIES PUBLIC_HEADER lib/Readout.h)
 set_target_properties(${READOUT_LIBRARY_TARGET} PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
 
+find_package(nlohmann_json REQUIRED)
+target_link_libraries(${READOUT_LIBRARY_TARGET} PUBLIC nlohmann_json::nlohmann_json)
+
 add_library(Readout::${READOUT_LIBRARY_TARGET} ALIAS ${READOUT_LIBRARY_TARGET}) # always alias namespaces locally
 
 # target for file-replay CLI utility

@@ -7,6 +7,7 @@ list(APPEND LIB_SOURCES
         replay.cpp
         collector.cpp
         Sender.cpp
+        SenderConfigs.cpp
         CollectorClass.cpp
 )
 

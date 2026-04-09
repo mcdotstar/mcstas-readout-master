@@ -5,6 +5,8 @@
 
 #ifdef __cplusplus
 extern "C" {
+#include <cstddef>
+#include <cstdint>
 #endif
 
   struct collector;
@@ -17,24 +19,20 @@ extern "C" {
    *              If total_points is 0, this is ignored and all data is written to the root group.
    * \param points The total number of scan points -- defines the group name for the datasets.
    *               If 0, this is ignored and all data is written to the root group.
-   * \param rings The number of rings in the detector -- defines the number of datasets to create.
-   *              If 0, this is ignored and all data is written to a single dataset.
-   * \param fens The number of FENs in the detector -- defines the number of datasets to create.
-   *             If 0, this is ignored and all data is written to a single dataset.
-   * \param dataset The name of the dataset to write to.
-   *                If rings and fens are both 0, this is the name of the single dataset created.
-   *                If rings and fens are both greater than 0, this is the name of the group created to hold
-   *                the ring/FEN datasets. If nullptr or empty, defaults to "events".
+   * \param dataset The name of the dataset to write to. If nullptr or empty, defaults to "events".
    * \param type The type of readout data to write, defined as an integer corresponding to the ReadoutType enum
    *             in Readout.h (e.g. 0x34 for BIFROST, 0x41 for He3CSPEC).
    *             This is used to determine the structure of the readout data and the name of the compound datatype
    *             created in the HDF5 file. If an unrecognized type is given, the compound datatype will still be
    *             created but the structure of the readout data will not be validated when adding readouts.
    */
-  RL_API collector_t* collector_new(const char* filename, int point, int points, int rings, int fens, const char * dataset, int type);
+  RL_API collector_t* collector_new(const char* filename, int point, int points, const char * dataset, int type);
 
   ///\brief Destroy an existing Collector object and free its resources
   RL_API void collector_free(collector_t* c_ptr);
+
+  RL_API int collector_sink_open(const char * filename);
+  RL_API int collector_sink_users(const char * filename);
 
   /** \brief Add a readout with time and weight information to the collector's storage.
    * \param c_ptr Pointer to the Collector object
@@ -58,11 +56,32 @@ extern "C" {
    **/
   RL_API void collector_add(const collector_t* c_ptr, uint8_t ring, uint8_t fen, double tof, double weight, const void* data);
 
-  // Combine multiple files into one for the Collector object -- each should have come from an equivalent object
+  /** \brief Combine multiple files into one for the Collector object -- each should have come from an equivalent object
+   *
+   * \param out_filename The name of the output HDF5 file to open or create.
+   * \param in_filenames An array of strings containing the names of the input HDF5 files to merge.
+   *                     Each file should have been produced by a Collector object with the same dataset structure.
+   * \param count The number of input filenames
+   * \param point The current scan point number -- defines the group name for the datasets to be merged
+   * \param total_points The total number of scan points -- defines the group name for the datasets to be merged
+   *
+   * This function will merge all equivalent datasets in the collector group specified by (point, total_points)
+   * across the input files into a single dataset in the output file.
+   * The datasets are merged by concatenating the events along the first dimension, and the weights are accumulated
+   * as attributes for each ring/FEN combination if separate datasets are used.
+   * The function will validate that the input files have compatible structures and will skip any files that
+   * do not match the expected format.
+   * If no valid input files are found, the function will print an error message and return without creating an output file.
+   *
+   * Since this merges all datasets, it may be dangerous to call this function from within a component
+   * runtime; as every component would merge their own and other component's datasets you may duplicate data.
+   * Instead, you should use the dataset-specific merge.
+   */
   RL_API void collector_merge_files(const char * out_filename, const char ** in_filenames, size_t count, int point, int total_points);
 
+  RL_API void collector_merge(const char * out_filename, const char ** in_filenames, size_t count, int point, int total_points, const char * dataset, int reset_datasets);
+
   /** \brief Add a parameter value to the HDF5 file as a dataset.
-   * \param c_ptr Pointer to the Collector object
    * \param name The name of the parameter to add (e.g. "temperature", "pressure", "scan_angle")
    * \param value The value of the parameter to add. This can be an integer, double, or string value, and will be saved with the appropriate datatype in the HDF5 file.
    * \param unit An optional string specifying the unit of the parameter (e.g. "K" for temperature, "Pa" for pressure, "degrees" for scan angle). If nullptr or empty, no unit attribute will be added.
@@ -76,9 +95,16 @@ extern "C" {
    * confusion when analyzing the data. The unit and description fields are optional but can provide valuable context
    * for understanding the meaning of the parameter values when analyzing the data.
    **/
-  RL_API void collector_int_parameter(const collector_t* c_ptr, const char* name, int value, const char* unit, const char* description);
-  RL_API void collector_double_parameter(const collector_t* c_ptr, const char* name, double value, const char* unit, const char* description);
-  RL_API void collector_string_parameter(const collector_t* c_ptr, const char* name, const char* value, const char* unit, const char* description);
+  RL_API void collector_sink_int(const char* name, int value, const char* unit, const char* description);
+  RL_API void collector_sink_double(const char* name, double value, const char* unit, const char* description);
+  RL_API void collector_sink_string(const char* name, const char* value, const char* unit, const char* description);
+
+	RL_API int collector_construct_filename_size(const char * basepath, const char * basename);
+  RL_API int collector_construct_filename(const char * basepath, const char * basename, char * filename);
+	RL_API int collector_mpi_node_filename_size(const char * basepath, const char * basename, int node_index, int total_nodes);
+  RL_API int collector_mpi_node_filename(const char * basepath, const char * basename, char * filename, int node_index, int total_nodes);
+	RL_API int collector_mpi_node_filename_sizes(const char * basepath, const char * basename, int total_nodes, int * sizes);
+  RL_API int collector_mpi_node_filenames(const char * basepath, const char * basename, char ** filenames, int total_nodes);
 
 #ifdef __cplusplus
 }

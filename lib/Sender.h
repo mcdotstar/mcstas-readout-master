@@ -16,6 +16,7 @@
 
 #include "Structs.h"
 #include "Readout.h"
+#include "SenderConfigs.h"
 #include "enums.h"
 #include "hdf_interface.h"
 #include "version.hpp"
@@ -39,6 +40,9 @@ public:
     setPulseTime(time.high(), time.low(), prev.high(), prev.low());
     newPacket();
   }
+
+  explicit Sender(const SenderConfig & config, efu_time p = efu_time(1), efu_time t = efu_time())
+      : Sender(config.ip_address, config.udp_port, config.tcp_port, config.detector_type, config.readout_type, p, t) {}
 
   ~Sender() {
     // ensure any buffered data is sent before the object is destroyed
