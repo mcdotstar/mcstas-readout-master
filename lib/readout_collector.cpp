@@ -3,6 +3,7 @@
 #include <filesystem>
 
 #include "CollectorClass.h"
+#include "CollectorStar.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -144,6 +145,87 @@ void collector_sink_string(const char* name, const char* value, const char* unit
     }
     return 0;
   }
+
+// ---- CollectorStar C interface ----
+
+struct collector_star {
+  void* obj;
+};
+
+collector_star_t* collector_star_new_description(const char* type_description, const char* dataset_name) {
+  try {
+    auto cs = static_cast<collector_star_t*>(malloc(sizeof(collector_star_t)));
+    cs->obj = new CollectorStar(std::string(type_description), std::string(dataset_name));
+    return cs;
+  } catch (const std::exception& e) {
+    std::cerr << "collector_star_new_description error: " << e.what() << std::endl;
+    return nullptr;
+  }
+}
+
+collector_star_t* collector_star_new_opaque(size_t object_size, const char* dataset_name) {
+  try {
+    auto cs = static_cast<collector_star_t*>(malloc(sizeof(collector_star_t)));
+    cs->obj = new CollectorStar(object_size, std::string(dataset_name));
+    return cs;
+  } catch (const std::exception& e) {
+    std::cerr << "collector_star_new_opaque error: " << e.what() << std::endl;
+    return nullptr;
+  }
+}
+
+collector_star_t* collector_star_new_validated(const char* type_description, size_t object_size, const char* dataset_name) {
+  try {
+    auto cs = static_cast<collector_star_t*>(malloc(sizeof(collector_star_t)));
+    cs->obj = new CollectorStar(std::string(type_description), object_size, std::string(dataset_name));
+    return cs;
+  } catch (const std::exception& e) {
+    std::cerr << "collector_star_new_validated error: " << e.what() << std::endl;
+    return nullptr;
+  }
+}
+
+void collector_star_free(collector_star_t* cs) {
+  if (cs == nullptr) return;
+  delete static_cast<CollectorStar*>(cs->obj);
+  free(cs);
+}
+
+void collector_star_add(collector_star_t* cs, const void* src) {
+  if (cs == nullptr) return;
+  static_cast<CollectorStar*>(cs->obj)->add(src);
+}
+
+int collector_star_get(const collector_star_t* cs, size_t index, void* dst) {
+  if (cs == nullptr) return -1;
+  try {
+    static_cast<const CollectorStar*>(cs->obj)->get(index, dst);
+    return 0;
+  } catch (const std::out_of_range&) {
+    return -1;
+  }
+}
+
+size_t collector_star_count(const collector_star_t* cs) {
+  if (cs == nullptr) return 0;
+  return static_cast<const CollectorStar*>(cs->obj)->count();
+}
+
+size_t collector_star_object_size(const collector_star_t* cs) {
+  if (cs == nullptr) return 0;
+  return static_cast<const CollectorStar*>(cs->obj)->object_size();
+}
+
+int collector_star_write_hdf5(const collector_star_t* cs, const char* filename) {
+  if (cs == nullptr || filename == nullptr) return -1;
+  try {
+    static_cast<const CollectorStar*>(cs->obj)->write_hdf5(std::string(filename));
+    return 0;
+  } catch (const std::exception& e) {
+    std::cerr << "collector_star_write_hdf5 error: " << e.what() << std::endl;
+    return -1;
+  }
+}
 
 #ifdef __cplusplus
 }

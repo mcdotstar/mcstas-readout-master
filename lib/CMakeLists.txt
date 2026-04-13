@@ -9,6 +9,8 @@ list(APPEND LIB_SOURCES
         Sender.cpp
         SenderConfigs.cpp
         CollectorClass.cpp
+        TypeDescriptionParser.cpp
+        CollectorStar.cpp
 )
 
 foreach(LIB_SOURCE IN LISTS LIB_SOURCES)

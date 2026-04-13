@@ -106,6 +106,63 @@ extern "C" {
 	RL_API int collector_mpi_node_filename_sizes(const char * basepath, const char * basename, int total_nodes, int * sizes);
   RL_API int collector_mpi_node_filenames(const char * basepath, const char * basename, char ** filenames, int total_nodes);
 
+  // ---- CollectorStar: generic runtime-typed collector ----
+
+  struct collector_star;
+  typedef struct collector_star collector_star_t;
+
+  /** \brief Create a CollectorStar from a C struct type description string.
+   *
+   * The type description should be valid C struct syntax, e.g.:
+   *   "struct { int count; double energy; uint16_t values[10]; }"
+   * The object size is computed automatically from the parsed description.
+   *
+   * \param type_description  C struct syntax string describing the data type
+   * \param dataset_name      Name for the HDF5 dataset (must not be NULL or empty)
+   * \returns Pointer to the new collector, or NULL on parse error (message printed to stderr)
+   */
+  RL_API collector_star_t* collector_star_new_description(const char* type_description, const char* dataset_name);
+
+  /** \brief Create a CollectorStar in opaque mode (no type schema).
+   *
+   * Data is stored as raw bytes. HDF5 output will be a 2D uint8 dataset.
+   *
+   * \param object_size  Size of each object in bytes (e.g. sizeof(struct my_struct))
+   * \param dataset_name Name for the HDF5 dataset
+   * \returns Pointer to the new collector, or NULL on error
+   */
+  RL_API collector_star_t* collector_star_new_opaque(size_t object_size, const char* dataset_name);
+
+  /** \brief Create a CollectorStar with both description and size validation.
+   *
+   * Parses the type description and verifies that the computed size matches
+   * the user-provided object_size. Returns NULL and prints an error if they disagree.
+   *
+   * \param type_description  C struct syntax string
+   * \param object_size       Expected size in bytes (e.g. sizeof(struct my_struct))
+   * \param dataset_name      Name for the HDF5 dataset
+   * \returns Pointer to the new collector, or NULL on error
+   */
+  RL_API collector_star_t* collector_star_new_validated(const char* type_description, size_t object_size, const char* dataset_name);
+
+  /** \brief Destroy a CollectorStar and free its resources */
+  RL_API void collector_star_free(collector_star_t* cs);
+
+  /** \brief Add an object to the collector by copying object_size bytes from src */
+  RL_API void collector_star_add(collector_star_t* cs, const void* src);
+
+  /** \brief Copy the object at the given index into dst (caller provides buffer of object_size bytes) */
+  RL_API int collector_star_get(const collector_star_t* cs, size_t index, void* dst);
+
+  /** \brief Return the number of collected objects */
+  RL_API size_t collector_star_count(const collector_star_t* cs);
+
+  /** \brief Return the size of each object in bytes */
+  RL_API size_t collector_star_object_size(const collector_star_t* cs);
+
+  /** \brief Write all collected data to an HDF5 file */
+  RL_API int collector_star_write_hdf5(const collector_star_t* cs, const char* filename);
+
 #ifdef __cplusplus
 }
 #endif
