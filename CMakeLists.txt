@@ -8,6 +8,7 @@ list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_CURRENT_LIST_DIR}/cmake")
 set(READOUT_BUILD_ON_CONDA OFF CACHE BOOL "Set to ON to build for conda")
 set(READOUT_USE_CONAN ON CACHE BOOL "Use Conan to manage dependencies") # Set to OFF to use system libraries
 set(READOUT_BUILD_TESTS ON CACHE BOOL "Build test binary")
+set(READOUT_DEVELOPMENT_MODE OFF CACHE BOOL "Build with paths relative to build directory for local development")
 
 if (READOUT_USE_CONAN)
     set(CMAKE_PROJECT_TOP_LEVEL_INCLUDES "${CMAKE_CURRENT_LIST_DIR}/cmake/conan_provider.cmake")
@@ -33,10 +34,23 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(GNUInstallDirs)
-set(Readout_BINDIR "${CMAKE_INSTALL_BINDIR}")  # e.g. <prefix>/bin
-set(Readout_LIBDIR "${CMAKE_INSTALL_LIBDIR}")  # e.g. <prefix>/lib
-set(Readout_INCDIR "${CMAKE_INSTALL_INCLUDEDIR}")  # e.g. <prefix>/include
-set(Readout_DATADIR "${CMAKE_INSTALL_DATADIR}/${PROJECT_NAME}") # e.g. <prefix>/share/Readout>
+
+if (READOUT_DEVELOPMENT_MODE)
+    # In development mode, use fixed relative paths from build directory
+    # This allows the local build to work without system installation
+    set(Readout_BINDIR ".")
+    set(Readout_LIBDIR "")
+    set(Readout_INCDIR "include")
+    set(Readout_DATADIR "share/Readout")
+    message(STATUS "READOUT_DEVELOPMENT_MODE=ON: Using relative paths from build directory")
+else()
+    # In installation mode, use standard directory structure
+    set(Readout_BINDIR "${CMAKE_INSTALL_BINDIR}")  # e.g. <prefix>/bin
+    set(Readout_LIBDIR "${CMAKE_INSTALL_LIBDIR}")  # e.g. <prefix>/lib
+    set(Readout_INCDIR "${CMAKE_INSTALL_INCLUDEDIR}")  # e.g. <prefix>/include
+    set(Readout_DATADIR "${CMAKE_INSTALL_DATADIR}/${PROJECT_NAME}") # e.g. <prefix>/share/Readout>
+endif()
+
 if (NOT Readout_CMAKEDIR)
     set(Readout_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}") #e.g. <prefix>/lib/cmake/Readout>
 endif()
@@ -111,6 +125,9 @@ set(Readout_LIBNAME "${CMAKE_SHARED_LIBRARY_PREFIX}${READOUT_LIBRARY_TARGET}${CM
 set_target_properties(${READOUT_LIBRARY_TARGET} PROPERTIES PUBLIC_HEADER lib/Readout.h)
 set_target_properties(${READOUT_LIBRARY_TARGET} PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
 
+find_package(nlohmann_json REQUIRED)
+target_link_libraries(${READOUT_LIBRARY_TARGET} PUBLIC nlohmann_json::nlohmann_json)
+
 add_library(Readout::${READOUT_LIBRARY_TARGET} ALIAS ${READOUT_LIBRARY_TARGET}) # always alias namespaces locally
 
 # target for file-replay CLI utility
@@ -147,6 +164,58 @@ if (READOUT_BUILD_TESTS)
     add_subdirectory(test) # sources for the testing binary
 endif()
 
+# In development mode, create symlinks/directories in build root for easy testing
+if (READOUT_DEVELOPMENT_MODE)
+    # Create lib and include directories in build root pointing to their actual locations
+    add_custom_command(TARGET ${READOUT_LIBRARY_TARGET} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E echo "Setting up development mode symlinks..."
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/lib"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/include"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/share/Readout"
+    )
+    
+    # Create symlink to the library
+    add_custom_command(TARGET ${READOUT_LIBRARY_TARGET} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+            "${CMAKE_CURRENT_BINARY_DIR}/lib/libreadout${CMAKE_SHARED_LIBRARY_SUFFIX}"
+            "${CMAKE_BINARY_DIR}/lib/libreadout${CMAKE_SHARED_LIBRARY_SUFFIX}"
+    )
+    
+    # Copy only public headers to build include directory (Readout.h is the public API)
+    # Also copy internal headers that might be needed for compilation
+    add_custom_command(TARGET ${READOUT_LIBRARY_TARGET} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/lib/Readout.h"
+            "${CMAKE_BINARY_DIR}/include/Readout.h"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_orig.h"
+            "${CMAKE_BINARY_DIR}/include/readout_orig.h"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_collector.h"
+            "${CMAKE_BINARY_DIR}/include/readout_collector.h"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_structs.h"
+            "${CMAKE_BINARY_DIR}/include/readout_structs.h"
+#        COMMAND ${CMAKE_COMMAND} -E copy
+#            "${CMAKE_CURRENT_SOURCE_DIR}/lib/CollectorClass.h"
+#            "${CMAKE_BINARY_DIR}/include/CollectorClass.h"
+#        COMMAND ${CMAKE_COMMAND} -E copy
+#            "${CMAKE_CURRENT_SOURCE_DIR}/lib/Structs.h"
+#            "${CMAKE_BINARY_DIR}/include/Structs.h"
+#        COMMAND ${CMAKE_COMMAND} -E copy
+#            "${CMAKE_CURRENT_SOURCE_DIR}/lib/enums.h"
+#            "${CMAKE_BINARY_DIR}/include/enums.h"
+    )
+    
+    # Copy components to build directory (more reliable than symlink for directories)
+    add_custom_command(TARGET ${READOUT_LIBRARY_TARGET} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E echo "Copying McStas components to build directory..."
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/share/Readout"
+            "${CMAKE_BINARY_DIR}/share/Readout"
+    )
+endif()
+
 list(APPEND CXX_TARGETS ${LIB_TARGETS})
 foreach(CXX_TARGET IN LISTS CXX_TARGETS)
     addCheckDependency(${CXX_TARGET})
@@ -172,3 +241,13 @@ configure_file("${PROJECT_SOURCE_DIR}/cmake/readout_config.h.in" "${CMAKE_BINARY
 # Copy the component file to the include directory too
 file(GLOB ALL_COMPONENTS "${CMAKE_CURRENT_SOURCE_DIR}/share/Readout/*.comp")
 install(FILES ${ALL_COMPONENTS} DESTINATION ${Readout_DATADIR})
+file(GLOB ALL_MCCODE_LIBS "${CMAKE_CURRENT_SOURCE_DIR}/share/Readout/lib-*")
+install(FILES ${ALL_MCCODE_LIBS} DESTINATION ${Readout_DATADIR})
+
+# Copy the separate headers
+install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_orig.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_collector.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_structs.h"
+        DESTINATION ${Readout_INCDIR}
+)

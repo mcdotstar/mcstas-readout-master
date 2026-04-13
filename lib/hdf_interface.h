@@ -69,16 +69,16 @@ public:
   }
 };
 
-class RL_API DREAM_event: public Event {
+class RL_API CDT_event: public Event {
 public:
   uint8_t om;
   uint8_t cathode;
   uint8_t anode;
-  explicit DREAM_event() = default;
-  DREAM_event(uint8_t r, uint8_t f, double t, double w, const DREAM_readout * p)
+  explicit CDT_event() = default;
+  CDT_event(uint8_t r, uint8_t f, double t, double w, const CDT_readout * p)
   : Event(r, f, t, w), om{p->om}, cathode{p->cathode}, anode{p->anode} {}
   template<class T> void add(T & readout) const {
-    auto r = DREAM_readout{om, cathode, anode};
+    auto r = CDT_readout{om, cathode, anode};
     readout.addReadout(ring, fen, time, weight, static_cast<void *>(&r));
 //    std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
@@ -102,9 +102,53 @@ public:
   }
 };
 
+class RL_API BM0_event: public Event {
+public:
+  uint8_t channel;
+  explicit BM0_event() = default;
+  BM0_event(uint8_t r, uint8_t f, double t, double w, const BM0_readout * p)
+  : Event(r, f, t, w), channel{p->channel} {}
+  template<class T> void add(T & readout) const {
+    auto r = BM0_readout{channel};
+    readout.addReadout(ring, fen, time, weight, static_cast<void *>(&r));
+  }
+};
+
+class RL_API BM2_event: public Event {
+public:
+  uint8_t channel;
+  uint16_t pos_x;
+  uint16_t pos_y;
+  explicit BM2_event() = default;
+  BM2_event(uint8_t r, uint8_t f, double t, double w, const BM2_readout * p)
+  : Event(r, f, t, w), channel{p->channel} , pos_x{p->pos_x}, pos_y{p->pos_y} {}
+  template<class T> void add(T & readout) const {
+    auto r = BM2_readout{channel, pos_x, pos_y};
+    readout.addReadout(ring, fen, time, weight, static_cast<void *>(&r));
+  }
+};
+
+class RL_API BMI_event: public Event {
+public:
+  uint8_t channel;
+  uint8_t sum;
+  uint32_t adc; // 24 bit ADC value, but stored in a 32-bit integer for alignment reasons
+  explicit BMI_event() = default;
+  BMI_event(uint8_t r, uint8_t f, double t, double w, const BMI_readout * p)
+  : Event(r, f, t, w), channel{p->channel} , sum{p->sum}, adc{p->adc} {}
+  template<class T> void add(T & readout) const {
+    auto r = BMI_readout{channel, sum, adc};
+    readout.addReadout(ring, fen, time, weight, static_cast<void *>(&r));
+  }
+};
+
+
 namespace HighFive {
   template<> RL_API DataType create_datatype<CAEN_event>();
   template<> RL_API DataType create_datatype<TTLMonitor_event>();
-  template<> RL_API DataType create_datatype<DREAM_event>();
+  template<> RL_API DataType create_datatype<CDT_event>();
   template<> RL_API DataType create_datatype<VMM3_event>();
+  template<> RL_API DataType create_datatype<BM0_event>();
+  template<> RL_API DataType create_datatype<BM2_event>();
+  template<> RL_API DataType create_datatype<BMI_event>();
 }

@@ -16,22 +16,18 @@
 
 #include "Structs.h"
 #include "Readout.h"
+#include "SenderConfigs.h"
 #include "enums.h"
 #include "hdf_interface.h"
 #include "version.hpp"
 #include "efu_time.h"
-#include "writer.h"
 
-class Readout {
+class Sender {
 public:
-  Readout(
-      std::string IpAddress,
-        const int UDPPort,
-        const int TCPPort,
-        const int Type=0x34,
-        efu_time p = efu_time(1),
-        efu_time t = efu_time()
-  ): Type(detectorType_from_int(Type)),
+  Sender(
+      std::string IpAddress, const int UDPPort, const int TCPPort, const DetectorType detector_type, const ReadoutType readout_type, efu_time p = efu_time(1), efu_time t = efu_time()
+  ): detector_type(detector_type),
+     readout_type(readout_type),
      ipaddr(std::move(IpAddress)),
      port(UDPPort),
      tcp_port(TCPPort),
@@ -39,14 +35,16 @@ public:
      time(t),
      sender{ipaddr, static_cast<uint16_t>(UDPPort)}
   {
-//    sockOpen(ipaddr, port);
-    hp = (PacketHeaderV0*)&buffer[0];
+    // hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
     auto prev = time - period;
     setPulseTime(time.high(), time.low(), prev.high(), prev.low());
     newPacket();
   }
 
-  ~Readout() {
+  explicit Sender(const SenderConfig & config, efu_time p = efu_time(1), efu_time t = efu_time())
+      : Sender(config.ip_address, config.udp_port, config.tcp_port, config.detector_type, config.readout_type, p, t) {}
+
+  ~Sender() {
     // ensure any buffered data is sent before the object is destroyed
     send();
   }
@@ -65,13 +63,15 @@ public:
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const BM2_readout_t * data);
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const BMI_readout_t * data);
 
+
   // send the current data buffer
   int send();
 
   // Update the pulse and previous pulse times
   void setPulseTime(uint32_t PHI, uint32_t PLO, uint32_t PPHI, uint32_t PPLO);
 
-  void update_time(){
+  void update_time() {
+    auto time_lock = std::lock_guard(time_mutex);
     auto now = efu_time();
     if ((now - time) >= &period){
       now = time + period * ((now - time) / period);
@@ -110,35 +110,7 @@ public:
     return verbosity;
   }
   int verbose(const int v){verbosity = v; return verbosity;}
-
-  void dump_to(const std::string & filename, const std::string & dataset_name = "events");
-
-  void enable_network() {network = true;}
-  void disable_network() {network = false;}
-
-  void set_random_seed(const uint32_t seed) {
-    random_engine.seed(seed);
-  }
-
-  int random_poisson(const double mean) {
-    std::poisson_distribution<int> distribution(mean);
-    return distribution(random_engine);
-  }
-
 private:
-  HighFive::CompoundType datatype() const {
-    using namespace HighFive;
-    switch (readoutType_from_detectorType(Type)){
-      case ReadoutType::CAEN: return create_datatype<CAEN_event>();
-      case ReadoutType::TTLMonitor: return create_datatype<TTLMonitor_event>();
-      case ReadoutType::CDT: return create_datatype<CDT_event>();
-      case ReadoutType::VMM3: return create_datatype<VMM3_event>();
-      case ReadoutType::BM0: return create_datatype<BM0_event>();
-      case ReadoutType::BM2: return create_datatype<BM2_event>();
-      case ReadoutType::BMI: return create_datatype<BMI_event>();
-      default: throw std::runtime_error("Saving this readout type is not implemented yet!");
-    }
-  }
 
   void check_size_and_send();
 
@@ -153,10 +125,11 @@ private:
 
   int SeqNum{0};
   int OutputQueue{0};
-  DetectorType Type;
+  DetectorType detector_type;
+  ReadoutType readout_type;
 
   // TX Buffer
-  PacketHeaderV0 *hp{};
+  // PacketHeaderV0 *hp{};
   char buffer[9000]{};
   const int MaxDataSize{8950};
   int DataSize{0};
@@ -166,10 +139,8 @@ private:
   int tcp_port{8888};
   int verbosity{0};
 
-  std::optional<Writer> writer{std::nullopt};
-  bool network{true};
   efu_time period, time;
   cluon::UDPSender sender;
 
-  std::mt19937 random_engine{std::default_random_engine{}()};
+  std::mutex time_mutex, send_mutex;
 };

@@ -70,7 +70,8 @@ PACK(struct TTLMonitorData {
      });
 
 // From EFU src/modules/dream/readout/DataParser.h
-PACK(struct DreamData {
+// Used by: DREAM, MAGIC, HEIMDAL
+PACK(struct CDTData {
        uint8_t Ring;
        uint8_t FEN;
        uint16_t Length;
@@ -97,3 +98,47 @@ PACK(struct VMM3Data {
        uint8_t VMM;
        uint8_t Channel;
      });
+
+// Beam Monitor data structures
+// Used for point-monitors digitized via, e.g., NI14125, NI128D, R5560
+// these all have Type == 0x01
+PACK(struct BM0Data {
+  uint8_t Ring;
+  uint8_t FEN;
+  uint16_t Length;
+  uint32_t TimeHigh;
+  uint32_t TimeLow;
+  uint8_t Type;
+  uint8_t Channel;
+  uint16_t Debug16;
+  uint32_t Debug32;
+});
+
+// used by BEER, CBM-2D-monitors (CASCADE and GEM-based for, e.g., BIFROST)
+// these have Type == 0x02
+PACK(struct BM2Data {
+  uint8_t Ring;
+  uint8_t FEN;
+  uint16_t Length;
+  uint32_t TimeHigh;
+  uint32_t TimeLow;
+  uint8_t Type;
+  uint8_t Channel;
+  uint16_t Debug16;
+  uint16_t X;
+  uint16_t Y;
+});
+
+// Used by CDT I-BM monitors (CASCADE-based for, e.g., DREAM, MAGIC, HEIMDAL)
+// these have Type == 0x03
+PACK(struct BMIData {
+  uint8_t Ring;
+  uint8_t FEN;
+  uint16_t Length;
+  uint32_t TimeHigh;
+  uint32_t TimeLow;
+  uint8_t Type;
+  uint8_t Channel;
+  uint16_t Debug16;
+  uint32_t Pack; // 'left' '24 bits: ADC, 'right' 8 bits MCA sum
+});

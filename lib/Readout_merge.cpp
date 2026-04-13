@@ -38,7 +38,7 @@ extern "C" {
           case ReadoutType::CAEN: writer.saveReadout(reader.get_CAEN(j, 1).front()); break;
           case ReadoutType::TTLMonitor: writer.saveReadout(reader.get_TTLMonitor(j, 1).front()); break;
           case ReadoutType::VMM3: writer.saveReadout(reader.get_VMM3(j, 1).front()); break;
-          case ReadoutType::DREAM: writer.saveReadout(reader.get_DREAM(j, 1).front()); break;
+          case ReadoutType::CDT: writer.saveReadout(reader.get_CDT(j, 1).front()); break;
           default: throw std::runtime_error("Readout type not implemented");
         }
       }

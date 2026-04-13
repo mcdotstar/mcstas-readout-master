@@ -13,11 +13,12 @@ if ! command -v mcstas-antlr &> /dev/null; then
     echo "mcstas-antlr not found, skipping integration tests."
     exit 100
 fi
-if ! command -v ./readout-config&> /dev/null; then
+if ! [ -x ./readout-config ]; then
     echo "local readout-config not found."
     exit 1
 fi
 compdir=$(./readout-config --show compdir)
+compileflags="-Wl,-rpath,. -L. -lreadout -I../lib"
 
 # Switch to a temporary directory
 #tmpdir=$(mktemp -d)
@@ -25,9 +26,11 @@ compdir=$(./readout-config --show compdir)
 #cd ${tmpdir} || exit 1
 # Create a temporary file for the test
 temp_file="test_instrument.instr"
+# Clean up any old generated file
+rm -f "${temp_file}"
 # And give it some content
 /bin/cat <<EOF > "$temp_file"
-DEFINE INSTRUMENT test_instrument(int dummy=0)
+DEFINE INSTRUMENT test_instrument(int dummy=0, scale/"m"=1, int point=0, int total_points=0, string filename="output")
 USERVARS
 %{
 int RING;
@@ -49,18 +52,30 @@ TUBE = 0;
 A = 0;
 B = 0;
 tof = 0.0;
+x = 0;
+y = 0;
+z = 0;
+vx = 0;
+vy = 0;
+vz = 1;
+p = 1;
 %}
 
 COMPONENT readout = ReadoutCAEN(
   ring="RING", fen="FEN", tube="TUBE", event_mode="p", a_name="A", b_name="B", tof="tof", ip="127.0.0.1", port=9000,
   broadcast=0
   )
-  AT (0, 0, 0) ABSOLUTE
+  AT (0, 0, 1) ABSOLUTE
 
 COMPONENT monitor_readout = ReadoutTTLMonitor(
   ring="RING", fen="FEN", position="A", identity="TUBE", value="B", tof="tof", ip="127.0.0.1", port=9001, broadcast=0
 )
-  AT (0, 0, 0) ABSOLUTE
+  AT (0, 0, 2) ABSOLUTE
+
+COMPONENT caen_collector = CollectCAEN(
+ring="RING", fen="FEN", tube="TUBE", event_mode="p", a_name="A", b_name="B", tof="tof",
+filename=filename, point=point, total_points=total_points, verbose=1
+) AT (0, 0, 3) ABSOLUTE
 
 END
 EOF
@@ -68,6 +83,8 @@ EOF
 # Convert the test file into a C file
 mcstas-antlr ${temp_file} || exit 1
 # Compile the C file and run it
-mcrun-antlr ${temp_file} -n 1 dummy=1 || exit 1
+mcrun-antlr ${temp_file} -n 100 dummy=1 || exit 1
+
+
 
 exit 0

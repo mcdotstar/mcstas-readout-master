@@ -1,10 +1,14 @@
 list(APPEND LIB_SOURCES
-        Readout.cpp
+        readout_orig.cpp
+        readout_collector.cpp
         Readout_merge.cpp
         ReadoutClass.cpp
         enums.cpp
         hdf_interface.cpp
         replay.cpp
+        Sender.cpp
+        SenderConfigs.cpp
+        CollectorClass.cpp
 )
 
 foreach(LIB_SOURCE IN LISTS LIB_SOURCES)
@@ -21,4 +25,5 @@ foreach(LIB_TARGET IN LISTS LIB_TARGETS)
             $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>
             $<INSTALL_INTERFACE:>  # <prefix>
     )
+    target_include_directories(${LIB_TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/ctream")
 endforeach()

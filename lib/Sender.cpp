@@ -5,7 +5,7 @@
 /// \brief ESS UDP readout generator class implementation
 ///
 //===----------------------------------------------------------------------===//
-#include "ReadoutClass.h"
+#include "Sender.h"
 
 #include <cstring>
 #include <iostream>
@@ -13,28 +13,30 @@
 #include <string>
 #include <tuple>
 
-void Readout::setPulseTime(const uint32_t PHI, const uint32_t PLO, const uint32_t PPHI, const uint32_t PPLO) {
+void Sender::setPulseTime(const uint32_t PHI, const uint32_t PLO, const uint32_t PPHI, const uint32_t PPLO) {
   phi = PHI;
   plo = PLO;
   pphi = PPHI;
   pplo = PPLO;
 }
 
-std::pair<uint32_t, uint32_t> Readout::lastPulseTime() const {
+std::pair<uint32_t, uint32_t> Sender::lastPulseTime() const {
   return std::make_pair(phi, plo);
 }
-std::pair<uint32_t, uint32_t> Readout::prevPulseTime() const {
+std::pair<uint32_t, uint32_t> Sender::prevPulseTime() const {
   return std::make_pair(pphi, pplo);
 }
-std::pair<uint32_t, uint32_t> Readout::lastEventTime() const {
+std::pair<uint32_t, uint32_t> Sender::lastEventTime() const {
   return std::make_pair(lasthi, lastlo);
 }
 
-void Readout::newPacket() {
+void Sender::newPacket() {
+  auto lock = std::lock_guard(send_mutex);
   memset(buffer, 0x00, sizeof(buffer));
+  const auto hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
   hp->Padding0 = 0;
   hp->Version = 0;
-  hp->CookieAndType = (Type << 24) + 0x535345;
+  hp->CookieAndType = (static_cast<int>(detector_type) << 24) + 0x535345;
   hp->OutputQueue = OutputQueue;
   hp->TotalLength = sizeof(struct PacketHeaderV0);
   hp->SeqNum = SeqNum++;
@@ -46,21 +48,22 @@ void Readout::newPacket() {
   DataSize = sizeof(struct PacketHeaderV0);
 }
 
-void Readout::check_size_and_send() {
+void Sender::check_size_and_send() {
   if (DataSize >= MaxDataSize) {
     send();
     newPacket();
   }
 }
 
-void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const CAEN_readout_t *data) {
+void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const CAEN_readout_t *data) {
   check_size_and_send();
   if (verbosity > 2){
     std::cout << "Add to the packet Ring=" << static_cast<unsigned>(Ring) << " FEN=" << static_cast<unsigned>(FEN);
     std::cout << " TimeHigh=" << t.high() << " TimeLow=" << t.low() << " Tube=" << static_cast<unsigned>(data->channel);
     std::cout << " AmplA=" << data->a << " AmplB=" << data->b << std::endl;
   }
-  auto *dp = (struct CaenData *)(buffer + DataSize);
+  auto lock = std::lock_guard(send_mutex);
+  auto *dp = reinterpret_cast<struct CaenData *>(buffer + DataSize);
   dp->Ring = Ring;
   dp->FEN = FEN;
   dp->Length = sizeof(struct CaenData);
@@ -72,17 +75,19 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
   dp->AmplC = data->c;
   dp->AmplD = data->d;
   DataSize += dp->Length;
+  const auto hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
   hp->TotalLength = DataSize;
 }
 
-void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const TTLMonitor_readout_t *data) {
+void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const TTLMonitor_readout_t *data) {
   if (verbosity > 2){
     std::cout << "Add to the packet Ring=" << static_cast<unsigned>(Ring) << " FEN=" << static_cast<unsigned>(FEN);
     std::cout << " TimeHigh=" << t.high() << " TimeLow=" << t.low() << " Pos=" << static_cast<unsigned>(data->pos);
     std::cout << " Channel=" << static_cast<unsigned>(data->channel) << " ADC=" << data->adc << std::endl;
   }
   check_size_and_send();
-  auto *dp = (struct TTLMonitorData *)(buffer + DataSize);
+  auto lock = std::lock_guard(send_mutex);
+  auto *dp = reinterpret_cast<struct TTLMonitorData *>(buffer + DataSize);
   dp->Ring = Ring;
   dp->FEN = FEN;
   dp->Length = sizeof(struct TTLMonitorData);
@@ -92,12 +97,14 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
   dp->Channel = data->channel;
   dp->ADC = data->adc;
   DataSize += dp->Length;
+  const auto hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
   hp->TotalLength = DataSize;
 }
 
-void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const CDT_readout_t *data) {
+void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const CDT_readout_t *data) {
   check_size_and_send();
-  auto *dp = (struct CDTData *)(buffer + DataSize);
+  auto lock = std::lock_guard(send_mutex);
+  auto *dp = reinterpret_cast<struct CDTData *>(buffer + DataSize);
   dp->Ring = Ring;
   dp->FEN = FEN;
   dp->Length = sizeof(struct CDTData);
@@ -107,12 +114,14 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
   dp->Cathode = data->cathode;
   dp->Anode = data->anode;
   DataSize += dp->Length;
+  const auto hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
   hp->TotalLength = DataSize;
 }
 
-void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const VMM3_readout_t *data) {
+void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const VMM3_readout_t *data) {
   check_size_and_send();
-  auto *dp = (struct VMM3Data *)(buffer + DataSize);
+  auto lock = std::lock_guard(send_mutex);
+  auto *dp = reinterpret_cast<struct VMM3Data *>(buffer + DataSize);
   dp->Ring = Ring;
   dp->FEN = FEN;
   dp->Length = sizeof(struct VMM3Data);
@@ -125,12 +134,14 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
   dp->VMM = data->vmm;
   dp->Channel = data->channel;
   DataSize += dp->Length;
+  const auto hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
   hp->TotalLength = DataSize;
 }
 
-void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const BM0_readout_t *data) {
+
+void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const BM0_readout_t *data) {
   check_size_and_send();
-  auto *dp = (struct BM0Data *)(buffer + DataSize);
+  auto *dp = reinterpret_cast<struct BM0Data *>(buffer + DataSize);
   dp->Ring = Ring;
   dp->FEN = FEN;
   dp->Length = sizeof(struct BM0Data);
@@ -138,12 +149,13 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
   dp->TimeLow = t.low();
   dp->Channel = data->channel;
   DataSize += dp->Length;
+  const auto hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
   hp->TotalLength = DataSize;
 }
 
-void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const BM2_readout_t *data) {
+void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const BM2_readout_t *data) {
   check_size_and_send();
-  auto *dp = (struct BM2Data *)(buffer + DataSize);
+  auto *dp = reinterpret_cast<struct BM2Data *>(buffer + DataSize);
   dp->Ring = Ring;
   dp->FEN = FEN;
   dp->Length = sizeof(struct BM2Data);
@@ -153,16 +165,17 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
   dp->X = data->pos_x;
   dp->Y = data->pos_y;
   DataSize += dp->Length;
+  const auto hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
   hp->TotalLength = DataSize;
 }
 
-void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const BMI_readout_t *data) {
+void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const BMI_readout_t *data) {
   check_size_and_send();
   const uint32_t pack = (static_cast<uint32_t>(data->sum) << 24) + data->adc; // or is this backwards?
   // alternative
   // const uint32_t pack = (data->adc << 8) + data->sum;
 
-  auto *dp = (struct BMIData *)(buffer + DataSize);
+  auto *dp = reinterpret_cast<struct BMIData *>(buffer + DataSize);
   dp->Ring = Ring;
   dp->FEN = FEN;
   dp->Length = sizeof(struct BMIData);
@@ -171,35 +184,25 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
   dp->Channel = data->channel;
   dp->Pack = pack;
   DataSize += dp->Length;
+  const auto hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
   hp->TotalLength = DataSize;
 }
 
 
-void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const double tof, const double weight, const void *data) {
-  // store the readout to file if requested
-  if (writer.has_value()) writer->saveReadout(Ring, FEN, tof, weight, data);
-  if (!network){
-    if (verbosity > 1) std::cout << "No readout added to buffer due to disabled network" << std::endl;
-    return;
-  }
+void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const double tof, const double, const void *data) {
+  // FIXME Make this class thread safe by adding a mutex lock
   // provided time-of-flight plus the current pulse time
-  auto t = efu_time(tof) + time;
+  const auto t = efu_time(tof) + time;
   // TODO implement t = (tof % period) + time -- such that we have realistic reference times
   lasthi = t.high();
   lastlo = t.low();
-  // send the same event (possibly) multiple times, depending on the weighted counting rate
-  if (weight) {
-    for (int i = 0; i < random_poisson(weight); ++i) addReadout(Ring, FEN, t, data);
-  } else {
-    // this is a noise event, which has randomized data and should always be sent
-    addReadout(Ring, FEN, t, data);
-  }
+  // the sender ignores any weight and just sends.
+  addReadout(Ring, FEN, t, data);
 }
 
 
-void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const void *data){
-  const auto type = readoutType_from_detectorType(Type);
-  switch (type) {
+void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const void *data){
+  switch (readout_type) {
     case ReadoutType::CAEN: return addReadout(Ring, FEN, t, static_cast<const CAEN_readout_t*>(data));
     case ReadoutType::TTLMonitor: return addReadout(Ring, FEN, t, static_cast<const TTLMonitor_readout_t*>(data));
     case ReadoutType::CDT: return addReadout(Ring, FEN, t, static_cast<const CDT_readout_t*>(data));
@@ -212,27 +215,24 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
 }
 
 
-void Readout::dump_to(const std::string & filename, const std::string & dataset_name){
-  writer = Writer(filename, Type, readoutType_from_detectorType(Type), dataset_name);
-}
-
-
-int Readout::send() {
-  if (!network){
-    if (verbosity > 1) std::cout << "No packet sent due to disabled network" << std::endl;
-    return 0;
-  }
-  auto chr_ptr = reinterpret_cast<char *>(buffer);
-  auto [bytes, error_code] = sender.send(std::string(chr_ptr, chr_ptr + DataSize));
-  if (error_code < 0 && verbosity > -1){
-    std::cout << "Sending UDP data failed: returns " << error_code << "\n";
+int Sender::send() {
+  int error_code = 0;
+  {
+    std::lock_guard lock(send_mutex);
+    const auto chr_ptr = reinterpret_cast<char *>(buffer);
+    auto [bytes, ret_code] = sender.send(std::string(chr_ptr, chr_ptr + DataSize));
+    error_code = ret_code;
+    if (error_code < 0 && verbosity > -1){
+      std::cout << "Sending UDP data failed: returns " << error_code << "\n";
+    }
   }
   newPacket();
   return error_code;
 }
 
-static int check_and_send_tcp(const std::string & addr, uint16_t port, std::string && message, const int verbosity){
-  cluon::TCPConnection connection(addr, port,
+
+static int check_and_send_tcp(const std::string & addr, const uint16_t port, std::string && message, const int verbosity){
+  const cluon::TCPConnection connection(addr, port,
      [](std::string &&data, auto &&ts) noexcept {
        const auto timestamp(std::chrono::system_clock::to_time_t(ts));
        std::cout << "Received " << data.size() << " bytes"
@@ -240,7 +240,7 @@ static int check_and_send_tcp(const std::string & addr, uint16_t port, std::stri
                  << ", containing '" << data << "'." << std::endl;
      },
      [](){ std::cout << "Connection lost." << std::endl; });
-  auto len = static_cast<long>(message.size());
+  const auto len = static_cast<long>(message.size());
   auto [bytes, error_code] = connection.send(std::move(message));
   if (bytes != len && verbosity > -1){
     std::cout << "Failed to send full message, sent " << bytes << " of " << len << " bytes\n";
@@ -249,11 +249,8 @@ static int check_and_send_tcp(const std::string & addr, uint16_t port, std::stri
   return error_code;
 }
 
-int Readout::command_shutdown() const {
-  if (!network){
-    if (verbosity > 1) std::cout << "No shutdown command sent due to disabled network" << std::endl;
-    return 0;
-  }
+
+int Sender::command_shutdown() const {
   int ok = check_and_send_tcp(ipaddr, tcp_port, "EXIT\n", verbosity);
   if (ok < 0) {
     if (verbosity > -1) std::cout << "Could not connect to " << ipaddr << ":" << tcp_port << std::endl;

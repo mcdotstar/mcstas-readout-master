@@ -168,6 +168,44 @@ McStas can be run on any number of MPI workers. If any of the `Readout` componen
 access to the host running the EFU(s).
 Saving weighted ray data to HDF5 files is currently not supported in MPI mode.
 
+# Development
+
+## Local Development Workflow
+
+For development and testing without system-wide installation, use the development mode build:
+
+```bash
+cmake -S . -B build-dev -DREADOUT_DEVELOPMENT_MODE=ON
+cmake --build build-dev
+```
+
+This creates a self-contained build directory with:
+- `build-dev/readout-config` - Configuration query tool
+- `build-dev/lib/libreadout.so` - Shared library
+- `build-dev/include/` - Header files
+- `build-dev/share/Readout/` - McStas component files
+
+### Testing
+
+Use the provided test wrapper script to run tests with the correct environment:
+
+```bash
+./run_tests.sh build-dev
+```
+
+The wrapper script:
+- Sets up PATH so `readout-config` is found first
+- Configures LD_LIBRARY_PATH for the local library
+- Creates symlinks to resolve component paths
+- Runs tests in isolation from any system installations
+
+### Why Development Mode?
+
+Development mode solves the PATH variable inheritance problem in McStas tools:
+- When `mcstas-antlr` spawns subprocesses, they may not inherit the modified PATH
+- System-installed versions of `readout-config` can interfere with local development
+- Development mode embeds relative paths at build time, making it independent of PATH
+
 # Use
 Once installed as above, you can include the readout component in an exising McStas instrument by placing something
 similar to the following in the TRACE section of an instrument file (likely at the end)
