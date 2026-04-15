@@ -163,6 +163,11 @@ void array_get(const array_t * array, const size_t index, void * dst) {
     static_cast<Array*>(array->obj)->get(index, dst);
 }
 
+void array_clear(const array_t * array) {
+    if (array == nullptr) return;
+    static_cast<Array*>(array->obj)->clear();
+}
+
 struct index_sampler_object {
     void * obj;
 };

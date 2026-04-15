@@ -54,6 +54,9 @@ public:
   /// Size of each object in bytes
   size_t object_size() const { return bytes_; }
 
+  /// Clear all collected data but keep the allocated memory for reuse
+  void clear() {count_ = 0;}
+
 private:
   std::vector<uint8_t> data_;
   size_t bytes_;

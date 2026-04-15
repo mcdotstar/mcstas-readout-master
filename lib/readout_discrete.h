@@ -128,13 +128,14 @@ DISCRETER_API void delete_array(array_t * array);
 DISCRETER_API size_t array_size(const array_t * array);
 DISCRETER_API void array_add(const array_t * array, const void * data);
 DISCRETER_API void array_get(const array_t * array, size_t index, void * dst);
+DISCRETER_API void array_clear(const array_t * array);
 
-index_sampler_t * new_index_sampler(size_t samples, uint32_t seed);
-void delete_index_sampler(index_sampler_t * sampler);
-void index_sampler_fit(const index_sampler_t * sampler, size_t index, double weight);
-int index_sampler_filling(const index_sampler_t * sampler);
-void index_sampler_values(const index_sampler_t * sampler, size_t * values);
-size_t index_sampler_value(const index_sampler_t * sampler, size_t index);
+DISCRETER_API index_sampler_t * new_index_sampler(size_t samples, uint32_t seed);
+DISCRETER_API void delete_index_sampler(index_sampler_t * sampler);
+DISCRETER_API void index_sampler_fit(const index_sampler_t * sampler, size_t index, double weight);
+DISCRETER_API int index_sampler_filling(const index_sampler_t * sampler);
+DISCRETER_API void index_sampler_values(const index_sampler_t * sampler, size_t * values);
+DISCRETER_API size_t index_sampler_value(const index_sampler_t * sampler, size_t index);
 
 #ifdef __cplusplus
 }
