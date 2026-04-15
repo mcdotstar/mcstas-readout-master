@@ -30,25 +30,7 @@ OUTPUT PARAMETERS ()
 DEPENDENCY "-Wl,-rpath,CMD(readout-config --show libdir) -LCMD(readout-config --show libdir) -lreadout -ICMD(readout-config --show includedir)"
 SHARE
 %{
-#include <signal.h>
-#include <unistd.h> // for execve
-#include <sys/time.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <Readout.h>
-
-  void readout_ttlmonitor_error(char* named, char* variable){
-    printf("ReadoutCAEN: %s: Particle variable %s inaccessible, exiting.\n", named, variable);
-    exit(-1);
-  }
-  int readout_ttlmonitor_particle_getvar_int(_class_particle* p, char* name){
-      double bits = particle_getvar(p, name, 0);
-      return *(int*)&bits;
-  }
+%include "lib-readout"
 %}
 
 DECLARE
@@ -140,11 +122,11 @@ int int_ring, int_fen, int_position, int_identity, int_value;
 double double_tof;
 
 if (pp) {
-  int_ring = ring_present ? readout_ttlmonitor_particle_getvar_int(_particle, ring) : ring_value;
-  int_fen = fen_present ? readout_ttlmonitor_particle_getvar_int(_particle, fen) : fen_value;
-  int_position = position_present ? readout_ttlmonitor_particle_getvar_int(_particle, position) : position_value;
-  int_identity = identity_present ? readout_ttlmonitor_particle_getvar_int(_particle, identity) : identity_value;
-  int_value = readout_ttlmonitor_particle_getvar_int(_particle, value);
+  int_ring = ring_present ? readout_particle_getvar_int(_particle, ring) : ring_value;
+  int_fen = fen_present ? readout_particle_getvar_int(_particle, fen) : fen_value;
+  int_position = position_present ? readout_particle_getvar_int(_particle, position) : position_value;
+  int_identity = identity_present ? readout_particle_getvar_int(_particle, identity) : identity_value;
+  int_value = readout_particle_getvar_int(_particle, value);
   double_tof = particle_getvar(_particle, tof, 0);
 } else {
   int_ring = (int)(rand01());

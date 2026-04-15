@@ -70,9 +70,9 @@ const std::unordered_map<std::string, TypeInfo>& type_map() {
 }
 
 std::string trim(const std::string& s) {
-  auto start = s.find_first_not_of(" \t\n\r");
+  const auto start = s.find_first_not_of(" \t\n\r");
   if (start == std::string::npos) return "";
-  auto end = s.find_last_not_of(" \t\n\r");
+  const auto end = s.find_last_not_of(" \t\n\r");
   return s.substr(start, end - start + 1);
 }
 
@@ -84,16 +84,14 @@ std::string extract_body(const std::string& desc) {
     s = trim(s.substr(6));
     // Skip optional struct name (identifier before '{')
     if (!s.empty() && s[0] != '{') {
-      auto brace = s.find('{');
-      if (brace != std::string::npos) {
+      if (const auto brace = s.find('{'); brace != std::string::npos) {
         s = trim(s.substr(brace));
       }
     }
   }
   // Remove braces if present
   if (!s.empty() && s.front() == '{') {
-    auto close = s.rfind('}');
-    if (close != std::string::npos) {
+    if (const auto close = s.rfind('}'); close != std::string::npos) {
       s = s.substr(1, close - 1);
     } else {
       throw TypeDescriptionError("Unmatched opening brace in type description");
@@ -107,8 +105,7 @@ std::vector<std::string> split_declarations(const std::string& body) {
   std::istringstream ss(body);
   std::string token;
   while (std::getline(ss, token, ';')) {
-    auto t = trim(token);
-    if (!t.empty()) {
+    if (const auto t = trim(token); !t.empty()) {
       decls.push_back(t);
     }
   }
@@ -129,7 +126,7 @@ SchemaField parse_field(const std::string& decl) {
   // Tokenize on whitespace, preserving bracket expressions
   std::vector<std::string> tokens;
   std::string current;
-  for (char c : decl) {
+  for (const char c : decl) {
     if (std::isspace(static_cast<unsigned char>(c))) {
       if (!current.empty()) {
         tokens.push_back(current);
@@ -160,7 +157,7 @@ SchemaField parse_field(const std::string& decl) {
   size_t name_idx = tokens.size() - 1;
 
   if (tokens.back().front() == '[' && tokens.back().back() == ']') {
-    std::string arr = tokens.back().substr(1, tokens.back().size() - 2);
+    const std::string arr = tokens.back().substr(1, tokens.back().size() - 2);
     long long val = 0;
     try { val = std::stoll(arr); } catch (...) {
       throw TypeDescriptionError("Invalid array size '" + arr + "' in: '" + decl + "'");
@@ -173,11 +170,9 @@ SchemaField parse_field(const std::string& decl) {
   // Check for array spec fused with identifier, e.g. "values[10]"
   if (array_count == 0) {
     auto& maybe_name = tokens[name_idx];
-    auto bracket = maybe_name.find('[');
-    if (bracket != std::string::npos) {
-      auto close = maybe_name.find(']', bracket);
-      if (close != std::string::npos) {
-        std::string arr = maybe_name.substr(bracket + 1, close - bracket - 1);
+    if (const auto bracket = maybe_name.find('['); bracket != std::string::npos) {
+      if (const auto close = maybe_name.find(']', bracket); close != std::string::npos) {
+        const std::string arr = maybe_name.substr(bracket + 1, close - bracket - 1);
         long long val = 0;
         try { val = std::stoll(arr); } catch (...) {
           throw TypeDescriptionError("Invalid array size '" + arr + "' in: '" + decl + "'");
@@ -189,7 +184,7 @@ SchemaField parse_field(const std::string& decl) {
     }
   }
 
-  std::string field_name = tokens[name_idx];
+  const std::string field_name = tokens[name_idx];
   if (!is_valid_identifier(field_name)) {
     throw TypeDescriptionError("Invalid field name '" + field_name + "' in: '" + decl + "'");
   }
@@ -210,7 +205,7 @@ SchemaField parse_field(const std::string& decl) {
   }
 
   auto& tmap = type_map();
-  auto it = tmap.find(type_str);
+  const auto it = tmap.find(type_str);
   if (it == tmap.end()) {
     throw TypeDescriptionError("Unrecognized type '" + type_str + "' in: '" + decl + "'");
   }
@@ -231,8 +226,7 @@ void compute_layout(TypeSchema& schema) {
   size_t max_alignment = 1;
 
   for (auto& field : schema.fields) {
-    size_t remainder = current_offset % field.alignment;
-    if (remainder != 0) {
+    if (const size_t remainder = current_offset % field.alignment; remainder != 0) {
       current_offset += field.alignment - remainder;
     }
     field.offset = current_offset;
@@ -243,8 +237,7 @@ void compute_layout(TypeSchema& schema) {
   }
 
   // Trailing padding for overall struct alignment
-  size_t remainder = current_offset % max_alignment;
-  if (remainder != 0) {
+  if (const size_t remainder = current_offset % max_alignment; remainder != 0) {
     current_offset += max_alignment - remainder;
   }
   schema.total_size = current_offset;
@@ -261,12 +254,12 @@ TypeSchema parse_type_description(const std::string& description) {
   TypeSchema schema;
   schema.description = description;
 
-  std::string body = extract_body(description);
+  const std::string body = extract_body(description);
   if (body.empty()) {
     throw TypeDescriptionError("No fields found in type description: '" + description + "'");
   }
 
-  auto declarations = split_declarations(body);
+  const auto declarations = split_declarations(body);
   if (declarations.empty()) {
     throw TypeDescriptionError("No fields found in type description: '" + description + "'");
   }

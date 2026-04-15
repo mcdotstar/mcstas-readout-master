@@ -3,12 +3,35 @@
 #include "lib-readout.h"
 #endif
 
-void collector_error(char * named, char * variable) {
-  fprintf(stderr, "Error(%s): Collector particle variable %s inaccessible %s.\n", named, variable);
+void lib_readout_error(const char * comp_type, const char* named, const char * message, const char* variable){
+  printf("%s(%s): %s %s, exiting.\n", comp_type, named, message, variable);
   exit(-1);
 }
 
-int collector_particle_getvar_int(_class_particle* p, char * name) {
+void readout_caen_error(const char * named, const char * variable){
+  lib_readout_error("ReadoutCAEN", named, "Unknown particle variable", variable);
+}
+
+void readout_ttlmonitor_error(const char * named, const char * variable){
+  lib_readout_error("ReadoutTTLMonitor", named, "Unknown particle variable", variable);
+}
+
+
+void collector_error(const char * named, const char * variable){
+  lib_readout_error("CollectorSink", named, "Unknown particle variable", variable);
+}
+
+
+void readout_particle_check(const char * comp_type, const char * comp_name, _class_particle * p, const int present, char * name) {
+  int failure=0;
+  if (present){
+    particle_getvar(p, name, &failure);
+    if (failure) lib_readout_error(comp_type, comp_name, "No particle variable named", name);
+  }
+}
+
+
+int readout_particle_getvar_int(_class_particle* p, char * name) {
   void * vval = particle_getvar_void(p, name, 0);
   return *(int*)vval;
 }

@@ -248,6 +248,7 @@ install(FILES ${ALL_MCCODE_LIBS} DESTINATION ${Readout_DATADIR})
 install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_orig.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_collector.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_discrete.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_structs.h"
         DESTINATION ${Readout_INCDIR}
 )

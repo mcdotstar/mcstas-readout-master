@@ -146,13 +146,13 @@ int int_ring, int_fen, int_tube, int_A, int_B, int_C, int_D;
 double double_tof;
 
 if (pp) {
-  int_ring = collector_particle_getvar_int(_particle, ring);
-  int_fen = fen_present ? collector_particle_getvar_int(_particle, fen) : fen_value;
-  int_tube = collector_particle_getvar_int(_particle, tube);
-  int_A = a_present ? collector_particle_getvar_int(_particle, a_name) : a_value;
-  int_B = b_present ? collector_particle_getvar_int(_particle, b_name) : b_value;
-  int_C = c_present ? collector_particle_getvar_int(_particle, c_name) : c_value;
-  int_D = d_present ? collector_particle_getvar_int(_particle, d_name) : d_value;
+  int_ring = readout_particle_getvar_int(_particle, ring);
+  int_fen = fen_present ? readout_particle_getvar_int(_particle, fen) : fen_value;
+  int_tube = readout_particle_getvar_int(_particle, tube);
+  int_A = a_present ? readout_particle_getvar_int(_particle, a_name) : a_value;
+  int_B = b_present ? readout_particle_getvar_int(_particle, b_name) : b_value;
+  int_C = c_present ? readout_particle_getvar_int(_particle, c_name) : c_value;
+  int_D = d_present ? readout_particle_getvar_int(_particle, d_name) : d_value;
   double_tof = particle_getvar(_particle, tof, 0);
 } else {
   int_ring = (int)(rand01() * 3);

@@ -77,6 +77,10 @@ ring="RING", fen="FEN", tube="TUBE", event_mode="p", a_name="A", b_name="B", tof
 filename=filename, point=point, total_points=total_points, verbose=1
 ) AT (0, 0, 3) ABSOLUTE
 
+COMPONENT discrete_monitor = ReadoutDiscreteCAEN(
+  ring="RING", fen="FEN", tube="TUBE", a_name="A", b_name="B", tof="tof", ip="127.0.0.1", port=9002
+) AT (0, 0, 4) ABSOLUTE
+
 END
 EOF
 

@@ -1,6 +1,14 @@
 #ifndef MCCODE_LIB_READOUT_H
 #define MCCODE_LIB_READOUT_H
 
+#ifndef MCSTAS
+struct _struct_particle;
+typedef struct _struct_particle _class_particle;
+
+double particle_getvar(_class_particle* p, const char* name, int* signal);
+void * particle_getvar_void(_class_particle* p, const char* name, int* signal);
+#endif
+
 #include <signal.h>
 #include <unistd.h> // for execve
 #include <sys/time.h>
@@ -11,11 +19,17 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include <readout_collector.h>
+#include <Readout.h>
 
-void collector_error(char * named, char * variable);
+void lib_readout_error(const char * comp_type, const char* named, const char * message, const char* variable);
 
-int collector_particle_getvar_int(_class_particle* p, char * name);
+void readout_caen_error(const char * named, const char * variable);
+void readout_ttlmonitor_error(const char * named, const char * variable);
+void collector_error(const char * message, const char * variable);
+
+void readout_particle_check(const char * comp_type, const char * comp_name, _class_particle* p, int present, char * name);
+
+int readout_particle_getvar_int(_class_particle* p, char * name);
 
 void collector_sink_parameters(char * named);
 
