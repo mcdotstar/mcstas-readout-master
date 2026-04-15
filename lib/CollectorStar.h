@@ -14,15 +14,11 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <cstdint>
-#include <cstring>
-#include <cstddef>
 
 #include "TypeDescriptionParser.h"
 
 #include <highfive/H5File.hpp>
 #include <highfive/H5DataSet.hpp>
-#include <highfive/H5DataSpace.hpp>
 
 #ifdef WIN32
 #ifdef READOUT_SHARED
@@ -87,7 +83,10 @@ public:
   void write_hdf5(const std::string& filename) const;
 
   /// Write all collected data into an existing open HDF5 file
-  void write_hdf5(HighFive::File& file) const;
+  void write_hdf5(const HighFive::File& file) const;
+
+  /// Write all collected data into an existing open HDF5 file's group
+  void write_hdf5(HighFive::Group& group) const;
 
 private:
   void init_with_description(const std::string& type_description);

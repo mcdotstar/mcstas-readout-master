@@ -14,7 +14,6 @@
 #include <string>
 #include <vector>
 #include <stdexcept>
-#include <cstddef>
 
 /// A single field in a parsed struct description
 struct SchemaField {

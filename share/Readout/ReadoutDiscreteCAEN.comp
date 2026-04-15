@@ -1,0 +1,189 @@
+DEFINE COMPONENT ReadoutDiscreteCAEN
+DEFINITION PARAMETERS()
+SETTING PARAMETERS (
+int discrete_count = 0,
+double discrete_fraction = 1.,
+double discrete_maximum = 1e7,
+string ring = 0,
+string fen = 0,
+string tube = 0,
+string a_name = 0,
+string b_name = 0,
+string c_name = 0,
+string d_name = 0,
+string tof = "t",
+string ip = 0,
+int fen_value=0,
+int a_value=0,
+int b_value=0,
+int c_value=0,
+int d_value=0,
+int port = 9000,
+int command_port = 10800,
+int broadcast = 1,
+pulse_rate = 14,
+string event_mode = "p",
+int verbose=0, // -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+int ess_type=52 // 0x34 == 52, 0x41==65
+)
+OUTPUT PARAMETERS ()
+DEPENDENCY "-Wl,-rpath,CMD(readout-config --show libdir) -LCMD(readout-config --show libdir) -lreadout -ICMD(readout-config --show includedir)"
+SHARE
+%{
+%include "lib-readout"
+
+struct collect_caen_readout {
+    uint8_t ring_;
+    uint8_t fen_;
+    uint8_t channel_;
+    double time_;
+    double weight_;
+    uint16_t a_;
+    uint16_t b_;
+    uint16_t c_;
+    uint16_t d_;
+};
+
+%}
+
+DECLARE
+%{
+array_t * array_ptr;
+double total_weight;
+
+int p_or_pp;
+int fen_present;
+int a_present;
+int b_present;
+int c_present;
+int d_present;
+%}
+
+INITIALIZE
+%{
+total_weight = 0;
+
+fen_present = ((fen != NULL) && (fen[0] != '\0')) ? 1 : 0;
+a_present = ((a_name != NULL) && (a_name[0] != '\0')) ? 1 : 0;
+b_present = ((b_name != NULL) && (b_name[0] != '\0')) ? 1 : 0;
+c_present = ((c_name != NULL) && (c_name[0] != '\0')) ? 1 : 0;
+d_present = ((d_name != NULL) && (d_name[0] != '\0')) ? 1 : 0;
+// Make sure the provided property names are accessible -- no error checking later
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, 1, ring);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, fen_present, fen);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, 1, tube);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, a_present, a_name);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, b_present, b_name);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, c_present, c_name);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, d_present, d_name);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, 1, tof);
+
+p_or_pp = (strcmp(event_mode, "p") == 0) ? 0 : 1;
+if (p_or_pp && !strcmp(event_mode, "pp")) readout_caen_error(NAME_CURRENT_COMP, "Undefined event mode");
+
+array_ptr = new_array(sizeof(struct collect_caen_readout)); // new_array(27u)?
+
+%}
+
+TRACE
+%{
+double pp = particle_getvar(_particle, "p", 0); // * sqrt((double)(mcget_ncount()));
+if (p_or_pp) pp *= pp;
+
+int int_ring, int_fen, int_tube, int_A, int_B, int_C, int_D;
+double double_tof;
+
+if (pp) {
+  struct collect_caen_readout collect_readout_data = {
+      (uint8_t) readout_particle_getvar_int(_particle, ring),
+      (uint8_t) fen_present ? readout_particle_getvar_int(_particle, fen) : fen_value,
+      (uint8_t) readout_particle_getvar_int(_particle, tube),
+      (double) particle_getvar(_particle, tof, 0),
+      (double) pp,
+      (uint16_t) a_present ? readout_particle_getvar_int(_particle, a_name) : a_value,
+      (uint16_t) b_present ? readout_particle_getvar_int(_particle, b_name) : b_value,
+      (uint16_t) c_present ? readout_particle_getvar_int(_particle, c_name) : c_value,
+      (uint16_t) d_present ? readout_particle_getvar_int(_particle, d_name) : d_value
+  };
+  array_add(array_ptr, (const void *) & collect_readout_data);
+  // keep track of the total submitted weight
+  total_weight += pp;
+}
+
+%}
+
+FINALLY
+%{
+
+readout_t* readout_ptr;
+// Include the header file and run any initialization for the real broadcaster
+if (ip == 0 || ip[0] == '\0'){
+	readout_ptr = readout_create("127.0.0.1", port, command_port, pulse_rate, ess_type);
+} else {
+	readout_ptr = readout_create(ip, port, command_port, pulse_rate, ess_type);
+}
+readout_newPacket(readout_ptr);
+readout_verbose(readout_ptr, verbose);
+if (!broadcast) readout_disable_network(readout_ptr);
+
+// Get the samples and send them (on individual MPI nodes is fine)
+
+// estimate how many samples we should take:
+size_t samples;
+if (discrete_count) {
+  samples = (size_t) discrete_count;
+} else {
+  // Allow to sample any fraction of the expected counts per second
+  total_weight *= discrete_fraction;
+  // But ensure we don't go crazy with memory requirements
+  samples = (size_t) (total_weight > discrete_maximum ? discrete_maximum : total_weight);
+}
+
+if (verbose > 1)
+  printf("ReadoutDiscreteCAEN(%s): Total weight %e, sampling %zu events\n", NAME_CURRENT_COMP, total_weight, samples);
+
+// Now we can sample and broadcast
+// McStas' random() might return a double or a 64-bit integer, but we only need 32 bits of randomness
+index_sampler_t * sampler_ptr = new_index_sampler(samples, (uint32_t)(0xFF & random()));
+
+struct collect_caen_readout ccr;
+size_t count = array_size(array_ptr);
+do {
+  // First time through is always needed
+  for (size_t i=0; i<count; i++){
+    array_get(array_ptr, i, (void *) &ccr);
+    index_sampler_fit(sampler_ptr, i, ccr.weight_);
+  }
+  // fit the sampler to the data and get the next sample index until we have enough samples
+  // But maybe the user should be able to pass a setting to prevent this.
+} while (index_sampler_filling(sampler_ptr));
+
+// Do the broadcasting:
+CAEN_readout_t readout_data;
+for (size_t i=0; i<samples; i++){
+  size_t index = index_sampler_value(sampler_ptr, i);
+  array_get(array_ptr, index, (void *) &ccr);
+  readout_data.channel = ccr.channel_;
+  readout_data.a = ccr.a_;
+  readout_data.b = ccr.b_;
+  readout_data.c = ccr.c_;
+  readout_data.d = ccr.d_;
+  // This needs to not require a weight... 0 is a hack to bypass the Poisson sampling, since we already sampled
+  readout_add(readout_ptr, ccr.ring_, ccr.fen_, ccr.time_, 0., (const void *)(&readout_data));
+}
+
+
+// perform any teardown of the stateful broadcaster
+if (broadcast) readout_send(readout_ptr);
+// Remove the interface component
+readout_destroy(readout_ptr);
+
+delete_index_sampler(sampler_ptr);
+delete_array(array_ptr);
+%}
+
+MCDISPLAY
+%{
+%}
+
+END

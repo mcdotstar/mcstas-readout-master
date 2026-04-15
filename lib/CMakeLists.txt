@@ -1,6 +1,7 @@
 list(APPEND LIB_SOURCES
         readout_orig.cpp
         readout_collector.cpp
+        readout_discrete.cpp
         Readout_merge.cpp
         ReadoutClass.cpp
         enums.cpp
@@ -11,6 +12,7 @@ list(APPEND LIB_SOURCES
         CollectorClass.cpp
         TypeDescriptionParser.cpp
         CollectorStar.cpp
+        Array.cpp
 )
 
 foreach(LIB_SOURCE IN LISTS LIB_SOURCES)

@@ -136,6 +136,10 @@ public:
         return seen_k_ == 0;
     }
 
+    bool is_filling() const {
+        return seen_k_ < n_;
+    }
+
     // Return the current sample (valid only if seen_k >= n)
     std::vector<T> value() const {
         if (seen_k_ == 0) {
@@ -145,6 +149,13 @@ public:
         // For WRSWR, value() returns the final n elements directly
         // (they're already in the container after the initial sort)
         return std::vector<T>(elements_.begin(), elements_.end());
+    }
+
+    T value(const size_t index) const {
+        if (index >= n_) {
+            throw std::out_of_range("Index out of range for sample size");
+        }
+        return elements_[index];
     }
 
     // Return sample in collection order (only for ordered samplers)
