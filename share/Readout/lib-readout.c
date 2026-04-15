@@ -69,7 +69,7 @@ void collector_merge_mpi(const char * filename, int point, int total_points, con
     for (int i=0; i<mpi_node_count; i++){
       inputs[i] = (char *) malloc(collector_mpi_node_filename_size(basepath, filename, i, mpi_node_count) * sizeof(char));
     }
-    collector_mpi_node_filenames(basepath, filename, mpi_node_count, inputs);
+    collector_mpi_node_filenames(basepath, filename, inputs, mpi_node_count);
 
     collector_merge((const char *) output, (const char **) inputs, mpi_node_count, point, total_points, dataset, reset_dataset);
 
