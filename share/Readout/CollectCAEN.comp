@@ -186,6 +186,7 @@ SAVE
 if (merge_mpi){
   // Flush the MPI data files into the main file; this requires that we close and reopen all files!
   collector_free(collector_ptr);
+  collector_ptr = NULL;
   MPI_Barrier(MPI_COMM_WORLD);
   int sink_status = collector_sink_open(this_filename);
   MPI_MASTER(
@@ -213,7 +214,10 @@ if (merge_mpi){
 FINALLY
 %{
 // Remove the interface component, which will also close the file and allow merging if wanted
-collector_free(collector_ptr);
+if (collector_ptr != NULL) {
+  collector_free(collector_ptr);
+  collector_ptr = NULL;
+}
 
 // combine output files if necessary: should be in a SAVE block before FINALLY, but files are not closed until now.
 if (merge_mpi){

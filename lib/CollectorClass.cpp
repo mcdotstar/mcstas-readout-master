@@ -161,7 +161,7 @@ std::string validate_collector_group(const HighFive::Group & group, const std::o
         const auto param_name = param_group.getObjectName(j);
         if (param_group.getObjectType(param_name) != ObjectType::Dataset) {
           message << "Node " << param_name << " in parameters is not a dataset." << std::endl;
-        } else if (auto dims = param_group.getDataSet(param_name).getDimensions(); dims.size() != 0 || (dims.size() == 1 && dims.front() != 1)) {
+        } else if (auto dims = param_group.getDataSet(param_name).getDimensions(); dims.size() > 1 || (dims.size() == 1 && dims.front() != 1)) {
           message << "Parameter " << param_name << " is not scalar." << std::endl;
         }
       }
@@ -615,7 +615,13 @@ void merge_collector_datasets(const std::string & out_filename, const std::vecto
           if (datatype != expected_type) {
             std::cerr << "Warning: dataset " << dataset_name << " in file " << in_file << " has data type which does not match the expected type for its readout. This may cause problems when merging." << std::endl;
           }
-          out_collector.createDataSet(dataset_name, dataspace, datatype);
+          // Extensible datasets require chunked storage
+          DataSetCreateProps props;
+          props.add(Chunking(std::vector<hsize_t>{100}));
+          auto out_ds = out_collector.createDataSet(dataset_name, dataspace, datatype, props);
+          auto detector_type_name = in_data.getAttribute(C::detector_attribute_name()).read<std::string>();
+          auto detector_type = detectorType_from_name(detector_type_name);
+          ensure_dataset_attributes(out_ds, detector_type, readout_type);
         }
         auto out_data = out_collector.getDataSet(dataset_name);
         auto in_dims = in_data.getDimensions();

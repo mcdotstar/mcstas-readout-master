@@ -196,6 +196,9 @@ if (READOUT_DEVELOPMENT_MODE)
         COMMAND ${CMAKE_COMMAND} -E copy
             "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_structs.h"
             "${CMAKE_BINARY_DIR}/include/readout_structs.h"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_discrete.h"
+            "${CMAKE_BINARY_DIR}/include/readout_discrete.h"
 #        COMMAND ${CMAKE_COMMAND} -E copy
 #            "${CMAKE_CURRENT_SOURCE_DIR}/lib/CollectorClass.h"
 #            "${CMAKE_BINARY_DIR}/include/CollectorClass.h"
