@@ -184,7 +184,7 @@ delete_index_sampler(sampler_ptr);
 if (clear_on_save){
   array_clear(array_ptr);
 }
-}
+%}
 
 FINALLY
 %{
