@@ -71,7 +71,7 @@ void collector_merge_mpi(const char * filename, int point, int total_points, con
     }
     collector_mpi_node_filenames(basepath, filename, inputs, mpi_node_count);
 
-    collector_merge((const char *) output, (const char **) inputs, mpi_node_count, point, total_points, dataset, reset_dataset);
+    collector_merge((const char *) output, (const char **) inputs, mpi_node_count, point, total_points, dataset, reset_datasets);
 
     if (remove_input_files){
       for (int i=0; i<mpi_node_count; i++){
