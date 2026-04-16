@@ -84,11 +84,11 @@ void collector_merge_mpi(const char * filename, int point, int total_points, con
     }
 
     free(basepath);
-    free(output_filename);
+    free(output);
     for (int i=0; i<mpi_node_count; i++){
-      free(merge_filenames[i]);
+      free(inputs[i]);
     }
-    free(merge_filenames);
+    free(inputs);
   }
 #endif
 }
