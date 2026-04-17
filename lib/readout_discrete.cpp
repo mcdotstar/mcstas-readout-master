@@ -168,6 +168,11 @@ void array_clear(const array_t * array) {
     static_cast<Array*>(array->obj)->clear();
 }
 
+const uint8_t * array_data(const array_t * array) {
+    if (array == nullptr) return nullptr;
+    return static_cast<Array*>(array->obj)->data();
+}
+
 struct index_sampler_object {
     void * obj;
 };

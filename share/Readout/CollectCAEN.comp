@@ -24,8 +24,6 @@ noise_level=0.1,
 string event_mode = "p",
 string filename = 0,
 string dataset_name = 0,
-int merge_mpi=1,
-int keep_mpi_unmerged=0,
 int verbose=0, // -1: silent, 0: errors, 1: warnings, 2: info, 3: details
 int ess_type=52 // 0x34 == 52, 0x41==65
 )
@@ -34,13 +32,23 @@ DEPENDENCY "-Wl,-rpath,CMD(readout-config --show libdir) -LCMD(readout-config --
 SHARE
 %{
 %include "lib-readout"
+
+// TODO If changing this struct, ensure that no element names clash with particle, component, or instrument parameter names!
+struct collect_caen_readout {
+    CAEN_readout_t readout;
+    double stash_w; // weight
+    double stash_t; // time
+    uint8_t stash_f; // FEN
+    uint8_t stash_l; // Element/Ring value
+};
 %}
 
 DECLARE
 %{
 // pre-declare the stateful objects
-CAEN_readout_t readout_data;
-collector_t* collector_ptr;
+array_t * array_ptr;
+collector_t * collector_ptr; // only used by the main node under MPI
+
 int p_or_pp;
 int fen_present;
 int a_present;
@@ -48,7 +56,6 @@ int b_present;
 int c_present;
 int d_present;
 
-char * safe_filename;
 char * this_filename;
 char * this_dataset_name;
 %}
@@ -58,7 +65,7 @@ INITIALIZE
 char * basepath = mcfull_file("", NULL); // get the full path to the output directory, if applicable
 
 this_filename = NULL;
-safe_filename = NULL;
+char * safe_filename = NULL;
 if (filename == NULL || filename[0] == '\0') {
   // no filename provided, so make a safe one to collect events
   safe_filename = (char *) calloc(17, sizeof(char));
@@ -67,19 +74,10 @@ if (filename == NULL || filename[0] == '\0') {
   safe_filename = (char *) calloc(strlen(filename)+1, sizeof(char));
   strcpy(safe_filename, filename);
 }
-#if defined USE_MPI
-// the filename, if present should be unique for each MPI process
-  MPI_MASTER(fprintf(stdout, "Message(%s): You are using HDF5 output with MPI, "
-                             "hence your will get %i filenames %s.node_#i.h5 as output.\n",
-                             NAME_CURRENT_COMP, mpi_node_count, safe_filename);
-  );
-  this_filename = (char *) calloc(collector_mpi_node_filename_size(basepath, safe_filename, mpi_node_rank, mpi_node_count), sizeof(char));
-  collector_mpi_node_filename(basepath, safe_filename, this_filename, mpi_node_rank, mpi_node_count);
-#else
-  this_filename = (char *) calloc(collector_construct_filename_size(basepath, safe_filename), sizeof(char));
-  collector_construct_filename(basepath, safe_filename, this_filename);
-#endif
-
+// construct the filename (all nodes _know_ the real filename, but only the main node will actually write to it)
+this_filename = (char *) calloc(collector_construct_filename_size(basepath, safe_filename), sizeof(char));
+collector_construct_filename(basepath, safe_filename, this_filename);
+free(safe_filename);
 if (basepath) free(basepath);
 
 int have_dataset_name = (dataset_name != NULL) && (dataset_name[0] != '\0');
@@ -123,22 +121,27 @@ if (this_filename == NULL || this_filename[0] == '\0') {
   collector_error(NAME_CURRENT_COMP, "Filename is empty after processing, cannot create Collector instance.");
 }
 
-collector_ptr = collector_new(this_filename, point, total_points, this_dataset_name, ess_type);
-
-if (collector_sink_users(this_filename) == 1){
-// this is the first instance to open the file -- take this opportunity to send parameter updates
-collector_sink_parameters(NAME_CURRENT_COMP);
+#ifdef USE_MPI
+collector_ptr = NULL; // initialize to NULL in case this is not the master node
+if (mpi_node_rank == mpi_node_root) {
+#endif
+  // Create the Collector instance on the main node (or the only node if not using MPI)
+  collector_ptr = collector_new(this_filename, point, total_points, this_dataset_name, ess_type);
+  // Multiple components can use the same output file, so only send parameter updates if this is the first instance to open the file
+  if (collector_sink_users(this_filename) == 1){
+    // this is the first instance to open the file -- take this opportunity to send parameter updates
+    collector_sink_parameters(NAME_CURRENT_COMP);
+  }
+#ifdef USE_MPI
 }
+#endif
+
+array_ptr = new_array(sizeof(struct collect_caen_readout));
 
 %}
 
 TRACE
 %{
-// If we get here following a SAVE, the Collector instance needs to be recreated
-if (collector_ptr == NULL) {
-  collector_ptr = collector_new(this_filename, point, total_points, this_dataset_name, ess_type);
-}
-
 double pp = particle_getvar(_particle, "p", 0); // * sqrt((double)(mcget_ncount()));
 if (p_or_pp) pp *= pp;
 
@@ -146,99 +149,101 @@ int int_ring, int_fen, int_tube, int_A, int_B, int_C, int_D;
 double double_tof;
 
 if (pp) {
-  int_ring = readout_particle_getvar_int(_particle, ring);
-  int_fen = fen_present ? readout_particle_getvar_int(_particle, fen) : fen_value;
-  int_tube = readout_particle_getvar_int(_particle, tube);
-  int_A = a_present ? readout_particle_getvar_int(_particle, a_name) : a_value;
-  int_B = b_present ? readout_particle_getvar_int(_particle, b_name) : b_value;
-  int_C = c_present ? readout_particle_getvar_int(_particle, c_name) : c_value;
-  int_D = d_present ? readout_particle_getvar_int(_particle, d_name) : d_value;
-  double_tof = particle_getvar(_particle, tof, 0);
-} else {
-  int_ring = (int)(rand01() * 3);
-  int_tube = (int)(rand01() * 15);
-  int_fen = fen_value;
-  int_A = a_present ? 100 + (int)(rand01() * 1024) : a_value;
-  int_B = b_present ? 100 + (int)(rand01() * 1024) : b_value;
-  int_C = c_present ? 100 + (int)(rand01() * 1024) : c_value;
-  int_D = d_present ? 100 + (int)(rand01() * 1024) : d_value;
-  double_tof = rand01() / pulse_rate;
-}
+    struct collect_caen_readout data = {
+        .readout = {
+            .channel = (uint16_t)(readout_particle_getvar_int(_particle, tube)),
+            .a = (uint16_t)(a_present ? readout_particle_getvar_int(_particle, a_name) : a_value),
+            .b = (uint16_t)(b_present ? readout_particle_getvar_int(_particle, b_name) : b_value),
+            .c = (uint16_t)(c_present ? readout_particle_getvar_int(_particle, c_name) : c_value),
+            .d = (uint16_t)(d_present ? readout_particle_getvar_int(_particle, d_name) : d_value)
+        },
+        .stash_w = pp,
+        .stash_t = particle_getvar(_particle, tof, 0),
+        .stash_f = (uint8_t)(fen_present ? readout_particle_getvar_int(_particle, fen) : fen_value),
+        .stash_l = (uint8_t)(readout_particle_getvar_int(_particle, ring))
+    };
+    if (verbose > 2)
+      printf("(%2u %2u %2u) [%5u %5u %5u %5u] %0.10f -- Collected\n", data.stash_l, data.stash_f, int_tube, data.readout.a, data.readout.b, data.readout.c, data.readout.d, data.stash_t);
 
-// add error checking of int -> uintN_t values?
-uint8_t RING = (uint8_t)int_ring;
-uint8_t FEN = (uint8_t)int_fen;
-readout_data.channel = (uint8_t)int_tube;
-readout_data.a = (uint16_t)int_A;
-readout_data.b = (uint16_t)int_B;
-readout_data.c = (uint16_t)int_C;
-readout_data.d = (uint16_t)int_D;
-if (verbose > 2)
-  printf("(%2u %2u %2u) %5u %5u %0.10f -- Accumulated\n", RING, FEN, readout_data.channel, readout_data.a, readout_data.b, double_tof);
-// Send the event to the broadcaster to be accumulated and broadcast and/or store the event to file
-collector_add(collector_ptr, RING, FEN, double_tof, pp, (const void *)(&readout_data));
+    // Store the event data in the array for later accumulation and writing to file in the SAVE block
+    array_add(array_ptr, (const void *)(&data));
+}
 
 %}
 
 SAVE
 %{
 #if defined USE_MPI
-if (merge_mpi){
-  // Flush the MPI data files into the main file; this requires that we close and reopen all files!
-  collector_free(collector_ptr);
-  collector_ptr = NULL;
-  MPI_Barrier(MPI_COMM_WORLD);
-  int sink_status = collector_sink_open(this_filename);
-  MPI_MASTER(
-  if (sink_status == 0){
-    // the file is actually closed, otherwise another Component has it open for writing and we can not merge yet
-    // ..., 1, 0) means reset datasets (remove merged data) but keep the files in case we're headed back to TRACE
-    collector_merge_mpi(safe_filename, point, total_points, this_dataset_name, 1, 0);
-  } else if (verbose > 0) {
-    // the file is still open in another Component, so we can not merge yet
-    if (sink_status > 0) {
-      fprintf(stdout, "Message(%s): Output file %s still open in another Component, cannot merge MPI files yet.\n", NAME_CURRENT_COMP, this_filename);
-    } else {
-      fprintf(stdout, "Error(%s): File other than %s open in CollectorSink, error code %i.\n", NAME_CURRENT_COMP, this_filename, sink_status);
-    }
-  }
-  );
-  // we can only reopen after the actual merge has occurred, but that might happen in another component SAVE block
-  // -> wait for our next TRACE to reopen the file and continue writing to it
-}
-#endif
+  // Perform an MPI_Gather on the array_t data
+  MPI_Datatype mpi_collect_readout_type;
+  MPI_Type_contiguous(sizeof(struct collect_caen_readout), MPI_BYTE, &mpi_collect_readout_type);
+  MPI_Type_commit(&mpi_collect_readout_type);
 
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+  int local_count = (int) array_size(array_ptr);
+  int global_count = 0;
+  int * recv_counts = NULL;
+  int * displacements = NULL;
+  struct collect_caen_readout * recv_buffer = NULL;
+
+  if (mpi_node_rank == mpi_node_root) {
+    recv_counts = (int *) malloc(world_size * sizeof(int));
+    displacements = (int *) malloc(world_size * sizeof(int));
+  }
+
+  MPI_Gather(&local_count, 1, MPI_INT, recv_counts, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+  if (mpi_node_rank == mpi_node_root) {
+    for (int i=0; i < world_size; i++){
+      displacements[i] = (i == 0) ? 0 : displacements[i-1] + recv_counts[i-1];
+      global_count += recv_counts[i];
+    }
+    recv_buffer = (struct collect_caen_readout *) malloc(global_count * sizeof(struct collect_caen_readout));
+  }
+
+  const uint8_t * local_data = array_data(array_ptr);
+  MPI_Gatherv((void *)local_data, local_count, mpi_collect_readout_type, recv_buffer, recv_counts, displacements, mpi_collect_readout_type, 0, MPI_COMM_WORLD);
+
+  if (mpi_node_rank == mpi_node_root) {
+    // Loop over the received data and add it to the Collector instance
+    for (int i=0; i < global_count; i++){
+      struct collect_caen_readout * data = &recv_buffer[i];
+      collector_add(collector_ptr, data->stash_l, data->stash_f, data->stash_t, data->stash_w, (const void *)(&data->readout));
+    }
+    free(recv_buffer);
+    free(recv_counts);
+    free(displacements);
+  }
+  MPI_Type_free(&mpi_collect_readout_type);
+#else
+  size_t count = array_size(array_ptr);
+  struct collect_caen_readout data;
+  for (size_t i=0; i < count; i++){
+    array_get(array_ptr, i, (void *) &data);
+    collector_add(collector_ptr, data.stash_l, data.stash_f, data.stash_t, data.stash_w, (const void *)(&data.readout));
+  }
+#endif
+// And clear our in-memory array for the next round of accumulation
+array_clear(array_ptr);
 %}
 
 
 FINALLY
 %{
+// The array was cleared at the end of SAVE so it _should_ be empty:
+if (array_size(array_ptr) != 0) {
+  fprintf(stderr, "Warning: array still has %zu elements at FINALLY block of %s\n", array_size(array_ptr), NAME_CURRENT_COMP);
+}
+
 // Remove the interface component, which will also close the file and allow merging if wanted
 if (collector_ptr != NULL) {
   collector_free(collector_ptr);
   collector_ptr = NULL;
 }
 
-// combine output files if necessary: should be in a SAVE block before FINALLY, but files are not closed until now.
-if (merge_mpi){
-#if defined USE_MPI
-MPI_Barrier(MPI_COMM_WORLD);
-MPI_MASTER(
-    int sink_status = collector_sink_open(this_filename);
-    if (sink_status == 0){
-        collector_merge_mpi(safe_filename, point, total_points, this_dataset_name, 0, !keep_mpi_unmerged); // don't reset datasets in case we want to keep the files
-    } else if (verbose > 0) {
-        // the file is still open in another Component, so we can not merge yet
-        if (sink_status > 0) {
-          fprintf(stdout, "Message(%s): Output file %s still open in another Component, cannot merge MPI files.\n", NAME_CURRENT_COMP, this_filename);
-        } else {
-          fprintf(stderr, "Error(%s): File other than %s open in CollectorSink, error code %i.\n", NAME_CURRENT_COMP, this_filename, sink_status);
-        }
-    }
-);
-#endif
-}
-free(safe_filename);
+delete_array(array_ptr);
+array_ptr = NULL;
 free(this_filename);
 free(this_dataset_name);
 %}

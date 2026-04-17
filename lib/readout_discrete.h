@@ -129,6 +129,7 @@ DISCRETER_API size_t array_size(const array_t * array);
 DISCRETER_API void array_add(const array_t * array, const void * data);
 DISCRETER_API void array_get(const array_t * array, size_t index, void * dst);
 DISCRETER_API void array_clear(const array_t * array);
+DISCRETER_API const uint8_t * array_data(const array_t * array);
 
 DISCRETER_API index_sampler_t * new_index_sampler(size_t samples, uint32_t seed);
 DISCRETER_API void delete_index_sampler(index_sampler_t * sampler);

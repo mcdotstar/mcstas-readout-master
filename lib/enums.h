@@ -35,7 +35,7 @@ enum DetectorType {
   MIRACLES = 0x38,
   CSPEC = 0x3c,
   TREX = 0x40,
-  NMX = 0x42,
+  NMX = 0x44,
   FREIA = 0x48,
   TBLVMM = 0x49,
   ESTIA=0x4c,
@@ -43,6 +43,7 @@ enum DetectorType {
   DREAM = 0x60,
   MAGIC = 0x64,
   HEIMDAL = 0x68,
+  // Common Beam Monitor types don't (yet) have defined identifiers
   CBM0 = 0xf0,
   CBM1 = 0xf1,
   CBM2 = 0xf2,

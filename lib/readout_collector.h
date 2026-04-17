@@ -77,7 +77,7 @@ extern "C" {
    * runtime; as every component would merge their own and other component's datasets you may duplicate data.
    * Instead, you should use the dataset-specific merge.
    */
-  RL_API void collector_merge_files(const char * out_filename, const char ** in_filenames, size_t count, int point, int total_points);
+  RL_API void collector_merge_files(const char * out_filename, const char ** in_filenames, size_t count, int point, int total_points, int reset_datasets);
 
   RL_API void collector_merge(const char * out_filename, const char ** in_filenames, size_t count, int point, int total_points, const char * dataset, int reset_datasets);
 

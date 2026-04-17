@@ -57,6 +57,9 @@ public:
   /// Clear all collected data but keep the allocated memory for reuse
   void clear() {count_ = 0;}
 
+  ///  Return a pointer to the first element
+ [[nodiscard]] const uint8_t * data() const { return &data_.front(); }
+
 private:
   std::vector<uint8_t> data_;
   size_t bytes_;

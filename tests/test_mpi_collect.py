@@ -36,7 +36,7 @@ except ImportError:
 
 
 def _readout_config_works() -> bool:
-    import shutil, subprocess
+    import subprocess
     try:
         env = _build_env()
         result = subprocess.run(
@@ -113,36 +113,36 @@ class TestMPICollectCAEN:
     def test_mpi_collect_runs(self):
         """CollectCAEN compiles with mpicc and runs under mpirun without error."""
         result, dats = _mpi_compile_and_run(f"""
-DEFINE INSTRUMENT test_mpi_collect(string filename="mpi_output")
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  filename=filename, verbose=1
-) AT (0, 0, 1) ABSOLUTE
-END
-""", parameters="-n 100 filename=mpi_output", nranks=2)
+            DEFINE INSTRUMENT test_mpi_collect(string filename="mpi_output")
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            COMPONENT collector = CollectCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+        """, parameters="-n 100 filename=mpi_output", nranks=2)
         assert b"TRACE end" in result
 
     @mpi_compiled_test
     def test_mpi_collect_produces_hdf5(self, tmp_path):
         """MPI run produces an HDF5 file containing events from all ranks."""
         result, dats = _mpi_compile_and_run(f"""
-DEFINE INSTRUMENT test_mpi_collect_h5(string filename="mpi_events")
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  filename=filename, verbose=1
-) AT (0, 0, 1) ABSOLUTE
-END
-""", parameters="-n 100 filename=mpi_events", nranks=2, directory=str(tmp_path))
+            DEFINE INSTRUMENT test_mpi_collect_h5(string filename="mpi_events")
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            COMPONENT collector = CollectCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+        """, parameters="-n 100 filename=mpi_events", nranks=2, directory=str(tmp_path))
         assert b"TRACE end" in result
 
         h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
@@ -155,18 +155,18 @@ END
         h5py = pytest.importorskip("h5py")
 
         result, dats = _mpi_compile_and_run(f"""
-DEFINE INSTRUMENT test_mpi_count(string filename="mpi_count")
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  filename=filename, verbose=1
-) AT (0, 0, 1) ABSOLUTE
-END
-""", parameters="-n 100 filename=mpi_count", nranks=2, directory=str(tmp_path))
+            DEFINE INSTRUMENT test_mpi_count(string filename="mpi_count")
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            COMPONENT collector = CollectCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+        """, parameters="-n 100 filename=mpi_count", nranks=2, directory=str(tmp_path))
         assert b"TRACE end" in result
 
         h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
@@ -186,18 +186,18 @@ END
         h5py = pytest.importorskip("h5py")
 
         result, dats = _mpi_compile_and_run(f"""
-DEFINE INSTRUMENT test_mpi_points(string filename="mpi_points", int point=0, int total_points=1)
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  filename=filename, point=point, total_points=total_points, verbose=1
-) AT (0, 0, 1) ABSOLUTE
-END
-""", parameters="-n 50 filename=mpi_points point=0 total_points=1",
+            DEFINE INSTRUMENT test_mpi_points(string filename="mpi_points", int point=0, int total_points=1)
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            COMPONENT collector = CollectCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              filename=filename, point=point, total_points=total_points, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+        """, parameters="-n 50 filename=mpi_points point=0 total_points=1",
             nranks=2, directory=str(tmp_path))
         assert b"TRACE end" in result
 
@@ -217,18 +217,18 @@ END
         h5py = pytest.importorskip("h5py")
 
         result, dats = _mpi_compile_and_run(f"""
-DEFINE INSTRUMENT test_mpi_4ranks(string filename="mpi_4ranks")
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  filename=filename, verbose=1
-) AT (0, 0, 1) ABSOLUTE
-END
-""", parameters="-n 100 filename=mpi_4ranks", nranks=4, directory=str(tmp_path))
+            DEFINE INSTRUMENT test_mpi_4ranks(string filename="mpi_4ranks")
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            COMPONENT collector = CollectCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+        """, parameters="-n 100 filename=mpi_4ranks", nranks=4, directory=str(tmp_path))
         assert b"TRACE end" in result
 
         h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
@@ -251,25 +251,25 @@ END
         h5py = pytest.importorskip("h5py")
 
         result, dats = _mpi_compile_and_run(f"""
-DEFINE INSTRUMENT test_mpi_multi(string filename="mpi_multi")
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-
-COMPONENT readout = ReadoutCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  ip="127.0.0.1", port=9000, broadcast=0
-) AT (0, 0, 1) ABSOLUTE
-
-COMPONENT collector = CollectCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  filename=filename, verbose=1
-) AT (0, 0, 2) ABSOLUTE
-END
-""", parameters="-n 100 filename=mpi_multi", nranks=2, directory=str(tmp_path))
+            DEFINE INSTRUMENT test_mpi_multi(string filename="mpi_multi")
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            
+            COMPONENT readout = ReadoutCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              ip="127.0.0.1", port=9000, broadcast=0
+            ) AT (0, 0, 1) ABSOLUTE
+            
+            COMPONENT collector = CollectCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1
+            ) AT (0, 0, 2) ABSOLUTE
+            END
+        """, parameters="-n 100 filename=mpi_multi", nranks=2, directory=str(tmp_path))
         assert b"TRACE end" in result
 
         h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
@@ -280,3 +280,73 @@ END
         with h5py.File(str(h5_path), "r") as f:
             assert "collector" in f
             assert f["collector"].shape[0] == 100
+
+
+    @mpi_compiled_test
+    def test_multi_collectors(self, tmp_path):
+        """Multi-component instrument: 4x CollectCAEN under MPI."""
+        h5py = pytest.importorskip("h5py")
+
+        total_rays = 1000
+
+        result, dats = _mpi_compile_and_run(f"""
+            DEFINE INSTRUMENT test_multi_collectors(string filename="mpi_multi")
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            
+            COMPONENT xswitch = Arm() AT (0, 0, 0) ABSOLUTE EXTEND %{{
+            x = rand01() - 0.5;
+            y = rand01() - 0.5;
+            %}}
+            
+            COMPONENT profile = PSD_monitor(
+              nx = 11,
+              ny = 11,
+              filename = "profile.dat",
+              xwidth = 2.,
+              yheight = 2.) 
+             AT (0, 0, 1) ABSOLUTE
+            
+            COMPONENT collector_mm = CollectCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1, dataset_name="collector--"
+            ) WHEN (x < 0 && y < 0) AT (0, 0, 2) ABSOLUTE 
+            COMPONENT collector_mp = CollectCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1, dataset_name="collector-+"
+            ) WHEN (x < 0 && y >= 0) AT (0, 0, 2) ABSOLUTE 
+            COMPONENT collector_pm = CollectCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1, dataset_name="collector+-"
+            ) WHEN (x >= 0 && y < 0) AT (0, 0, 2) ABSOLUTE 
+            COMPONENT collector_pp = CollectCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1, dataset_name="collector++"
+            ) WHEN (x >= 0 && y >= 0) AT (0, 0, 2) ABSOLUTE 
+            
+            END
+        """, parameters=f"-n {total_rays} filename=mpi_multi", nranks=2, directory=str(tmp_path))
+        assert b"TRACE end" in result
+
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists()
+
+        def is_present_count(name, container):
+            assert name in container
+            return container[name].shape[0]
+
+
+        with h5py.File(str(h5_path), "r") as f:
+            mm = is_present_count('collector--', f)
+            mp = is_present_count('collector-+', f)
+            pm = is_present_count('collector+-', f)
+            pp = is_present_count('collector++', f)
+            assert mm + mp + pm + pp == total_rays

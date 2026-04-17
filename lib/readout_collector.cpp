@@ -48,14 +48,14 @@ void collector_add(const collector_t* c_ptr, const uint8_t ring, const uint8_t f
   obj->addReadout(ring, fen, tof, weight, data);
 }
 
-void collector_merge_files(const char * out_filename, const char ** in_filenames, const size_t count, const int point, const int total_points) {
+void collector_merge_files(const char * out_filename, const char ** in_filenames, const size_t count, const int point, const int total_points, const int reset_datasets) {
   std::vector<std::string> in_files;
   for (size_t i = 0; i < count; ++i) {
     if (in_filenames[i] != nullptr && in_filenames[i][0] != '\0') {
       in_files.emplace_back(in_filenames[i]);
     }
   }
-  merge_collector_files(out_filename, in_files, point, total_points);
+  merge_collector_files(out_filename, in_files, point, total_points, reset_datasets != 0);
 }
 
 void collector_merge(const char * out_filename, const char ** in_filenames, size_t count, int point, int total_points, const char * dataset, const int reset_datasets) {

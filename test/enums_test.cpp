@@ -8,14 +8,24 @@ TEST_CASE("detectorType_from_int round-trips all known types", "[enums]") {
   const std::vector<std::pair<int, DetectorType>> known = {
     {0x00, Reserved},   {0x10, TTLMonitor}, {0x30, LOKI},
     {0x32, TBL3H3},     {0x34, BIFROST},    {0x38, MIRACLES},
-    {0x3c, CSPEC},       {0x40, TREX},       {0x42, NMX},
+    {0x3c, CSPEC},       {0x40, TREX},       {0x44, NMX},
     {0x48, FREIA},       {0x49, TBLVMM},     {0x4c, ESTIA},
     {0x50, BEER},        {0x60, DREAM},       {0x64, MAGIC},
     {0x68, HEIMDAL},     {0xf0, CBM0},        {0xf1, CBM1},
     {0xf2, CBM2},        {0xfa, CBMI},
   };
   for (const auto& [val, expected] : known) {
-    CHECK(detectorType_from_int(val) == expected);
+    auto returned = DetectorType::Reserved;
+    try {
+      returned = detectorType_from_int(val);
+    } catch(std::runtime_error & ex) {
+      std::stringstream ss;
+      ss << "Test failure for " << val << " when " << expected << " was expected";
+      ss << std::endl << ex.what();
+      std::cerr << ss.str();
+      throw std::runtime_error(ss.str());
+    }
+    CHECK(returned == expected);
   }
 }
 

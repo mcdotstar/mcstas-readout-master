@@ -61,7 +61,8 @@ RL_API bool validate_collector_files(
   std::string & collector_name,
   std::set<std::string> & parameters
   );
-RL_API void merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, int point, int points);
+
+RL_API void merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, int point, int points, bool remove_after_merge);
 
 /// \brief Merge dataset(s) from multiple collector files into a single output file, for a specified scan point if applicable.
 ///
@@ -440,8 +441,7 @@ private:
     auto pos = d.getDimensions().back();
     auto size = pos + 1;
     d.resize({size});
-    d.select({pos}, {1}).write(data
-      ); // select(offset, count)
+    d.select({pos}, {1}).write(data); // select(offset, count)
   }
 };
 

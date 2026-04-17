@@ -145,9 +145,9 @@ std::string validate_collector_group(const HighFive::Group & group, const std::o
   // verify that any datasets in the collector group have the expected attributes and dimensions:
   const auto object_count = group.getNumberObjects();
   std::stringstream message;
-  const auto dan = C::detector_attribute_name();
-  const auto ran = C::readout_attribute_name();
-  const auto pgn = C::parameter_group_name();
+  const auto& dan = C::detector_attribute_name();
+  const auto& ran = C::readout_attribute_name();
+  const auto& pgn = C::parameter_group_name();
   for (size_t i=0; i<object_count; ++i) {
     const auto name = group.getObjectName(i);
     if (group.getObjectType(name) == ObjectType::Dataset && group.getDataSet(name).hasAttribute(dan) && group.getDataSet(name).hasAttribute(ran)) {
@@ -273,8 +273,8 @@ bool validate_collector_files_datasets(
         collector = file.getGroup(collector_name);
       }
       bool all_datasets_valid{true};
-      const auto dan = C::detector_attribute_name();
-      const auto ran = C::readout_attribute_name();
+      const auto& dan = C::detector_attribute_name();
+      const auto& ran = C::readout_attribute_name();
       for (size_t i=0; i<collector.getNumberObjects(); ++i) {
         if (const auto name = collector.getObjectName(i);
           collector.getObjectType(name) == ObjectType::Dataset
@@ -356,10 +356,9 @@ bool validate_collector_files_parameters(
         }
       }
       bool all_parameters_valid{true};
-      const auto pgn = C::parameter_group_name();
+      const auto& pgn = C::parameter_group_name();
       for (size_t i=0; i<collector.getNumberObjects(); ++i) {
-        const auto name = collector.getObjectName(i);
-        if (collector.getObjectType(name) == ObjectType::Group && name == pgn) {
+        if (const auto name = collector.getObjectName(i); collector.getObjectType(name) == ObjectType::Group && name == pgn) {
           auto param_group = collector.getGroup(pgn);
           if (first) {
             for (size_t j=0; j< param_group.getNumberObjects(); ++j) {
@@ -429,7 +428,7 @@ bool validate_collector_files(
 
 
 
-void merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, const int point, const int points) {
+void merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, const int point, const int points, const bool remove_after_merge) {
   using namespace HighFive;
 
   std::set<std::string> datasets;
@@ -458,7 +457,7 @@ void merge_collector_files(const std::string & out_filename, const std::vector<s
       File file(in_file, File::ReadOnly);
       auto in_collector = file.getGroup(collector_name);
 
-      if (first && parameters.size() > 0) {
+      if (first && !parameters.empty()) {
         auto out_param_group = out_collector.createGroup("parameters");
         for (const auto & param_name : parameters) {
           auto in_param_ds = in_collector.getGroup("parameters").getDataSet(param_name);
@@ -521,11 +520,16 @@ void merge_collector_files(const std::string & out_filename, const std::vector<s
 
           auto readout_type_name = in_data.getAttribute("readout").read<std::string>();
           auto readout_type = readoutType_from_name(readout_type_name);
-          auto expected_type = hdf_compound_type(readout_type);
-          if (datatype != expected_type) {
+          if (auto expected_type = hdf_compound_type(readout_type); datatype != expected_type) {
             std::cerr << "Warning: dataset " << dataset_name << " in file " << in_file << " has data type which does not match the expected type for its readout. This may cause problems when merging." << std::endl;
           }
-          out_collector.createDataSet(dataset_name, dataspace, datatype);
+          // Extensible datasets require chunked storage
+          DataSetCreateProps props;
+          props.add(Chunking(std::vector<hsize_t>{100}));
+          auto out_ds = out_collector.createDataSet(dataset_name, dataspace, datatype, props);
+          auto detector_type_name = in_data.getAttribute("detector").read<std::string>();
+          auto detector_type = detectorType_from_name(detector_type_name);
+          ensure_dataset_attributes(out_ds, detector_type, readout_type);
         }
         auto out_data = out_collector.getDataSet(dataset_name);
         auto in_dims = in_data.getDimensions();
@@ -542,6 +546,23 @@ void merge_collector_files(const std::string & out_filename, const std::vector<s
         }
         out_data.resize({out_size + in_size});
         concat_dataset(out_data, in_data, out_size);
+        // accumulate the dataset weight attribute
+        const auto & wan = CollectorSink::weight_attribute_name();
+        if (in_data.hasAttribute(wan)) {
+          auto weight = in_data.getAttribute(wan).read<double>();
+          if (out_data.hasAttribute(wan)) {
+            weight += out_data.getAttribute(wan).read<double>();
+            out_data.deleteAttribute(wan);
+          }
+          out_data.createAttribute(wan, weight);
+        }
+        if (remove_after_merge) {
+          in_data.resize({0});
+          if (in_data.hasAttribute(wan)) {
+            in_data.deleteAttribute(wan);
+            in_data.createAttribute(wan, 0.);
+          }
+        }
       }
       first = false;
     }
@@ -575,6 +596,8 @@ static HighFive::Group open_or_create_collector_group(HighFive::File & file, con
 
 
 void merge_collector_datasets(const std::string & out_filename, const std::vector<std::string> & in_filenames, int point, int points, const std::string & which_dataset, const bool remove_after_merge) {
+  // FIXME this can't be used if multiple components are writing to the same file(s)!
+  //       Since only the last encountered component will copy _its_ dataset and all others will be ignored.
   using C=CollectorSink;
   using namespace HighFive;
 
@@ -593,7 +616,6 @@ void merge_collector_datasets(const std::string & out_filename, const std::vecto
   }
 
   try {
-    bool first{true};
     File out_file(out_filename, File::OpenOrCreate);
     ensure_file_attributes(out_file, points);
 
@@ -603,16 +625,18 @@ void merge_collector_datasets(const std::string & out_filename, const std::vecto
       auto in_collector = file.getGroup(collector_name);
 
       for (const auto & dataset_name : datasets) {
+        std::cout << "Copy " << dataset_name << " from " << in_file << std::endl;
         auto in_data = in_collector.getDataSet(dataset_name);
-        if (first && !out_collector.exist(dataset_name)) {
+        if (!out_collector.exist(dataset_name)) {
+        // if (first && !out_collector.exist(dataset_name)) {
+          std::cout << "Create output " << dataset_name << " in " << out_filename << std::endl;
           // create the output datasets with the known total size
           DataSpace dataspace({0}, {sizes[dataset_name]});
           auto datatype = in_data.getDataType();
 
           auto readout_type_name = in_data.getAttribute(C::readout_attribute_name()).read<std::string>();
           auto readout_type = readoutType_from_name(readout_type_name);
-          auto expected_type = hdf_compound_type(readout_type);
-          if (datatype != expected_type) {
+          if (auto expected_type = hdf_compound_type(readout_type); datatype != expected_type) {
             std::cerr << "Warning: dataset " << dataset_name << " in file " << in_file << " has data type which does not match the expected type for its readout. This may cause problems when merging." << std::endl;
           }
           // Extensible datasets require chunked storage
@@ -639,7 +663,7 @@ void merge_collector_datasets(const std::string & out_filename, const std::vecto
         out_data.resize({out_size + in_size});
         concat_dataset(out_data, in_data, out_size);
         // accumulate the dataset's weight attribute
-        if (const auto wan = C::weight_attribute_name(); in_data.hasAttribute(wan)) {
+        if (const auto& wan = C::weight_attribute_name(); in_data.hasAttribute(wan)) {
           auto weight = in_data.getAttribute(wan).read<double>();
           if (out_data.hasAttribute(wan)) {
             weight += out_data.getAttribute(wan).read<double>();
@@ -655,11 +679,11 @@ void merge_collector_datasets(const std::string & out_filename, const std::vecto
           in_data.resize({0});
         }
       }
-      first = false;
       if (remove_after_merge) {
         file.flush();
       }
     }
+
     // done merging, flush the output file to ensure all data is written to disk
     out_file.flush();
   } catch (Exception & ex) {
