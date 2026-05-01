@@ -188,7 +188,7 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const double tof
   lasthi = t.high();
   lastlo = t.low();
   // send the same event (possibly) multiple times, depending on the weighted counting rate
-  if (weight) {
+  if (weight > 0) {
     // only sample the Poisson distribution _once_ per weighted readout:
     const auto n_samples = random_poisson(weight);
     for (int i = 0; i < n_samples; ++i) addReadout(Ring, FEN, t, data);
