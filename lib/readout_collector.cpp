@@ -12,11 +12,11 @@ extern "C" {
     void *obj;
   };
 
-collector_t* collector_new(const char* filename, const int point, const int points, const char * dataset, const int type) {
+collector_t* collector_new(const char* filename, const char * dataset, const int type, const uint64_t normalization) {
   const std::string string_filename(filename);
   const std::string dataset_name = (dataset != nullptr && dataset[0] != '\0') ? std::string(dataset) : "events";
   const auto c_ptr = static_cast<collector_t *>(malloc(sizeof(collector_t)));
-  c_ptr->obj = new Collector(string_filename, dataset_name, point, points, type);
+  c_ptr->obj = new Collector(string_filename, dataset_name, type, normalization);
   return c_ptr;
 }
 

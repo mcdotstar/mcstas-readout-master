@@ -46,15 +46,16 @@
 RL_API int validate_collector_file(const std::string & filename);
 RL_API int validate_collector_file_impl(const HighFive::File & file, const std::string & filename);
 
-RL_API void ensure_file_attributes(HighFive::File & file, int points);
-RL_API void ensure_collector_group_attributes(HighFive::Group & group, int point);
+RL_API void ensure_file_attributes(HighFive::File & file);
+RL_API void ensure_collector_group_attributes(HighFive::Group & group);
 RL_API void ensure_dataset_attributes(HighFive::DataSet & dataset, DetectorType detector, ReadoutType readout);
 
-RL_API std::string validate_is_collector_group(const HighFive::Group & group, std::optional<int> expected_point = std::nullopt, std::optional<int> total_points = std::nullopt);
-RL_API std::string validate_collector_group(const HighFive::Group & group, std::optional<int> expected_point = std::nullopt, std::optional<int> total_points = std::nullopt) ;
+RL_API std::string validate_file_attributes(const HighFive::File & file);
+RL_API std::string validate_collector_group(const HighFive::Group & group);
+RL_API std::string validate_collector_root(const HighFive::Group & group) ;
 
 RL_API bool validate_collector_files(
-  const std::vector<std::string> & in_filenames, int point, int points,
+  const std::vector<std::string> & in_filenames,
   std::set<std::string> & datasets,
   std::map<std::string, size_t> & sizes,
   std::set<std::string> & valid_files,
@@ -62,29 +63,25 @@ RL_API bool validate_collector_files(
   std::set<std::string> & parameters
   );
 
-RL_API void merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, int point, int points, bool remove_after_merge);
+RL_API void merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, bool remove_after_merge);
 
 /// \brief Merge dataset(s) from multiple collector files into a single output file, for a specified scan point if applicable.
 ///
 /// \param out_filename the output file to create or open for writing
 /// \param in_filenames the input files to merge
-/// \param point the scan point to merge, if the files are point-based collectors (ignored if the files are not point-based collectors)
-/// \param points the total number of scan points in the files, if they are point-based collectors (ignored if the files are not point-based collectors)
 /// \param which_dataset if non-empty, only merge the dataset with this name (which must be present in all input files), otherwise merge all datasets which are present in all input files
 /// \param remove_after_merge if true, remove the input dataset(s) after merging
 ///
-RL_API void merge_collector_datasets(const std::string & out_filename, const std::vector<std::string> & in_filenames, int point, int points, const std::string & which_dataset, bool remove_after_merge);
+RL_API void merge_collector_datasets(const std::string & out_filename, const std::vector<std::string> & in_filenames, const std::string & which_dataset, bool remove_after_merge);
 
 /// \brief Copy parameters from multiple collector files into a single output file, for a specified scan point if applicable.
 ///
 /// \param out_filename the output file to create or open for writing
 /// \param in_filenames the input files to merge
-/// \param point the scan point to merge, if the files are point-based collectors (ignored if the files are not point-based collectors)
-/// \param points the total number of scan points in the files, if they are point-based collectors (ignored if the files are not point-based collectors)
 ///
 /// A parameter group, named "parameters", which is located in the file root group or a (point, points)-based
 /// collector group, will be copied from one of the input files to the output file.
-RL_API void copy_collector_parameters(const std::string & out_filename, const std::vector<std::string> & in_filenames, int point, int points);
+RL_API void copy_collector_parameters(const std::string & out_filename, const std::vector<std::string> & in_filenames);
 
 HighFive::CompoundType hdf_compound_type(ReadoutType readout);
 
@@ -102,8 +99,28 @@ protected:
   static CollectorSink * instance_;
 
 public:
-  static const std::string & weight_attribute_name() {
-    static const std::string name{"total_weight"};
+  static const std::string & type_attribute() {
+    static const std::string name{"type"};
+    return name;
+  }
+  static const std::string & collector_group_type() {
+    static const std::string name{"Readouts"};
+    return name;
+  }
+  static const std::string & readout_dataset_name() {
+    static const std::string name{"readouts"};
+    return name;
+  }
+  static const std::string & cue_dataset_name() {
+    static const std::string name{"cues"};
+    return name;
+  }
+  static const std::string & weight_dataset_name() {
+    static const std::string name{"weights"};
+    return name;
+  }
+  static const std::string & normalization_dataset_name() {
+    static const std::string name{"normalizations"};
     return name;
   }
 
@@ -111,12 +128,15 @@ public:
     static const std::string name{"detector"};
     return name;
   }
-
   static const std::string & readout_attribute_name() {
     static const std::string name{"readout"};
     return name;
   }
 
+  static const std::string & parameter_group_type() {
+    static const std::string name{"Parameters"};
+    return name;
+  }
   static const std::string & parameter_group_name() {
     static const std::string name{"parameters"};
     return name;
@@ -127,18 +147,6 @@ public:
   }
   static const std::string & parameter_description_attribute_name() {
     static const std::string name{"description"};
-    return name;
-  }
-  static const std::string & type_attribute_name() {
-    static const std::string name{"collector_type"};
-    return name;
-  }
-  static const std::string & type_attribute_value() {
-    static const std::string name{"point"};
-    return name;
-  }
-  static const std::string & point_attribute_name() {
-    static const std::string name{"scan_point"};
     return name;
   }
   static const std::string & program_attribute_name() {
@@ -165,10 +173,6 @@ public:
     static const std::string name{reinterpret_cast<const char *>(libreadout::version::git_revision)};
     return name;
   }
-  static const std::string & total_points_attribute_name() {
-    static const std::string name{"points"};
-    return name;
-  }
 
   CollectorSink(CollectorSink &other) = delete;
   void operator=(const CollectorSink &) = delete;
@@ -179,7 +183,7 @@ public:
   [[nodiscard]] std::string current_filename() const { return filename_.value_or(""); }
   [[nodiscard]] size_t user_count() const { return users_.size(); }
 
-  void setup(const std::string& filename, const int point, const int points) {
+  void setup(const std::string& filename) {
     filename_ = filename;
     try {
       // If the file doesn't exist, create it, otherwise open it for read/write so we can add to it
@@ -188,42 +192,8 @@ public:
       std::cout << "Error opening file " << filename << " for writing:\n" << ex.what();
       throw;
     }
-    if (points == 0) {
-      collector_ = file_->getGroup("/");
-    } else {
-      if (point < 0 || point >= points) {
-        std::stringstream s;
-        s << "Invalid scan point " << point << " for total points " << points << ".";
-        std::cerr << std::endl << s.str() << std::endl << std::endl;
-        std::cerr << "  The collector needs a valid point number and total points for point-based collectors." << std::endl;
-        std::cerr << "  Valid points for total points " << points << " are [0," << points << ")." << std::endl;
-        if (point >= points) std::cerr << "  E.g., points should not exceed " << points-1 << "." << std::endl;
-        std::cerr << std::endl;
-        throw std::runtime_error(s.str());
-      }
-
-      std::stringstream ss;
-      const auto num_digits = static_cast<int>(std::to_string(points-1).length());
-      ss << "point_" << std::setfill('0') << std::setw(num_digits) << point;
-      const auto name = ss.str();
-      bool make{true};
-      if (file_->exist(name)) {
-        make = false;
-        collector_ = file_->getGroup(name);
-        if (const auto result = validate_is_collector_group(*collector_, point, points); !result.empty()) {
-          std::cerr << "Warning: existing group " << name << " in file " << filename
-                    << " does not have expected structure for a collector group, overwriting." << std::endl
-                    << " Details: " << result << std::endl;
-          file_->unlink(name);
-          make = true;
-        }
-      }
-      if (make){
-        collector_ = file_->createGroup(name);
-        ensure_collector_group_attributes(*collector_, point);
-      }
-    }
-    ensure_file_attributes(*file_, points);
+    collector_ = file_->getGroup("/");
+    ensure_file_attributes(*file_);
   }
 
   void teardown() {
@@ -238,35 +208,11 @@ public:
     }
   }
 
-  RL_API std::optional<HighFive::DataSet> addCollector(
-    const std::string& name,
-    const HighFive::DataSpace& dataspace,
-    const HighFive::DataType& datatype,
-    const HighFive::DataSetCreateProps& props = HighFive::DataSetCreateProps()
-    ) {
-    using namespace HighFive;
-    if (!file_.has_value()) {
-      std::cerr << "File not initialized, cannot add dataset!" << std::endl;
-      return std::nullopt;
-    }
-    if (!collector_.has_value()) {
-      collector_ = file_->getGroup("/");
-    }
-    if (collector_->exist(name)) {
-      std::cerr << "Dataset " << name << " already exists!" << std::endl;
-      return collector_->getDataSet(name);
-    }
-    auto ds = collector_->createDataSet(name, dataspace, datatype, props);
-    users_.insert(name);
-    return ds;
-  }
 
-  RL_API std::optional<HighFive::DataSet> getCollector(
+  RL_API std::optional<HighFive::Group> getCollector(
     const std::string& name,
     const DetectorType& detector,
-    const ReadoutType& readout,
-    const HighFive::DataSpace& dataspace,
-    const HighFive::DataSetCreateProps& props = HighFive::DataSetCreateProps()
+    const ReadoutType& readout
     ) {
     using namespace HighFive;
     if (!file_.has_value()) {
@@ -278,11 +224,30 @@ public:
     }
     if (!collector_->exist(name)) {
       const auto compound_type = hdf_compound_type(readout);
-      auto ds = collector_->createDataSet(name, dataspace, compound_type, props);
+      auto group = collector_->createGroup(name);
+      group.createAttribute<std::string>(type_attribute(), collector_group_type());
+
+      // but should chunk file operations to avoid too much disk IO?
+      DataSetCreateProps props;
+      props.add(Chunking(std::vector<hsize_t>{100}));
+
+      // create the readouts dataset, set to an empty vector []
+      auto ds = group.createDataSet(readout_dataset_name(), DataSpace({0}, {DataSpace::UNLIMITED}), compound_type, props);
       ensure_dataset_attributes(ds, detector, readout);
+      // create the weights dataset, and set its value to [0.]
+      const auto ws = group.createDataSet(weight_dataset_name(), DataSpace({1}, {DataSpace::UNLIMITED}), AtomicType<double>(), props);
+      ws.select({0},{1}).write(0.);
+      // create the cues dataset, and set it to [0u]
+      const auto cs = group.createDataSet(cue_dataset_name(), DataSpace({1}, {DataSpace::UNLIMITED}), AtomicType<uint32_t>(), props);
+      cs.select({0},{1}).write(0);
+      // create the normalizations dataset, and set its value to [0]
+      const auto ns = group.createDataSet(normalization_dataset_name(), DataSpace({1}, {DataSpace::UNLIMITED}), AtomicType<uint64_t>(), props);
+      ns.select({0},{1}).write(0);
+
       users_.insert(name);
     }
-    return collector_->getDataSet(name);
+    // TODO verify that the group has the right components?
+    return collector_->getGroup(name);
   }
 
   RL_API [[nodiscard]] auto removeCollector(const std::string& name) {
@@ -303,10 +268,13 @@ public:
     }
     if (!parameters_.has_value()) {
       parameters_ = collector_->createGroup(parameter_group_name());
+      parameters_->createAttribute<std::string>(type_attribute(), parameter_group_type());
     }
     if (!parameters_->exist(name)) {
-      auto ds = parameters_->createDataSet(name, DataSpace(1), create_datatype<T>());
-      ds.write(value);
+      DataSetCreateProps props;
+      props.add(Chunking(std::vector<hsize_t>{100}));
+      auto ds = parameters_->createDataSet(name, DataSpace({1}, {DataSpace::UNLIMITED}), create_datatype<T>(), props);
+      ds.select({0},{1}).write(value);
       if (unit.has_value()) {
         ds.createAttribute(parameter_unit_attribute_name(), unit.value());
       }
@@ -331,7 +299,7 @@ public:
         ) {
         std::cerr << "Parameter " << name << " already exists with a different description!" << std::endl;
       }
-      if (existing_ds.read<T>() != value) {
+      if (existing_ds.select({existing_ds.getDimensions().back()-1},{1}).read<T>() != value) {
         std::cerr << "Parameter " << name << " already exists with a different value! Overwriting." << std::endl;
         existing_ds.write(value);
       }
@@ -342,8 +310,10 @@ public:
 
 class Collector {
   std::string name_;
+  std::optional<HighFive::Group> group_;
   std::optional<HighFive::DataSet> dataset_;
   double weight_{0};
+  uint64_t normalization_{0};
   DetectorType detector_{DetectorType::Reserved};
   ReadoutType readout_{ReadoutType::CAEN};
 
@@ -351,26 +321,20 @@ public:
 
   RL_API explicit Collector(
     const std::string &filename,
-    const std::string &name,
-    const int scan_point=0,
-    const int total_points=0,
-    const int Type=0x34
-  ): name_{name}, detector_{detectorType_from_int(Type)}, readout_{readoutType_from_detectorType(detector_)} {
+    std::string name,
+    const int Type=0x34,
+    const uint64_t normalization=0
+  ): name_{std::move(name)}, normalization_{normalization}, detector_{detectorType_from_int(Type)}, readout_{readoutType_from_detectorType(detector_)} {
     const auto sink = CollectorSink::instance();
     if (!sink->is_setup()) {
-      sink->setup(filename, scan_point, total_points);
+      sink->setup(filename);
     }
-    // we want to output an events list which can grow forever
-    const auto dataspace = HighFive::DataSpace({0}, {HighFive::DataSpace::UNLIMITED});
-    // but should chunk file operations to avoid too much disk IO?
-    HighFive::DataSetCreateProps props;
-    props.add(HighFive::Chunking(std::vector<hsize_t>{100}));
-
-    dataset_ = sink->getCollector(name_, detector_, readout_, dataspace, props);
+    group_ = sink->getCollector(name_, detector_, readout_);
+    dataset_ = group_->getDataSet(CollectorSink::readout_dataset_name());
   }
 
   // Add a readout with time and weight information to the writer's storage
-  RL_API void addReadout(uint8_t Ring, uint8_t FEN, const double tof, const double weight, const void * data) {
+  RL_API void addReadout(const uint8_t Ring, const uint8_t FEN, const double tof, const double weight, const void * data) {
     weight_ += weight;
     switch (readout_) {
       case ReadoutType::CAEN: {
@@ -411,16 +375,22 @@ public:
   }
 
   ~Collector() {
-    // add any weights as attributes to the datasets before closing the file
+    // Add the accumulated weight to the existing dataset value -- which was initialized to [0.]
+    const auto wds = group_->getDataSet(CollectorSink::weight_dataset_name());
+    auto selection = wds.select({wds.getDimensions().back() - 1}, {1});
+    selection.write(weight_ + selection.read<double>());
+    // Record the number of readouts written -- where this points' readouts *end* (was initialized to [0u])
     if (dataset_.has_value()) {
-      // The dataset should already have a weight attribute with value 0, but we may have opened this file
-      // for appending more data, in which case we need to read the existing weight, add to it, and write it back:
-      if (dataset_->hasAttribute(CollectorSink::weight_attribute_name())) {
-        weight_ += dataset_->getAttribute(CollectorSink::weight_attribute_name()).read<double>();
-        dataset_->deleteAttribute(CollectorSink::weight_attribute_name());
-      }
-      dataset_->createAttribute<double>(CollectorSink::weight_attribute_name(), weight_);
+      const auto count = dataset_->getDimensions().back();
+      const auto cds = group_->getDataSet(CollectorSink::cue_dataset_name());
+      auto cs = cds.select({cds.getDimensions().back()-1}, {1});
+      cs.write<uint32_t>(static_cast<uint32_t>(count));
     }
+    // Add the normalization to the existing dataset value -- which was initialized to [0]
+    const auto nds = group_->getDataSet(CollectorSink::normalization_dataset_name());
+    auto ns = nds.select({nds.getDimensions().back() - 1}, {1});
+    ns.write(normalization_ + selection.read<uint64_t>());
+
     const auto sink = CollectorSink::instance();
     if (const auto count = sink->removeCollector(name_); count != 1) {
       std::cerr << "Warning: removed collector " << name_ << " from sink " << count << " times, but expected to remove exactly one." << std::endl;
@@ -432,6 +402,7 @@ public:
 private:
   template<class T>
   void saveReadout(T data) {
+    //TODO Consider buffering this internally and only writing when the buffer is full (or closing the file)
     if (!dataset_.has_value()) {
       std::cerr << "Dataset not initialized, cannot save readout!" << std::endl;
       return;

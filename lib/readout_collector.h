@@ -15,18 +15,15 @@ extern "C" {
   /** \brief Create a new Collector object for writing readout data to an HDF5 file.
    *
    * \param filename The name of the HDF5 file to write to. If the file already exists, it will be updated.
-   * \param point The current scan point number -- defines the group name for the datasets.
-   *              If total_points is 0, this is ignored and all data is written to the root group.
-   * \param points The total number of scan points -- defines the group name for the datasets.
-   *               If 0, this is ignored and all data is written to the root group.
    * \param dataset The name of the dataset to write to. If nullptr or empty, defaults to "events".
    * \param type The type of readout data to write, defined as an integer corresponding to the ReadoutType enum
    *             in Readout.h (e.g. 0x34 for BIFROST, 0x41 for He3CSPEC).
    *             This is used to determine the structure of the readout data and the name of the compound datatype
    *             created in the HDF5 file. If an unrecognized type is given, the compound datatype will still be
    *             created but the structure of the readout data will not be validated when adding readouts.
+   * \param normalization The normalization constant associated with the to-be-provided readouts
    */
-  RL_API collector_t* collector_new(const char* filename, int point, int points, const char * dataset, int type);
+  RL_API collector_t* collector_new(const char* filename, const char * dataset, int type, uint32_t normalization);
 
   ///\brief Destroy an existing Collector object and free its resources
   RL_API void collector_free(collector_t* c_ptr);
