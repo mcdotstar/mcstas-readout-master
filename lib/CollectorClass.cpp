@@ -22,10 +22,11 @@ void CollectorSink::destroy() {
 }
 
 class CollectorShape {
+  using readouts_t = std::map<std::string, std::vector<uint32_t>>;
   public:
   std::optional<size_t> points; // number of points, as defined in the parameters group entries
   std::set<std::string> parameters = {}; // dataset names in the parameters group
-  std::map<std::string, std::vector<uint32_t>> readouts = {}; // collector group names and their number of readouts per point
+  readouts_t readouts = {}; // collector group names and their number of readouts per point
 
   size_t total_readouts() const {
     size_t total{0};
@@ -90,6 +91,7 @@ class CollectorShape {
     }
     return out;
   }
+
   CollectorShape null_readouts() const {
     CollectorShape out(points, parameters);
     for (const auto & [name, rpp]: readouts) {
@@ -103,7 +105,45 @@ class CollectorShape {
     }
     return out;
   }
+
+  bool has_all_readouts(const std::set<std::string> & names) const {
+    // names should be the set of all readout keys from multiple CollectorShape objects
+    // here we *only* check if there are any named readout groups in names that are not in readouts
+    for (const auto & name: names) {
+      if (!readouts.contains(name)) return false;
+    }
+    return true;
+  }
+
+  CollectorShape concatenate(const CollectorShape & other) const {
+    if (parameters != other.parameters) {
+      return CollectorShape(0);
+    }
+    CollectorShape out(points.value() + other.points.value(), parameters);
+    // readouts get concatenated along the point dimension, which means concatenate(std::vector, std::vector)
+    // we should have already verified that all concatenated objects have identical readout keys
+    for (const auto & name: readouts | std::views::keys) {
+      out.readouts[name] = std::vector<uint32_t>();
+      out.readouts.at(name).reserve(readouts.at(name).size() + other.readouts.at(name).size());
+      out.readouts.at(name).append_range(readouts.at(name));
+      out.readouts.at(name).append_range(other.readouts.at(name));
+    }
+    return out;
+  }
 };
+CollectorShape concatenate_shapes(const std::vector<const CollectorShape *> & shapes) {
+  const auto points = std::transform_reduce(shapes.begin(), shapes.end(), 0u, std::plus<size_t>(), [](const auto & a){return a->points.value();});
+  CollectorShape out(points, shapes.front()->parameters);
+  for (const auto & name: shapes.front()->readouts | std::views::keys) {
+    out.readouts[name] = std::vector<uint32_t>();
+    const auto length = std::transform_reduce(shapes.begin(), shapes.end(), 0u, std::plus<size_t>(), [&name](const auto & a){return a->readouts.at(name).size();});
+    out.readouts.at(name).reserve(length);
+    for (const auto & shape: shapes) {
+      out.readouts.at(name).append_range(shape->readouts.at(name));
+    }
+  }
+  return out;
+}
 
 
 HighFive::CompoundType hdf_compound_type(const ReadoutType readout){
@@ -312,6 +352,7 @@ std::pair<std::string, std::map<std::string, CollectorShape>> verify_parameters_
   return {{}, shapes};
 }
 
+
 std::pair<std::string, std::map<std::string, CollectorShape>> verify_parameters_identical(const std::vector<std::string> & filenames) {
   auto [vres, shapes] = verify_parameters_consistent(filenames, true);
   if (vres.size() > 0) {
@@ -342,6 +383,32 @@ std::pair<std::string, std::map<std::string, CollectorShape>> verify_parameters_
   return {{}, shapes};
 }
 
+enum class Consistency {inconsistent, consistent, identical};
+
+std::pair<Consistency, std::map<std::string, CollectorShape>> classify_file_parameters(const std::vector<std::string> & filenames) {
+  auto [res, shapes] = verify_parameters_consistent(filenames, true);
+  if (!res.empty()) return {Consistency::inconsistent, {}};
+
+  std::map<std::string, std::vector<uint8_t>> buffers;
+  for (const auto & filename: filenames) {
+    const auto group = HighFive::File(filename, HighFive::File::ReadOnly).getGroup(CollectorSink::parameter_group_name());
+    for (const auto & name: shapes.at(filenames.front()).parameters) {
+      const auto dataset = group.getDataSet(name);
+      const auto type = dataset.getDataType();
+      const auto count = dataset.getDimensions().back() * type.getSize();
+      std::vector<uint8_t> buffer(count);
+      dataset.read_raw(buffer.data(), type);
+      if (!buffers.contains(name)) {
+        buffers.insert({name, buffer});
+      } else if (!std::ranges::equal(buffers.at(name), buffer)) {
+        return {Consistency::consistent, shapes};
+      }
+    }
+  }
+  return {Consistency::identical, shapes};
+}
+
+
 /*** Collector files should only contain a parameters group and any number of collector instance output groups
  * No other datasets or groups are expected
  *
@@ -353,13 +420,14 @@ std::pair<std::string, std::map<std::string, CollectorShape>> verify_parameters_
 std::pair<std::string, std::set<std::string>> identify_collector_datasets(std::map<std::string, CollectorShape> & shapes) {
   std::set<std::string> datasets;
   const auto & parameters = CollectorSink::parameter_group_name();
+  const auto & cues = CollectorSink::cue_dataset_name();
   for (auto & [filename, shape]: shapes) {
     const auto file = HighFive::File(filename, HighFive::File::ReadOnly);
     for (size_t i=0; i<file.getNumberObjects(); ++i) {
       if (const auto name = file.getObjectName(i); name != parameters && file.getObjectType(name) == HighFive::ObjectType::Group) {
         if (const auto & res = validate_collector_group(file.getGroup(name)); res.empty()) {
           datasets.insert(name);
-          if (const auto res2 = shape.insert_readouts_from_cues(name, file.getGroup(name).getDataSet(CollectorSink::cue_dataset_name())); !res2.empty()) {
+          if (const auto res2 = shape.insert_readouts_from_cues(name, file.getGroup(name).getDataSet(cues)); !res2.empty()) {
             return {res2, {}};
           }
         } else {
@@ -795,6 +863,53 @@ void combine_collector_group(const HighFive::Group & source, const std::string &
   to_group.getDataSet(cdn).write(normalizations);
 }
 
+void concatenate_collector_group (const HighFive::Group & source, const std::string & name, const HighFive::Group & destination, const std::vector<uint32_t> & totals, const std::vector<uint32_t> & shape, std::vector<uint32_t> & offsets) {
+  using CS = CollectorSink;
+  const auto from_group = source.getGroup(name);
+  const auto to_group = destination.getGroup(name);
+  const auto total_points = totals.size();
+  const auto points = shape.size();
+  size_t pre{0u};
+  while (pre < total_points && offsets[pre] > 0) ++pre;
+  if (pre + points >= total_points) {
+    std::cerr << "Out of bounds readout concatenation in " << name << " after " << pre << " points" << std::endl;
+  }
+  for (size_t point=0; point < points; ++point) {
+    if (shape[point] != totals[pre + point]) {
+      std::cerr << "Unexpected readouts for point " << point << " since " << shape[point] << " != " << totals[pre + point] << std::endl;
+    }
+  }
+  const auto & rdn = CS::readout_dataset_name();
+  const auto type = from_group.getDataSet(rdn).getDataType();
+  uint32_t offset{0};
+  for (size_t point=0; point<points; ++point) if (shape[point] > 0) {
+    std::vector<uint8_t> buffer(shape[point] * type.getSize());
+    // step through the input list of readouts according to the number of readouts per point
+    from_group.getDataSet(rdn).select({offset}, {shape[point]}).read_raw(buffer.data(), type);
+    offset += shape[point];
+    // and the output following the prior point's last entry (or zero if no point yet)
+    auto this_offset = pre + point > 0 ? offsets[pre + point - 1] : 0u;
+    to_group.getDataSet(rdn).select({this_offset}, {shape[point]}).write_raw(buffer.data(), type);
+    offsets[point] = this_offset + shape[point];
+  }
+
+  // concatenate the remaining required datasets
+  const auto & cdn = CS::cue_dataset_name();
+  const auto & wdn = CS::weight_dataset_name();
+  const auto & ndn = CS::normalization_dataset_name();
+
+  std::vector<uint32_t> cues(points);
+  std::vector<double> weights(points);
+  std::vector<uint64_t> normalizations(points);
+
+  from_group.getDataSet(cdn).read(cues);
+  from_group.getDataSet(wdn).read(weights);
+  from_group.getDataSet(ndn).read(normalizations);
+
+  to_group.getDataSet(cdn).select({pre}, {points}).write(cues);
+  to_group.getDataSet(cdn).select({pre}, {points}).write(weights);
+  to_group.getDataSet(cdn).select({pre}, {points}).write(normalizations);
+}
 
 
 /*
@@ -827,25 +942,7 @@ void combine_collector_group(const HighFive::Group & source, const std::string &
  *
  *  Path B should cover merging scan point files post-scan.
  */
-void combine_collector_files_path_a(const std::string & out_filename, const std::vector<std::string> & in_filenames) {
-  if (const auto & res = verify_collector_files(in_filenames); res.size() > 0) {
-    std::cerr << res << std::endl;
-    return;
-  }
-  auto [res, shapes] = verify_parameters_identical(in_filenames);
-  if ( res.size() > 0) {
-    std::cerr << res << std::endl;
-    return;
-  }
-  // figure out the unique datasets across all files
-  const auto & [problems, collectors] = identify_collector_datasets(shapes);
-  if ( !problems.empty() ) {
-    std::cerr << problems << std::endl;
-    return;
-  }
-
-  // create the output file
-  const auto outfile = HighFive::File(out_filename, HighFive::File::Create);
+void combine_collector_files_equivalent_points(const HighFive::File & outfile, const std::map<std::string, CollectorShape>& shapes, const std::set<std::string>& collectors, const std::vector<std::string> & in_filenames) {
   // copy parameters group to the output file
   auto out_parameters = outfile.getGroup("/");
   copy_group(HighFive::File(in_filenames.front(), HighFive::File::ReadOnly).getGroup("/"), CollectorSink::parameter_group_name(), out_parameters);
@@ -873,6 +970,88 @@ void combine_collector_files_path_a(const std::string & out_filename, const std:
     }
   }
 }
+void combine_collector_files_concatenate(const HighFive::File & outfile, const std::map<std::string, CollectorShape>& shapes, const std::set<std::string>& collectors, const std::vector<std::string> & in_filenames) {
+  // collect the collector shapes _in file order_
+  std::vector<const CollectorShape*> shape_ptrs;
+  shape_ptrs.reserve(in_filenames.size());
+  for (const auto & name: in_filenames) {
+    shape_ptrs.push_back(&shapes.at(name));
+  }
+  // and get the total size(s)
+  const auto concatenated = concatenate_shapes(shape_ptrs);
+  auto counters = concatenated.null_readouts();
+
+  //
+  auto sink = outfile.getGroup("/");
+  {
+    const auto source = HighFive::File(in_filenames.front(), HighFive::File::ReadOnly).getGroup("/");
+    for (const auto & name: collectors) {
+      empty_collector_group_like(source, name, sink, concatenated.total_readouts(name), concatenated.points.value());
+    }
+  }
+  for (const auto & filename: in_filenames) {
+    auto source = HighFive::File(filename, HighFive::File::ReadOnly).getGroup("/");
+    for (const auto & name: collectors) {
+      concatenate_collector_group(source, name, sink, concatenated.readouts.at(name), shapes.at(filename).readouts.at(name), counters.readouts.at(name));
+    }
+  }
+
+  // TODO continue path B by concatenating the parameters from all files
+
+}
+
+void combine_collector_files_path_a(const std::string & out_filename, const std::vector<std::string> & in_filenames) {
+  if (const auto & res = verify_collector_files(in_filenames); res.size() > 0) {
+    std::cerr << res << std::endl;
+    return;
+  }
+  auto [res, shapes] = verify_parameters_identical(in_filenames);
+  if ( res.size() > 0) {
+    std::cerr << res << std::endl;
+    return;
+  }
+  // figure out the unique datasets across all files
+  const auto & [problems, collectors] = identify_collector_datasets(shapes);
+  if ( !problems.empty() ) {
+    std::cerr << problems << std::endl;
+    return;
+  }
+  // create the output file
+  const auto outfile = HighFive::File(out_filename, HighFive::File::Create);
+  // do the actual combining
+  combine_collector_files_equivalent_points(outfile, shapes, collectors, in_filenames);
+}
+
+void combine_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames) {
+  if (const auto & res = verify_collector_files(in_filenames); res.size() > 0) {
+    std::cerr << res << std::endl;
+    return;
+  }
+  auto [consistency, shapes] = classify_file_parameters(in_filenames);
+  if (Consistency::inconsistent == consistency) {
+    return;
+  }
+  // figure out the unique datasets across all files
+  if (const auto & [problems, collectors] = identify_collector_datasets(shapes); problems.empty() ) {
+    const auto outfile = HighFive::File(out_filename, HighFive::File::Create);
+    if (Consistency::identical == consistency) {
+      combine_collector_files_equivalent_points(outfile, shapes, collectors, in_filenames);
+    }
+    else if (Consistency::consistent == consistency) {
+      // FIXME a check for identical collector group names is needed -- each should be identical to the set 'collectors'
+      for (const auto & [filename, shape]: shapes) {
+        if (!shape.has_all_readouts(collectors)) {
+          std::cerr << "File " << filename << " is missing one or more collector group(s)" << std::endl;
+          return;
+        }
+      }
+      combine_collector_files_concatenate(outfile, shapes, collectors, in_filenames);
+    }
+  } else {
+    std::cerr << problems << std::endl;
+  }
+}
+
 
 void merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, const bool remove_after_merge) {
   using namespace HighFive;
