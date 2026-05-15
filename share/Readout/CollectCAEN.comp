@@ -19,9 +19,6 @@ int b_value=0,
 int c_value=0,
 int d_value=0,
 pulse_rate = 14,
-int noisy=0,
-noise_level=0.1,
-string event_mode = "p",
 string filename = 0,
 string dataset_name = 0,
 int verbose=0, // -1: silent, 0: errors, 1: warnings, 2: info, 3: details
@@ -114,19 +111,22 @@ if (d_present){
 }
 particle_getvar(_particle, tof, &failure); if (failure) collector_error(NAME_CURRENT_COMP,  tof);
 
-p_or_pp = (strcmp(event_mode, "p") == 0) ? 0 : 1;
-if (p_or_pp && !strcmp(event_mode, "pp")) collector_error(NAME_CURRENT_COMP, "Undefined event mode");
-
 if (this_filename == NULL || this_filename[0] == '\0') {
   collector_error(NAME_CURRENT_COMP, "Filename is empty after processing, cannot create Collector instance.");
 }
 
+// The total number of events simulated that will eventually end up in the collector
+// (MPI nodes each do this number, so the collector gets a n-nodes times as many events as mcget_ncount())
+uint64_t normalization = (uint64_t)mcget_ncount();
+
 #ifdef USE_MPI
 collector_ptr = NULL; // initialize to NULL in case this is not the master node
+// McStas splits the total number of events across MPI nodes, so we need to adjust the normalization accordingly
+normalization *= (uint64_t) mpi_node_count;
 if (mpi_node_rank == mpi_node_root) {
 #endif
   // Create the Collector instance on the main node (or the only node if not using MPI)
-  collector_ptr = collector_new(this_filename, point, total_points, this_dataset_name, ess_type);
+  collector_ptr = collector_new(this_filename, this_dataset_name, ess_type, normalization);
   // Multiple components can use the same output file, so only send parameter updates if this is the first instance to open the file
   if (collector_sink_users(this_filename) == 1){
     // this is the first instance to open the file -- take this opportunity to send parameter updates
@@ -142,13 +142,13 @@ array_ptr = new_array(sizeof(struct collect_caen_readout));
 
 TRACE
 %{
-double pp = particle_getvar(_particle, "p", 0); // * sqrt((double)(mcget_ncount()));
-if (p_or_pp) pp *= pp;
+// Remove the source-term scaling so that multiple runs can be combined after the fact, with appropriate normalization
+double weight = p * (double)(mcget_ncount());
 
 int int_ring, int_fen, int_tube, int_A, int_B, int_C, int_D;
 double double_tof;
 
-if (pp) {
+if (weight) {
     struct collect_caen_readout data = {
         .readout = {
             .channel = (uint16_t)(readout_particle_getvar_int(_particle, tube)),
@@ -157,7 +157,7 @@ if (pp) {
             .c = (uint16_t)(c_present ? readout_particle_getvar_int(_particle, c_name) : c_value),
             .d = (uint16_t)(d_present ? readout_particle_getvar_int(_particle, d_name) : d_value)
         },
-        .stash_w = pp,
+        .stash_w = weight,
         .stash_t = particle_getvar(_particle, tof, 0),
         .stash_f = (uint8_t)(fen_present ? readout_particle_getvar_int(_particle, fen) : fen_value),
         .stash_l = (uint8_t)(readout_particle_getvar_int(_particle, ring))

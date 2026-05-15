@@ -446,6 +446,13 @@ void ensure_collector_group_attributes(HighFive::Group & group) {
   }
 }
 
+void ensure_parameter_group_attributes(HighFive::Group & group) {
+  using C=CollectorSink;
+  if (!group.hasAttribute(C::type_attribute())) {
+    group.createAttribute<std::string>(C::type_attribute(), C::parameter_group_type());
+  }
+}
+
 void ensure_dataset_attributes(HighFive::DataSet & dataset, const DetectorType detector, const ReadoutType readout) {
   using C=CollectorSink;
   if (!dataset.hasAttribute(C::detector_attribute_name())) {
@@ -735,11 +742,15 @@ void copy_dataset(const HighFive::Group & source, const std::string & name, High
   const auto space = ds.getSpace();
   const auto create_prop = ds.getCreatePropertyList();
   const auto access_prop = ds.getAccessPropertyList();
-  std::vector<uint8_t> buffer(ds.getStorageSize());
-  ds.read_raw(buffer.data(), type);
 
   destination.createDataSet(name, space, type, create_prop, access_prop);
-  destination.getDataSet(name).write_raw(buffer.data(), type);
+  if (type.isVariableStr() || type.isFixedLenStr()) {
+    destination.getDataSet(name).write(ds.read<std::vector<std::string>>());
+  } else {
+    std::vector<uint8_t> buffer(ds.getStorageSize());
+    ds.read_raw(buffer.data(), type);
+    destination.getDataSet(name).write_raw(buffer.data(), type);
+  }
 
   for (const auto & attr: source.listAttributeNames()) {
     copy_attribute(source, attr, destination);
@@ -863,14 +874,44 @@ void combine_collector_group(const HighFive::Group & source, const std::string &
   to_group.getDataSet(cdn).write(normalizations);
 }
 
-void concatenate_collector_group (const HighFive::Group & source, const std::string & name, const HighFive::Group & destination, const std::vector<uint32_t> & totals, const std::vector<uint32_t> & shape, std::vector<uint32_t> & offsets) {
+void insert_dataset_at(const HighFive::Group & source, const std::string & name, const HighFive::Group & destination, const std::vector<size_t>& offset) {
+  const auto ds = source.getDataSet(name);
+  const auto sz = ds.getSpace().getDimensions();
+  if (const auto type = ds.getDataType(); type.isVariableStr() || type.isFixedLenStr()) {
+    // Variable length strings are stored in the dataset as in-file pointers to their null-terminated
+    // representation, just like std::vector<std::string>> -- (HDF5 can actually handle the same sort of
+    // layout for std::vector<std::vector<{constant-size-type}>> as Variable Length Sequence Data
+    // but HighFive does not support it) -- thankfully HighFive can read and write both variable and fixed length
+    // strings pseudo-transparently
+    destination.getDataSet(name).select(offset, sz).write(ds.read<std::vector<std::string>>());
+  } else {
+    // Non-string data we can rinse through a fixed-size char array
+    std::vector<uint8_t> buffer(ds.getStorageSize());
+    ds.read_raw(buffer.data(), type);
+    destination.getDataSet(name).select(offset, sz).write_raw(buffer.data(), type);
+  }
+}
+
+void concatenate_collector_group (
+  const HighFive::Group & source,
+  const std::string & name,
+  const HighFive::Group & destination,
+  const std::vector<uint32_t> & totals,
+  const std::vector<uint32_t> & shape,
+  std::vector<uint32_t> & offsets,
+  const std::optional<size_t> point_offset = std::nullopt
+  ) {
   using CS = CollectorSink;
   const auto from_group = source.getGroup(name);
   const auto to_group = destination.getGroup(name);
   const auto total_points = totals.size();
   const auto points = shape.size();
   size_t pre{0u};
-  while (pre < total_points && offsets[pre] > 0) ++pre;
+  if (point_offset.has_value()) {
+    pre = point_offset.value();
+  } else {
+    while (pre < total_points && offsets[pre] > 0) ++pre;
+  }
   if (pre + points >= total_points) {
     std::cerr << "Out of bounds readout concatenation in " << name << " after " << pre << " points" << std::endl;
   }
@@ -894,21 +935,10 @@ void concatenate_collector_group (const HighFive::Group & source, const std::str
   }
 
   // concatenate the remaining required datasets
-  const auto & cdn = CS::cue_dataset_name();
-  const auto & wdn = CS::weight_dataset_name();
-  const auto & ndn = CS::normalization_dataset_name();
+  insert_dataset_at(from_group, CS::cue_dataset_name(), to_group, {pre});
+  insert_dataset_at(from_group, CS::weight_dataset_name(), to_group, {pre});
+  insert_dataset_at(from_group, CS::normalization_dataset_name(), to_group, {pre});
 
-  std::vector<uint32_t> cues(points);
-  std::vector<double> weights(points);
-  std::vector<uint64_t> normalizations(points);
-
-  from_group.getDataSet(cdn).read(cues);
-  from_group.getDataSet(wdn).read(weights);
-  from_group.getDataSet(ndn).read(normalizations);
-
-  to_group.getDataSet(cdn).select({pre}, {points}).write(cues);
-  to_group.getDataSet(cdn).select({pre}, {points}).write(weights);
-  to_group.getDataSet(cdn).select({pre}, {points}).write(normalizations);
 }
 
 
@@ -942,35 +972,62 @@ void concatenate_collector_group (const HighFive::Group & source, const std::str
  *
  *  Path B should cover merging scan point files post-scan.
  */
-void combine_collector_files_equivalent_points(const HighFive::File & outfile, const std::map<std::string, CollectorShape>& shapes, const std::set<std::string>& collectors, const std::vector<std::string> & in_filenames) {
+/*** \brief Combine the parameters and collector groups from files which contain data for the same point(s)
+ *
+ * \param destination A writable Group, which will have the parameters and collectors inserted
+ * \param shapes A map of input filename to CollectorShape, which should contain the number of readouts per point for each collector group in that file
+ * \param collectors The set of unique collector group names across all files
+ * \param in_filenames The list of input filenames in the order they should be merged -- this is relevant for the order of readouts within points if the same collector exists in multiple files
+ * \param in_group_name The name of the group to pull from, or "/" if not provided
+ */
+void combine_collector_files_equivalent_points(
+  HighFive::Group & destination,
+  const std::map<std::string, CollectorShape>& shapes,
+  const std::set<std::string>& collectors,
+  const std::vector<std::string> & in_filenames,
+  const std::optional<std::string> & in_group_name = std::nullopt
+  ) {
   // copy parameters group to the output file
-  auto out_parameters = outfile.getGroup("/");
-  copy_group(HighFive::File(in_filenames.front(), HighFive::File::ReadOnly).getGroup("/"), CollectorSink::parameter_group_name(), out_parameters);
+  copy_group(HighFive::File(in_filenames.front(), HighFive::File::ReadOnly).getGroup(in_group_name.value_or("/")), CollectorSink::parameter_group_name(), destination);
 
   // decide the per-collector total number of readouts needed
-  const auto combined = std::ranges::fold_left(shapes | std::views::values | std::views::drop(1), shapes.begin()->second, [](const auto a, const auto b){return a.combine(b);});
+  const auto combined = std::ranges::fold_left(shapes | std::views::values | std::views::drop(1), shapes.begin()->second, [](const auto & a, const auto & b){return a.combine(b);});
   // setup counters for per-point offsets during piecewise copying
   auto counters = combined.null_readouts();
 
   // for each unique dataset, copy from the first file containing it then concatenate remaining **in file order**
   std::set<std::string> initialized{};
-  auto sink = outfile.getGroup("/");
   for (const auto & name: collectors) {
     for (const auto & filename: in_filenames) {
       if (shapes.at(filename).readouts.contains(name)) {
         auto source = HighFive::File(filename, HighFive::File::ReadOnly).getGroup("/");
         if (!initialized.contains(name)) {
           // create the output dataset before trying to write into it:
-          empty_collector_group_like(source, name, sink, combined.total_readouts(name), combined.points.value());
+          empty_collector_group_like(source, name, destination, combined.total_readouts(name), combined.points.value());
           // ensure we don't try and create this dataset again
           initialized.insert(name);
         }
-        combine_collector_group(source, name, sink, combined.readouts.at(name), shapes.at(filename).readouts.at(name), counters.readouts.at(name));
+        combine_collector_group(source, name, destination, combined.readouts.at(name), shapes.at(filename).readouts.at(name), counters.readouts.at(name));
       }
     }
   }
 }
-void combine_collector_files_concatenate(const HighFive::File & outfile, const std::map<std::string, CollectorShape>& shapes, const std::set<std::string>& collectors, const std::vector<std::string> & in_filenames) {
+
+/*** \brief Combine the parameters and collector groups from files which contain data for different point(s)
+ *
+ * \param destination A writable Group, which will have the parameters and collectors inserted
+ * \param shapes A map of input filename to CollectorShape, which should contain the number of readouts per point for each collector group in that file
+ * \param collectors The set of unique collector group names across all files (This is redundant since all shapes contain the same readout names)
+ * \param in_filenames The list of input filenames in the order they should be merged -- this controls the order of points for parameters and collectors
+ * \param in_group_name The name of the group to pull from, or "/" if not provided
+ */
+void combine_collector_files_concatenate(
+  HighFive::Group & destination,
+  const std::map<std::string, CollectorShape>& shapes,
+  const std::set<std::string>& collectors,
+  const std::vector<std::string> & in_filenames,
+  const std::optional<std::string> & in_group_name = std::nullopt
+  ) {
   // collect the collector shapes _in file order_
   std::vector<const CollectorShape*> shape_ptrs;
   shape_ptrs.reserve(in_filenames.size());
@@ -981,26 +1038,44 @@ void combine_collector_files_concatenate(const HighFive::File & outfile, const s
   const auto concatenated = concatenate_shapes(shape_ptrs);
   auto counters = concatenated.null_readouts();
 
-  //
-  auto sink = outfile.getGroup("/");
+  // Create the output parameters group -- and ensure that it has the right attributes
+  destination.createGroup(CollectorSink::parameter_group_name());
+  auto parameters = destination.getGroup(CollectorSink::parameter_group_name());
+  ensure_parameter_group_attributes(parameters);
+
+  // Allocate space in the output file for all collector groups and parameter datasets according to the total size information from concatenation.
   {
-    const auto source = HighFive::File(in_filenames.front(), HighFive::File::ReadOnly).getGroup("/");
+    // collector groups:
+    const auto source = HighFive::File(in_filenames.front(), HighFive::File::ReadOnly).getGroup(in_group_name.value_or("/"));
     for (const auto & name: collectors) {
-      empty_collector_group_like(source, name, sink, concatenated.total_readouts(name), concatenated.points.value());
+      empty_collector_group_like(source, name, destination, concatenated.total_readouts(name), concatenated.points.value());
+    }
+    // parameter datasets
+    const auto in_parameters = source.getGroup(CollectorSink::parameter_group_name());
+    for (const auto & name: concatenated.parameters) {
+      empty_like_dataset(in_parameters, name, parameters, concatenated.points);
     }
   }
+
+  // Go through the files in the provided order, concatenating along the point direction
+  size_t offset{0};
   for (const auto & filename: in_filenames) {
-    auto source = HighFive::File(filename, HighFive::File::ReadOnly).getGroup("/");
+    auto source = HighFive::File(filename, HighFive::File::ReadOnly).getGroup(in_group_name.value_or("/"));
+    // collector groups
     for (const auto & name: collectors) {
-      concatenate_collector_group(source, name, sink, concatenated.readouts.at(name), shapes.at(filename).readouts.at(name), counters.readouts.at(name));
+      concatenate_collector_group(source, name, destination, concatenated.readouts.at(name), shapes.at(filename).readouts.at(name), counters.readouts.at(name), offset);
     }
+    // and parameter datasets
+    const auto in_parameters = source.getGroup(CollectorSink::parameter_group_name());
+    for (const auto & name: concatenated.parameters) {
+      insert_dataset_at(in_parameters, name, parameters, {offset});
+    }
+    // move the point-offset by the number of points in this file
+    offset += shapes.at(filename).points.value();
   }
-
-  // TODO continue path B by concatenating the parameters from all files
-
 }
 
-void combine_collector_files_path_a(const std::string & out_filename, const std::vector<std::string> & in_filenames) {
+void append_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, const bool reset_datasets) {
   if (const auto & res = verify_collector_files(in_filenames); res.size() > 0) {
     std::cerr << res << std::endl;
     return;
@@ -1016,10 +1091,65 @@ void combine_collector_files_path_a(const std::string & out_filename, const std:
     std::cerr << problems << std::endl;
     return;
   }
-  // create the output file
-  const auto outfile = HighFive::File(out_filename, HighFive::File::Create);
+  // create the output file and grab its root group
+  auto outfile = HighFive::File(out_filename, HighFive::File::Create).getGroup("/");
   // do the actual combining
   combine_collector_files_equivalent_points(outfile, shapes, collectors, in_filenames);
+
+  if (reset_datasets) {
+    // optionally clear-out the input files' datasets to prepare for collecting more data
+    // This probably only makes sense to do during the simulation of a single point if a SIGUSR signal is received
+    // to trigger file output
+    const auto & rn = CollectorSink::readout_dataset_name();
+    const auto & cn = CollectorSink::cue_dataset_name();
+    const auto & wn = CollectorSink::weight_dataset_name();
+    const auto & nn = CollectorSink::normalization_dataset_name();
+    for (const auto & filename: in_filenames) {
+      auto group = HighFive::File(filename, HighFive::File::ReadWrite).getGroup("/");
+      for (const auto & name: collectors) {
+        auto collector = group.getGroup(name);
+        // clear-out the readouts:
+        collector.getDataSet(rn).resize({0});
+        // and zero-out the cues, weights, and normalizations:
+        std::vector<uint32_t> zeros(collector.getDataSet(cn).getSpace().getDimensions().front(), 0);
+        collector.getDataSet(cn).write(zeros);
+        std::vector<double> zeros_d(collector.getDataSet(wn).getSpace().getDimensions().front(), 0.0);
+        collector.getDataSet(wn).write(zeros_d);
+        std::vector<uint64_t> zeros_u64(collector.getDataSet(nn).getSpace().getDimensions().front(), 0);
+        collector.getDataSet(nn).write(zeros_u64);
+      }
+    }
+  }
+}
+
+void concatenate_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames) {
+  if (const auto & res = verify_collector_files(in_filenames); res.size() > 0) {
+    std::cerr << res << std::endl;
+    return;
+  }
+  auto [consistency, shapes] = classify_file_parameters(in_filenames);
+  if (Consistency::inconsistent == consistency) {
+    std::cerr << "Inconsistent parameters across files" << std::endl;
+    return;
+  }
+  // figure out the unique datasets across all files
+  if (const auto & [problems, collectors] = identify_collector_datasets(shapes); problems.empty() ) {
+    auto destination = HighFive::File(out_filename, HighFive::File::Create).getGroup("/");
+    if (Consistency::consistent == consistency) {
+      // Check for identical collector group names -- each file's collectors should be identical to the set 'collectors'
+      for (const auto & [filename, shape]: shapes) {
+        if (!shape.has_all_readouts(collectors)) {
+          std::cerr << "File " << filename << " is missing one or more collector group(s)" << std::endl;
+          return;
+        }
+      }
+      combine_collector_files_concatenate(destination, shapes, collectors, in_filenames);
+    } else {
+      std::cerr << "Concatenation requires consistent *but not identical* parameters across files." << std::endl;
+    }
+  } else {
+    std::cerr << problems << std::endl;
+  }
 }
 
 void combine_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames) {
@@ -1033,254 +1163,25 @@ void combine_collector_files(const std::string & out_filename, const std::vector
   }
   // figure out the unique datasets across all files
   if (const auto & [problems, collectors] = identify_collector_datasets(shapes); problems.empty() ) {
-    const auto outfile = HighFive::File(out_filename, HighFive::File::Create);
+    auto destination = HighFive::File(out_filename, HighFive::File::Create).getGroup("/");
     if (Consistency::identical == consistency) {
-      combine_collector_files_equivalent_points(outfile, shapes, collectors, in_filenames);
+      combine_collector_files_equivalent_points(destination, shapes, collectors, in_filenames);
     }
     else if (Consistency::consistent == consistency) {
-      // FIXME a check for identical collector group names is needed -- each should be identical to the set 'collectors'
+      // Check for identical collector group names -- each file's collectors should be identical to the set 'collectors'
       for (const auto & [filename, shape]: shapes) {
         if (!shape.has_all_readouts(collectors)) {
           std::cerr << "File " << filename << " is missing one or more collector group(s)" << std::endl;
           return;
         }
       }
-      combine_collector_files_concatenate(outfile, shapes, collectors, in_filenames);
+      combine_collector_files_concatenate(destination, shapes, collectors, in_filenames);
     }
   } else {
     std::cerr << problems << std::endl;
   }
 }
 
-
-void merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, const bool remove_after_merge) {
-  using namespace HighFive;
-
-  std::set<std::string> datasets;
-  std::map<std::string, size_t> sizes;
-  std::set<std::string> valid_files;
-  std::string collector_name{"/"};
-  std::set<std::string> parameters;
-  if (!validate_collector_files(in_filenames, datasets, sizes, valid_files, collector_name, parameters)) {
-    std::cerr << "No valid input files found, cannot merge!" << std::endl;
-    return;
-  }
-
-  try {
-    bool first{true};
-    File out_file(out_filename, File::OpenOrCreate);
-    ensure_file_attributes(out_file);
-
-    auto out_collector = out_file.getGroup("/");
-    // This can be simplified -- each group merely appends itself to the end of the pre-existing group of the same name
-    // FIXME the current implementation is certainly wrong!
-
-    first = true;
-    for (const auto & in_file : valid_files) {
-      File file(in_file, File::ReadOnly);
-      auto in_collector = file.getGroup(collector_name);
-
-      if (first && !parameters.empty()) {
-        auto out_param_group = out_collector.createGroup("parameters");
-        for (const auto & param_name : parameters) {
-          auto in_param_ds = in_collector.getGroup("parameters").getDataSet(param_name);
-          auto datatype = in_param_ds.getDataType();
-          if (datatype.isVariableStr()) {
-            // convert to fixed-length string type for output file, since variable-length strings can cause issues when reading with some libraries
-            datatype = create_datatype<std::string>();
-          }
-          auto dataclass = datatype.getClass();
-          if (DataTypeClass::Float == dataclass) {
-            // for floating-point types, we want to make sure to use the standard 32-bit or 64-bit IEEE format in the output file for maximum compatibility, since some libraries have trouble with non-standard formats
-            if (datatype.getSize() == 4) {
-              datatype = create_datatype<float>();
-            } else if (datatype.getSize() == 8) {
-              datatype = create_datatype<double>();
-            } else {
-              std::cerr << "Warning: dataset " << param_name << " in file " << in_file << " has a floating-point type with non-standard size, which may cause problems when merging." << std::endl;
-            }
-          } else if (DataTypeClass::Integer == dataclass) {
-            // for integer types, we want to make sure to use a standard size in the output file for maximum compatibility, since some libraries have trouble with non-standard sizes. We'll convert to 64-bit integers to be safe, since it's unlikely that we'll have parameters with values that don't fit in 64 bits.
-            if (datatype.getSize() <= 8) {
-              datatype = create_datatype<int64_t>();
-            } else {
-              std::cerr << "Warning: dataset " << param_name << " in file " << in_file << " has an integer type with non-standard size, which may cause problems when merging." << std::endl;
-            }
-          } else if (DataTypeClass::Compound == dataclass) {
-            std::cerr << "Warning: parameter dataset " << param_name << " in file " << in_file << " has a compound type, which may cause problems when merging." << std::endl;
-          }
-          auto out_param_ds = out_param_group.createDataSet(param_name, in_param_ds.getSpace(), datatype);
-          if (dataclass == DataTypeClass::Float && datatype.getSize() == 4) {
-            out_param_ds.write(in_param_ds.read<float>());
-          } else if (dataclass == DataTypeClass::Float && datatype.getSize() == 8) {
-            out_param_ds.write(in_param_ds.read<double>());
-          } else if (dataclass == DataTypeClass::Integer && datatype.getSize() == 8) {
-            out_param_ds.write(in_param_ds.read<int64_t>());
-          } else if (dataclass == DataTypeClass::String) {
-            out_param_ds.write(in_param_ds.read<std::string>());
-          } else {
-            std::cerr << "Warning: parameter dataset " << param_name << " in file " << in_file << " has a data type that we can not copy (yet)." << std::endl;
-          }
-
-          if (in_param_ds.hasAttribute("unit")) {
-            out_param_ds.createAttribute("unit", in_param_ds.getAttribute("unit").read<std::string>());
-          }
-          if (in_param_ds.hasAttribute("description")) {
-            out_param_ds.createAttribute("description", in_param_ds.getAttribute("description").read<std::string>());
-          }
-        }
-      }
-
-      for (const auto & dataset_name : datasets) {
-        auto in_data = in_collector.getDataSet(dataset_name);
-        if (first) {
-          // create the output datasets with the known total size
-          DataSpace dataspace({0}, {sizes[dataset_name]});
-          auto datatype = in_data.getDataType();
-          // Do we need to worry about copying the compound datatype's committed name and/or attributes here?
-          // Maybe not, since the name is only used for referencing the type within the file, and the attributes are not required for reading/writing data.
-          // But if we do need to copy them, we can get them from the input file's type and commit a new type with the same properties to the output file before creating the dataset.
-
-          auto readout_type_name = in_data.getAttribute("readout").read<std::string>();
-          auto readout_type = readoutType_from_name(readout_type_name);
-          if (auto expected_type = hdf_compound_type(readout_type); datatype != expected_type) {
-            std::cerr << "Warning: dataset " << dataset_name << " in file " << in_file << " has data type which does not match the expected type for its readout. This may cause problems when merging." << std::endl;
-          }
-          // Extensible datasets require chunked storage
-          DataSetCreateProps props;
-          props.add(Chunking(std::vector<hsize_t>{100}));
-          auto out_ds = out_collector.createDataSet(dataset_name, dataspace, datatype, props);
-          auto detector_type_name = in_data.getAttribute("detector").read<std::string>();
-          auto detector_type = detectorType_from_name(detector_type_name);
-          ensure_dataset_attributes(out_ds, detector_type, readout_type);
-        }
-        auto out_data = out_collector.getDataSet(dataset_name);
-        auto in_dims = in_data.getDimensions();
-        auto out_dims = out_data.getDimensions();
-        if (in_dims.size() != 1 || out_dims.size() != 1) {
-          std::cerr << "Warning: dataset " << dataset_name << " in file " << in_file << " or output dataset is not 1-dimensional, skipping." << std::endl;
-          continue;
-        }
-        auto in_size = in_dims.front();
-        auto out_size = out_dims.front();
-        if (out_data.getSpace().getMaxDimensions().front() < out_size + in_size) {
-          std::cerr << "Warning: dataset " << dataset_name << " in output file does not have enough capacity to hold all data from file " << in_file << ", skipping." << std::endl;
-          continue;
-        }
-        out_data.resize({out_size + in_size});
-        concat_dataset(out_data,  out_size, in_data);
-        // accumulate the dataset weight dataset, ensure any post-merge datasets are reset
-      }
-      first = false;
-    }
-    // done merging, flush the output file to ensure all data is written to disk
-    out_file.flush();
-  } catch (Exception & ex) {
-    std::cerr << "Error writing output file " << out_filename << ": " << ex.what() << std::endl;
-  }
-}
-
-
-
-void copy_collector_parameters(const std::string & out_filename, const std::vector<std::string> & in_filenames) {
-  using namespace HighFive;
-
-  std::set<std::string> valid_files;
-  std::string collector_name{"/"};
-  std::set<std::string> parameters;
-  if (!validate_collector_files_parameters(in_filenames, valid_files, parameters)) {
-    std::cerr << "No valid input files found, cannot merge!" << std::endl;
-    return;
-  }
-  if (parameters.empty()) {
-    return;
-  }
-
-  try {
-    File out_file(out_filename, File::OpenOrCreate);
-    ensure_file_attributes(out_file);
-
-    auto out_collector = out_file.getGroup("/");
-
-    // Pick any of the valid files to copy from, since we've already verified that they all have the same parameters with compatible types and attributes.
-    const auto & in_file = *valid_files.begin();
-    File file(in_file, File::ReadOnly);
-    auto in_parameters = file.getGroup(collector_name).getGroup("parameters");
-
-    if (!out_collector.exist("parameters")) {
-      auto out_param_group = out_collector.createGroup("parameters");
-      for (const auto & param_name : parameters) {
-        auto in_param_ds = in_parameters.getDataSet(param_name);
-        auto datatype = in_param_ds.getDataType();
-        if (datatype.isVariableStr()) {
-          // convert to fixed-length string type for output file, since variable-length strings can cause issues when reading with some libraries
-          datatype = create_datatype<std::string>();
-        }
-        auto dataclass = datatype.getClass();
-        if (DataTypeClass::Float == dataclass) {
-          // for floating-point types, we want to make sure to use the standard 32-bit or 64-bit IEEE format in the output file for maximum compatibility, since some libraries have trouble with non-standard formats
-          if (datatype.getSize() == 4) {
-            datatype = create_datatype<float>();
-          } else if (datatype.getSize() == 8) {
-            datatype = create_datatype<double>();
-          } else {
-            std::cerr << "Warning: dataset " << param_name << " in file " << in_file << " has a floating-point type with non-standard size, which may cause problems when merging." << std::endl;
-          }
-        } else if (DataTypeClass::Integer == dataclass) {
-          // for integer types, we want to make sure to use a standard size in the output file for maximum compatibility, since some libraries have trouble with non-standard sizes. We'll convert to 64-bit integers to be safe, since it's unlikely that we'll have parameters with values that don't fit in 64 bits.
-          if (datatype.getSize() <= 8) {
-            datatype = create_datatype<int64_t>();
-          } else {
-            std::cerr << "Warning: dataset " << param_name << " in file " << in_file << " has an integer type with non-standard size, which may cause problems when merging." << std::endl;
-          }
-        } else if (DataTypeClass::Compound == dataclass) {
-          std::cerr << "Warning: parameter dataset " << param_name << " in file " << in_file << " has a compound type, which may cause problems when merging." << std::endl;
-        }
-        auto out_param_ds = out_param_group.createDataSet(param_name, in_param_ds.getSpace(), datatype);
-        if (dataclass == DataTypeClass::Float && datatype.getSize() == 4) {
-          out_param_ds.write(in_param_ds.read<float>());
-        } else if (dataclass == DataTypeClass::Float && datatype.getSize() == 8) {
-          out_param_ds.write(in_param_ds.read<double>());
-        } else if (dataclass == DataTypeClass::Integer && datatype.getSize() == 8) {
-          out_param_ds.write(in_param_ds.read<int64_t>());
-        } else if (dataclass == DataTypeClass::String) {
-          out_param_ds.write(in_param_ds.read<std::string>());
-        } else {
-          std::cerr << "Warning: parameter dataset " << param_name << " in file " << in_file << " has a data type that we can not copy (yet)." << std::endl;
-        }
-
-        if (in_param_ds.hasAttribute("unit")) {
-          out_param_ds.createAttribute("unit", in_param_ds.getAttribute("unit").read<std::string>());
-        }
-        if (in_param_ds.hasAttribute("description")) {
-          out_param_ds.createAttribute("description", in_param_ds.getAttribute("description").read<std::string>());
-        }
-      }
-      // done copying parameters, flush the output file to ensure all data is written to disk
-      out_file.flush();
-    }
-  } catch (Exception & ex) {
-    std::cerr << "Error writing output file " << out_filename << ": " << ex.what() << std::endl;
-  }
-
-  // validate that the parameters were copied (or pre-exising parameters matched)
-  std::set<std::string> post_copy_valid_files;
-  std::string post_copy_collector_name{"/"};
-  std::set<std::string> post_copy_parameters;
-  if (!validate_collector_files_parameters({out_filename}, post_copy_valid_files, post_copy_parameters)) {
-    std::cerr << "Error validating output file " << out_filename << " after copying parameters!" << std::endl;
-    return;
-  }
-  if (post_copy_collector_name != collector_name) {
-    std::cerr << "Error validating output file " << out_filename << " after copying parameters: collector group name does not match expected name!" << std::endl;
-    return;
-  }
-  if (post_copy_parameters != parameters) {
-    std::cerr << "Error validating output file " << out_filename << " after copying parameters: parameter set does not match expected set!" << std::endl;
-    return;
-  }
-
-}
 
 /// \brief Generate a filename suitable for use with the CollectorSink class
 ///

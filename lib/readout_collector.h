@@ -23,7 +23,7 @@ extern "C" {
    *             created but the structure of the readout data will not be validated when adding readouts.
    * \param normalization The normalization constant associated with the to-be-provided readouts
    */
-  RL_API collector_t* collector_new(const char* filename, const char * dataset, int type, uint32_t normalization);
+  RL_API collector_t* collector_new(const char* filename, const char * dataset, int type, uint64_t normalization);
 
   ///\brief Destroy an existing Collector object and free its resources
   RL_API void collector_free(collector_t* c_ptr);
@@ -59,24 +59,15 @@ extern "C" {
    * \param in_filenames An array of strings containing the names of the input HDF5 files to merge.
    *                     Each file should have been produced by a Collector object with the same dataset structure.
    * \param count The number of input filenames
-   * \param point The current scan point number -- defines the group name for the datasets to be merged
-   * \param total_points The total number of scan points -- defines the group name for the datasets to be merged
+   * \param reset_datasets Non-zero value will cause the input files' datasets to be reset to zero-length
    *
-   * This function will merge all equivalent datasets in the collector group specified by (point, total_points)
-   * across the input files into a single dataset in the output file.
-   * The datasets are merged by concatenating the events along the first dimension, and the weights are accumulated
-   * as attributes for each ring/FEN combination if separate datasets are used.
-   * The function will validate that the input files have compatible structures and will skip any files that
-   * do not match the expected format.
-   * If no valid input files are found, the function will print an error message and return without creating an output file.
+   * This function will merge all equivalent datasets in the collector groups in the input files.
    *
    * Since this merges all datasets, it may be dangerous to call this function from within a component
    * runtime; as every component would merge their own and other component's datasets you may duplicate data.
-   * Instead, you should use the dataset-specific merge.
    */
-  RL_API void collector_merge_files(const char * out_filename, const char ** in_filenames, size_t count, int point, int total_points, int reset_datasets);
-
-  RL_API void collector_merge(const char * out_filename, const char ** in_filenames, size_t count, int point, int total_points, const char * dataset, int reset_datasets);
+  RL_API void collector_merge_files(const char * out_filename, const char ** in_filenames, size_t count, int reset_datasets);
+  RL_API void collector_concatenate_files(const char * out_filename, const char ** in_filenames, size_t count);
 
   /** \brief Add a parameter value to the HDF5 file as a dataset.
    * \param name The name of the parameter to add (e.g. "temperature", "pressure", "scan_angle")

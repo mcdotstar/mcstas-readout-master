@@ -48,6 +48,7 @@ RL_API int validate_collector_file_impl(const HighFive::File & file, const std::
 
 RL_API void ensure_file_attributes(HighFive::File & file);
 RL_API void ensure_collector_group_attributes(HighFive::Group & group);
+RL_API void ensure_parameter_group_attributes(HighFive::Group & group);
 RL_API void ensure_dataset_attributes(HighFive::DataSet & dataset, DetectorType detector, ReadoutType readout);
 
 RL_API std::string validate_file_attributes(const HighFive::File & file);
@@ -62,6 +63,9 @@ RL_API bool validate_collector_files(
   std::string & collector_name,
   std::set<std::string> & parameters
   );
+
+RL_API void append_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, bool reset_datasets);
+RL_API void concatenate_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames);
 
 RL_API void merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, bool remove_after_merge);
 
@@ -268,7 +272,7 @@ public:
     }
     if (!parameters_.has_value()) {
       parameters_ = collector_->createGroup(parameter_group_name());
-      parameters_->createAttribute<std::string>(type_attribute(), parameter_group_type());
+      ensure_parameter_group_attributes(parameters_.value());
     }
     if (!parameters_->exist(name)) {
       DataSetCreateProps props;

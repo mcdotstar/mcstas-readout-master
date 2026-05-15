@@ -269,7 +269,7 @@ int Readout::command_shutdown() const {
   // Let's now check that the EXIT command was executed
   ok *= 100; // try up to 100 times
   while (ok-- > 0){
-    ok = check_and_send_tcp(ipaddr, tcp_port, nullptr, verbosity);
+    ok = check_and_send_tcp(ipaddr, tcp_port, "", verbosity);
   }
   if (ok > 0 && verbosity > 0){
     // the server is still alive.

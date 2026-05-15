@@ -198,10 +198,10 @@ private: // Storage and Virtual Method Table
 
     union storage_union
     {
-        using stack_storage_t = typename std::aligned_storage<2 * sizeof(void*), std::alignment_of<void*>::value>::type;
+      static constexpr size_t stack_size = 2 * sizeof(void*);
 
-        void*               dynamic;
-        stack_storage_t     stack;      // 2 words for e.g. shared_ptr
+      void*               dynamic;
+      alignas(std::alignment_of_v<void*>) std::byte stack[stack_size]; // 2 words for e.g. shared_ptr
     };
 
     /// Base VTable specification.
@@ -308,16 +308,16 @@ private: // Storage and Virtual Method Table
     template<typename T>
     struct requires_allocation :
         std::integral_constant<bool,
-                !(std::is_nothrow_move_constructible<T>::value      // N4562 §6.3/3 [any.class]
-                  && sizeof(T) <= sizeof(storage_union::stack)
-                  && std::alignment_of<T>::value <= std::alignment_of<storage_union::stack_storage_t>::value)>
+                !(std::is_nothrow_move_constructible_v<T>      // N4562 §6.3/3 [any.class]
+                  && sizeof(T) <= storage_union::stack_size
+                  && std::alignment_of_v<T> <= std::alignment_of_v<void*>)>
     {};
 
     /// Returns the pointer to the vtable of the type T.
     template<typename T>
     static vtable_type* vtable_for_type()
     {
-        using VTableType = typename std::conditional<requires_allocation<T>::value, vtable_dynamic<T>, vtable_stack<T>>::type;
+        using VTableType = std::conditional_t<requires_allocation<T>::value, vtable_dynamic<T>, vtable_stack<T>>;
         static vtable_type table = {
 #ifndef ANY_IMPL_NO_RTTI
             VTableType::type,
@@ -974,7 +974,7 @@ inline constexpr unsigned int str2tag(const char *str, unsigned int h = 0) {
 
 namespace udl {
 
-inline constexpr unsigned int operator"" _(const char *s, size_t) {
+inline constexpr unsigned int operator""_(const char *s, size_t) {
   return str2tag(s);
 }
 
