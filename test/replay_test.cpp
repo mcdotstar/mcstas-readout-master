@@ -1,5 +1,7 @@
 #define CATCH_CONFIG_MAIN
+#include <cmath>
 #include <filesystem>
+#include <tuple>
 #include <catch2/catch_test_macros.hpp>
 #include "cluon-complete.hpp"
 
@@ -143,4 +145,150 @@ TEST_CASE("Store, replay and receive TTLMonitor packets","[c][TTLMonitor][io]"){
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   REQUIRE(stats->readouts == expected);
+}
+
+namespace {
+
+class RecordingPublisher final : public ParameterPublisher {
+public:
+  std::vector<std::tuple<size_t, std::string, std::string, std::optional<std::string>>> published;
+  std::vector<size_t> ready;
+  void publish(const size_t point, const std::string & name, const std::string & value, const std::optional<std::string> & unit) override {
+    published.emplace_back(point, name, value, unit);
+  }
+  void point_ready(const size_t point) override { ready.push_back(point); }
+};
+
+// wait until the receiver's readout count stops changing (or the timeout passes)
+int settled_readouts(const std::shared_ptr<UDPStats> & stats) {
+  int previous{-1};
+  for (int i = 0; i < 40 && stats->readouts != previous; ++i) {
+    previous = stats->readouts;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  return stats->readouts;
+}
+
+std::string write_caen_point_file(const std::string & base, const double chopper_speed, const uint16_t rays, const double weight) {
+  namespace fs = std::filesystem;
+  auto filepath = fs::temp_directory_path() / fs::path(pid_filename(base, ".h5"));
+  fs::remove(filepath);
+  const auto filename = filepath.string();
+  Collector collector(filename, "events", 0x34, 1u);
+  collector.addParameter("chopper_speed", chopper_speed, std::optional<std::string>("Hz"), std::nullopt);
+  CAEN_readout_t data;
+  for (uint16_t i = 0; i < rays; ++i) {
+    data.channel = 3;
+    data.a = i;
+    data.b = rays - i;
+    data.c = 0;
+    data.d = 0;
+    const auto tof = static_cast<double>(i) / static_cast<double>(rays);
+    collector.addReadout(1, 0, tof, weight, static_cast<const void *>(&data));
+  }
+  return filename;
+}
+
+} // namespace
+
+TEST_CASE("Multi-point replay samples Poisson events and publishes parameters", "[replay][points][statistics]") {
+  namespace fs = std::filesystem;
+  const uint16_t rays{1000};
+  const double weight{1.0};
+  // two single-point files with consistent-but-not-identical parameters, concatenated to two points
+  const auto file_a = write_caen_point_file("replay_point_a", 100.0, rays, weight);
+  const auto file_b = write_caen_point_file("replay_point_b", 200.0, rays, weight);
+  auto multi_path = fs::temp_directory_path() / fs::path(pid_filename("replay_multi", ".h5"));
+  fs::remove(multi_path);
+  const auto multi = multi_path.string();
+  concatenate_collector_files(multi, {file_a, file_b});
+
+  {
+    const ReaderSource source(multi);
+    REQUIRE(source.points() == 2);
+    REQUIRE(source.readers().size() == 1);
+    REQUIRE(source.has_parameters());
+    REQUIRE(source.parameter_names() == std::vector<std::string>{"chopper_speed"});
+    const auto & reader = source.reader("events");
+    REQUIRE(reader.point_size(0) == rays);
+    REQUIRE(reader.point_size(1) == rays);
+  }
+
+  auto stats = std::make_shared<UDPStats>();
+  const int port{9016};
+  cluon::UDPReceiver receiver("127.0.0.1", port,
+    [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+      const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
+      stats->packets++;
+      stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
+    });
+  REQUIRE(receiver.isRunning());
+
+  // total stored rate is 2 * rays * weight; a 5 s counting time expects 10000 events
+  const double counting_time{5.0};
+  const double mean = 2.0 * rays * weight * counting_time;
+
+  ReplayConfig config;
+  config.counting_time = counting_time;
+  config.seed = 424242u;
+  config.default_port = port;
+  RecordingPublisher publisher;
+  replay(multi, config, publisher);
+
+  // the per-ray Poisson draws must reproduce the aggregate Poisson(W * T) count: check a 5 sigma window
+  const auto received = settled_readouts(stats);
+  const auto tolerance = 5.0 * std::sqrt(mean);
+  CHECK(std::abs(static_cast<double>(received) - mean) < tolerance);
+
+  // each point's parameters were published, in point order, before its readouts were sent
+  REQUIRE(publisher.published.size() == 2);
+  CHECK(publisher.published[0] == std::make_tuple(size_t{0}, std::string("chopper_speed"), std::string("100"), std::optional<std::string>("Hz")));
+  CHECK(publisher.published[1] == std::make_tuple(size_t{1}, std::string("chopper_speed"), std::string("200"), std::optional<std::string>("Hz")));
+  CHECK(publisher.ready == std::vector<size_t>{0, 1});
+
+  // without a counting time, every stored readout is sent exactly once
+  auto all_stats = std::make_shared<UDPStats>();
+  const int all_port{9017};
+  cluon::UDPReceiver all_receiver("127.0.0.1", all_port,
+    [all_stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+      const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
+      all_stats->packets++;
+      all_stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
+    });
+  REQUIRE(all_receiver.isRunning());
+  ReplayConfig all_config;
+  all_config.default_port = all_port;
+  replay(multi, all_config);
+  CHECK(settled_readouts(all_stats) == 2 * rays);
+
+  fs::remove(fs::path(file_a));
+  fs::remove(fs::path(file_b));
+  fs::remove(multi_path);
+}
+
+TEST_CASE("Replay with negligible counting time sends no events", "[replay][statistics]") {
+  namespace fs = std::filesystem;
+  const uint16_t rays{100};
+  const auto file_a = write_caen_point_file("replay_zero_a", 100.0, rays, 1.0);
+
+  auto stats = std::make_shared<UDPStats>();
+  const int port{9018};
+  cluon::UDPReceiver receiver("127.0.0.1", port,
+    [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+      const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
+      stats->packets++;
+      stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
+    });
+  REQUIRE(receiver.isRunning());
+
+  ReplayConfig config;
+  config.counting_time = 1e-12;
+  config.seed = 424242u;
+  config.default_port = port;
+  replay(file_a, config);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  CHECK(stats->readouts == 0);
+
+  fs::remove(fs::path(file_a));
 }

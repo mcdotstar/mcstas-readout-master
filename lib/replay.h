@@ -1,5 +1,9 @@
 #pragma once
+#include <cstdint>
+#include <optional>
 #include <string>
+
+#include "SenderConfigs.h"
 
 #ifdef WIN32
 // Export symbols if compile flags "READOUT_SHARED" and "READOUT_EXPORT" are set on Windows.
@@ -20,7 +24,68 @@
 
 enum Replay {NONE = 0, ALL = 1, SEQUENTIAL = 2, RANDOM = 4};
 
-/** \brief Replay all events from a file
+/** \brief Receives the per-point instrument parameter values as replay steps through a file
+ *
+ * Replay calls publish once per (point, parameter) before any of that point's readouts are
+ * sent, then point_ready once all of the point's parameters have been published.
+ * Implementations forward the values to, e.g., an EPICS mailbox; the transport lives
+ * outside this library.
+ */
+class RL_API ParameterPublisher {
+public:
+  virtual ~ParameterPublisher() = default;
+  virtual void publish(size_t point, const std::string & name, const std::string & value, const std::optional<std::string> & unit) = 0;
+  virtual void point_ready(size_t /*point*/) {}
+};
+
+class RL_API NullParameterPublisher final : public ParameterPublisher {
+public:
+  void publish(size_t, const std::string &, const std::string &, const std::optional<std::string> &) override {}
+};
+
+/// Prints "point N: name = value [unit]" lines to the provided stream
+class RL_API StreamParameterPublisher final : public ParameterPublisher {
+  std::ostream & out_;
+public:
+  explicit StreamParameterPublisher(std::ostream & out): out_{out} {}
+  void publish(size_t point, const std::string & name, const std::string & value, const std::optional<std::string> & unit) override;
+};
+
+/// Restrict replay to stored readouts with global index first + k * every, for k in [0, number)
+struct RL_API ReplaySubset {
+  size_t first{0};
+  size_t number{0};
+  size_t every{1};
+};
+
+struct RL_API ReplayConfig {
+  /// Counting time in seconds. When set, a stored readout with rate-weight w is sent
+  /// n ~ Poisson(w * counting_time) times; when unset every stored readout is sent exactly once.
+  std::optional<double> counting_time{std::nullopt};
+  /// Seed for the sampling and shuffling generator; 0 selects a non-deterministic seed
+  uint32_t seed{0};
+  /// Shuffle events within each (point, collector group) before sending
+  bool random_order{false};
+  /// Per-(detector, readout) EFU endpoints; groups without an entry use the default address/port
+  SenderConfigs senders{};
+  std::string default_address{"127.0.0.1"};
+  int default_port{9000};
+  /// Number of stored readouts per HDF5 read
+  size_t chunk_size{65536};
+  std::optional<ReplaySubset> subset{std::nullopt};
+};
+
+/** \brief Replay a Collector file to one or more EFUs
+ *
+ * Steps through the points in the file in order. For each point the instrument parameters
+ * are handed to the publisher, then every collector group's readouts for that point are
+ * sampled per the config and sent to the group's (detector, readout)-matched EFU endpoint.
+ * Pulse times advance between points.
+ */
+RL_API void replay(const std::string & filename, const ReplayConfig & config, ParameterPublisher & publisher);
+RL_API void replay(const std::string & filename, const ReplayConfig & config);
+
+/** \brief Replay all stored readouts from a file, each exactly once
  *
  * @param filename The name of the HDF5 file containing the events to send
  * @param address The IP address (or FQDN) of the EFU to receive
@@ -29,7 +94,7 @@ enum Replay {NONE = 0, ALL = 1, SEQUENTIAL = 2, RANDOM = 4};
  */
 RL_API void replay_all(const std::string & filename, const std::string & address, int port, int control);
 
-/** \brief Replay a subset of events from a file
+/** \brief Replay a subset of stored readouts from a file
  *
  * @param filename The name of the HDF5 file containing the events to send
  * @param address The IP address (or FQDN) of the EFU to receive

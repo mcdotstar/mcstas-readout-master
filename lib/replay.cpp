@@ -1,131 +1,205 @@
 #include <algorithm>
+#include <map>
 #include <optional>
+#include <ostream>
 #include <random>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "replay.h"
 #include "reader.h"
-#include "ReadoutClass.h"
+#include "Sender.h"
+
+void StreamParameterPublisher::publish(const size_t point, const std::string & name, const std::string & value, const std::optional<std::string> & unit) {
+  out_ << "point " << point << ": " << name << " = " << value;
+  if (unit.has_value()) {
+    out_ << " [" << unit.value() << "]";
+  }
+  out_ << "\n";
+}
 
 namespace {
 
-  /*
-   * This is all wrong.
-   *
-   * Presently it will read and create a vector of all readouts for all collectors keeping track of the
-   * collector's specific reader and the index of the readout in its dataset, then either go through all readouts
-   * in order or out of order and send them all to a single Readout RMM->EFU forwarder.
-   *
-   * Instead, it should:
-   * 1. perform a for loop over the points in the collector file
-   * 2. For each point
-   *  a. update the EPICS mailbox with the values of all stored parameters
-   *  b. perform a for loop over the collectors, and for each collector
-   *    i. loop over (possibly out of order) the readouts within this single point,
-   *    ii. send each readout to a readout-type-specific Readout which was initialized for it previously
-   *
-   * for point in point:
-   *   for parameter in parameters.at(point):
-   *     update_epics(parameter.name, parameter.value);
-   *   for collector in collectors:
-   *     for readout in collector.readouts.at(point, ordered=in_order):
-   *       send_to_readout(readouts.at(collector.readout_type), readout);
-   */
-
-struct EventRef {
-  const Reader * reader;
-  size_t index;
+// Runtime state for a ReplaySubset: a global index over (point, group, readout) in replay order
+struct SubsetState {
+  ReplaySubset spec;
+  size_t index{0};
+  size_t emitted{0};
+  bool wants() {
+    const auto i = index++;
+    if (emitted >= spec.number || i < spec.first || (i - spec.first) % spec.every != 0) {
+      return false;
+    }
+    ++emitted;
+    return true;
+  }
+  [[nodiscard]] bool done() const { return emitted >= spec.number; }
 };
 
-void append_events_for_point(const ReaderSource & source, const size_t point, std::vector<EventRef> & events) {
+std::string parameter_as_string(const ReaderSource & source, const std::string & name, const size_t point) {
+  std::ostringstream s;
+  if (source.parameter_is_double(name)) { s << source.parameter_double_value(name, point); }
+  else if (source.parameter_is_float(name)) { s << source.parameter_float_value(name, point); }
+  else if (source.parameter_is_int(name)) { s << source.parameter_int_value(name, point); }
+  else if (source.parameter_is_int32(name)) { s << source.parameter_int32_value(name, point); }
+  else if (source.parameter_is_int64(name)) { s << source.parameter_int64_value(name, point); }
+  else if (source.parameter_is_uint(name)) { s << source.parameter_uint_value(name, point); }
+  else if (source.parameter_is_uint32(name)) { s << source.parameter_uint32_value(name, point); }
+  else if (source.parameter_is_uint64(name)) { s << source.parameter_uint64_value(name, point); }
+  else if (source.parameter_is_char(name)) { s << source.parameter_char_value(name, point); }
+  else if (source.parameter_is_string(name)) { s << source.parameter_string_value(name, point); }
+  else { s << "<unsupported type>"; }
+  return s.str();
+}
+
+void publish_point(const ReaderSource & source, const size_t point, ParameterPublisher & publisher) {
+  for (const auto & view : source.parameter_views()) {
+    publisher.publish(point, view.name, parameter_as_string(source, view.name, point), view.unit);
+  }
+  publisher.point_ready(point);
+}
+
+std::map<std::pair<DetectorType, ReadoutType>, Sender> make_senders(const ReaderSource & source, const ReplayConfig & config) {
+  std::map<std::pair<DetectorType, ReadoutType>, Sender> senders;
   for (const auto & reader : source.readers()) {
-    const auto offset = reader.point_offset(point);
-    const auto count = reader.point_size(point);
-    for (size_t i = 0; i < count; ++i) {
-      events.push_back(EventRef{&reader, offset + i});
+    const auto key = std::make_pair(reader.detector_type(), reader.readout_type());
+    if (senders.contains(key)) {
+      continue;
+    }
+    auto sender_config = config.senders.find(key.first, key.second);
+    if (!sender_config.has_value()) {
+      sender_config = SenderConfig{key.first, key.second, config.default_address, static_cast<uint16_t>(config.default_port), 0};
+    }
+    senders.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple(sender_config.value()));
+  }
+  return senders;
+}
+
+template<class EventT, std::vector<EventT> (Reader::*Get)(size_t, size_t) const>
+void stream_point(const Reader & reader, Sender & sender, const size_t point, const ReplayConfig & config,
+                  std::mt19937 & rng, std::optional<SubsetState> & subset) {
+  const auto offset = reader.point_offset(point);
+  const auto count = reader.point_size(point);
+  // Only the shuffled path needs to buffer the sampled events; sequential sends immediately
+  std::vector<EventT> buffered;
+  auto emit = [&](const EventT & event) {
+    if (config.random_order) {
+      buffered.push_back(event);
+    } else {
+      event.add(sender);
+    }
+  };
+  const auto chunk = std::max<size_t>(config.chunk_size, 1);
+  for (size_t done = 0; done < count; done += chunk) {
+    if (subset.has_value() && subset->done()) {
+      break;
+    }
+    const auto n = std::min(chunk, count - done);
+    const auto events = (reader.*Get)(offset + done, n);
+    for (const auto & event : events) {
+      if (subset.has_value() && !subset->wants()) {
+        continue;
+      }
+      size_t copies{1};
+      if (config.counting_time.has_value()) {
+        // n_i ~ Poisson(w_i * T): per-ray draws reproduce the aggregate Poisson(W * T)
+        // event count exactly, by the Poisson-multinomial decomposition
+        const auto mean = event.weight * config.counting_time.value();
+        if (mean > 0.) {
+          std::poisson_distribution<size_t> distribution(mean);
+          copies = distribution(rng);
+        } else {
+          copies = 0;
+        }
+      }
+      for (size_t k = 0; k < copies; ++k) {
+        emit(event);
+      }
+    }
+  }
+  if (config.random_order) {
+    std::ranges::shuffle(buffered, rng);
+    for (const auto & event : buffered) {
+      event.add(sender);
     }
   }
 }
 
-std::vector<EventRef> collect_events(const ReaderSource & source, const std::optional<size_t> first = std::nullopt, const std::optional<size_t> number = std::nullopt, const size_t every = 1) {
-  if (every == 0) {
-    throw std::runtime_error("The replay step (every) must be at least 1");
-  }
-  std::vector<EventRef> all;
-  size_t total{0};
-  for (const auto & reader : source.readers()) {
-    total += reader.size();
-  }
-  all.reserve(total);
-  for (size_t point = 0; point < source.points(); ++point) {
-    append_events_for_point(source, point, all);
-  }
-
-  if (!first.has_value() || !number.has_value()) {
-    return all;
-  }
-
-  const auto begin = first.value();
-  if (begin >= all.size()) {
-    throw std::runtime_error("Requested first replay index is out of bounds");
-  }
-
-  std::vector<EventRef> subset;
-  subset.reserve(number.value());
-  for (size_t i = begin; i < all.size() && subset.size() < number.value(); i += every) {
-    subset.push_back(all.at(i));
-  }
-  if (subset.size() != number.value()) {
-    throw std::runtime_error("Requested replay subset exceeds available events");
-  }
-  return subset;
-}
-
-void add_event_to_readout(const EventRef & event, Readout & readout) {
-  switch (event.reader->readout_type()) {
-    case ReadoutType::CAEN: event.reader->get_CAEN(event.index, 1).front().add(readout); return;
-    case ReadoutType::TTLMonitor: event.reader->get_TTLMonitor(event.index, 1).front().add(readout); return;
-    case ReadoutType::VMM3: event.reader->get_VMM3(event.index, 1).front().add(readout); return;
-    case ReadoutType::CDT: event.reader->get_CDT(event.index, 1).front().add(readout); return;
-    case ReadoutType::BM0: event.reader->get_BM0(event.index, 1).front().add(readout); return;
-    case ReadoutType::BM2: event.reader->get_BM2(event.index, 1).front().add(readout); return;
-    case ReadoutType::BMI: event.reader->get_BMI(event.index, 1).front().add(readout); return;
-    default: throw std::runtime_error("Readout type not implemented");
-  }
-}
-
-void replay_events(std::vector<EventRef> events, const std::string & address, const int port, const int control) {
-  if (events.empty()) {
-    return;
-  }
-  if (control & RANDOM) {
-    auto rng = std::default_random_engine{};
-    std::ranges::shuffle(events, rng);
-  }
-
-  const auto detector = events.front().reader->detector_type();
-  for (const auto &[reader, index] : events) {
-    if (reader->detector_type() != detector) {
-      throw std::runtime_error("Collector groups have mixed detector types, replay expects a single detector");
-    }
-  }
-
-  auto readout = Readout(address, port, 0, detector);
-  for (const auto & event : events) {
-    add_event_to_readout(event, readout);
+void stream_reader_point(const Reader & reader, Sender & sender, const size_t point, const ReplayConfig & config,
+                         std::mt19937 & rng, std::optional<SubsetState> & subset) {
+  switch (reader.readout_type()) {
+    case ReadoutType::CAEN: return stream_point<CAEN_event, &Reader::get_CAEN>(reader, sender, point, config, rng, subset);
+    case ReadoutType::TTLMonitor: return stream_point<TTLMonitor_event, &Reader::get_TTLMonitor>(reader, sender, point, config, rng, subset);
+    case ReadoutType::VMM3: return stream_point<VMM3_event, &Reader::get_VMM3>(reader, sender, point, config, rng, subset);
+    case ReadoutType::CDT: return stream_point<CDT_event, &Reader::get_CDT>(reader, sender, point, config, rng, subset);
+    case ReadoutType::BM0: return stream_point<BM0_event, &Reader::get_BM0>(reader, sender, point, config, rng, subset);
+    case ReadoutType::BM2: return stream_point<BM2_event, &Reader::get_BM2>(reader, sender, point, config, rng, subset);
+    case ReadoutType::BMI: return stream_point<BMI_event, &Reader::get_BMI>(reader, sender, point, config, rng, subset);
+    default: throw std::runtime_error("Replay of this readout type is not implemented");
   }
 }
 
 } // namespace
 
-void replay_all(const std::string & filename, const std::string & address, int port, int control) {
+void replay(const std::string & filename, const ReplayConfig & config, ParameterPublisher & publisher) {
   const ReaderSource source(filename);
-  replay_events(collect_events(source), address, port, control);
+  auto senders = make_senders(source, config);
+  const auto seed = config.seed ? config.seed : std::random_device{}();
+  std::mt19937 rng{seed};
+
+  std::optional<SubsetState> subset{std::nullopt};
+  if (config.subset.has_value()) {
+    if (config.subset->every == 0) {
+      throw std::runtime_error("The replay step (every) must be at least 1");
+    }
+    size_t total{0};
+    for (const auto & reader : source.readers()) {
+      total += reader.size();
+    }
+    if (config.subset->first >= total) {
+      throw std::runtime_error("Requested first replay index is out of bounds");
+    }
+    subset = SubsetState{config.subset.value()};
+  }
+
+  for (size_t point = 0; point < source.points(); ++point) {
+    publish_point(source, point, publisher);
+    for (const auto & reader : source.readers()) {
+      auto & sender = senders.at({reader.detector_type(), reader.readout_type()});
+      stream_reader_point(reader, sender, point, config, rng, subset);
+    }
+    // a point boundary acts like a pulse: flush buffered packets and advance the pulse times
+    for (auto & [key, sender] : senders) {
+      sender.update_time();
+    }
+  }
+
+  if (subset.has_value() && subset->emitted < subset->spec.number) {
+    throw std::runtime_error("Requested replay subset exceeds available events");
+  }
 }
 
-void replay_subset(const std::string & filename, const std::string & address, int port, size_t first, size_t number, size_t every, int control) {
-  const ReaderSource source(filename);
-  replay_events(collect_events(source, first, number, every), address, port, control);
+void replay(const std::string & filename, const ReplayConfig & config) {
+  NullParameterPublisher publisher;
+  replay(filename, config, publisher);
+}
+
+void replay_all(const std::string & filename, const std::string & address, const int port, const int control) {
+  ReplayConfig config;
+  config.random_order = control & RANDOM;
+  config.default_address = address;
+  config.default_port = port;
+  replay(filename, config);
+}
+
+void replay_subset(const std::string & filename, const std::string & address, const int port, const size_t first, const size_t number, const size_t every, const int control) {
+  ReplayConfig config;
+  config.random_order = control & RANDOM;
+  config.default_address = address;
+  config.default_port = port;
+  config.subset = ReplaySubset{first, number, every};
+  replay(filename, config);
 }

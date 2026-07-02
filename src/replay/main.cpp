@@ -6,22 +6,27 @@
 
 int main(int argc, char * argv[]){
   args::ArgumentParser parser("Replay saved weighted events",
-                              "Destination Event Formation Unit should be running.");
+                              "Destination Event Formation Unit(s) should be running.");
   args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});
-  args::Flag verbose(parser, "verbose", "Print additional information", {'v', "verbose"});
+  args::Flag verbose(parser, "verbose", "Print additional information, including per-point parameters", {'v', "verbose"});
 
   args::Group playback_type(parser, "Playback type (exclusive)", args::Group::Validators::Xor);
   args::Flag sequential_flag(playback_type, "sequential", "Replay events in order", {'s', "sequential"});
-  args::Flag random_flag(playback_type, "random", "Replay events in random order", {'r', "random"});
+  args::Flag random_flag(playback_type, "random", "Replay events in random order within each point", {'r', "random"});
+
+  args::Group sampling_group(parser, "Statistical sampling", args::Group::Validators::DontCare);
+  args::ValueFlag<double> time_flag(sampling_group, "TIME", "Counting time in seconds: each stored readout with rate-weight w is sent n ~ Poisson(w * TIME) times; without TIME every stored readout is sent exactly once", {'t', "time"});
+  args::ValueFlag<uint32_t> seed_flag(sampling_group, "SEED", "Random seed for sampling and shuffling (0 or absent: non-deterministic)", {"seed"});
 
   args::Group number_group(parser, "Replay subset, FIRST and EVERY ignored if COUNT is not present", args::Group::Validators::DontCare);
-  args::ValueFlag<int> count_flag(number_group, "COUNT", "Number of events to replay", {'n', "count"});
-  args::ValueFlag<int> first_flag(number_group, "FIRST", "First event to replay", {'f', "first"});
-  args::ValueFlag<int> every_flag(number_group, "EVERY", "Replay every EVERYth event", {'e', "every"});
+  args::ValueFlag<size_t> count_flag(number_group, "COUNT", "Number of stored readouts to replay", {'n', "count"});
+  args::ValueFlag<size_t> first_flag(number_group, "FIRST", "First stored readout to replay", {'f', "first"});
+  args::ValueFlag<size_t> every_flag(number_group, "EVERY", "Replay every EVERYth stored readout", {'e', "every"});
 
   args::Group efu_group(parser, "Event Formation Unit connection", args::Group::Validators::DontCare);
-  args::ValueFlag<std::string> address_flag(efu_group, "ADDR", "EFU IP address", {'a', "addr"});
-  args::ValueFlag<int> port_flag(efu_group, "PORT", "EFU UDP port for accepting data", {'p', "port"});
+  args::ValueFlag<std::string> address_flag(efu_group, "ADDR", "Default EFU IP address", {'a', "addr"});
+  args::ValueFlag<int> port_flag(efu_group, "PORT", "Default EFU UDP port for accepting data", {'p', "port"});
+  args::ValueFlag<std::string> config_flag(efu_group, "CONFIG", "JSON file with per-(detector, readout) EFU endpoints", {'c', "config"});
 
   args::Positional<std::string> filename_positional(parser, "filename", "Filename to replay");
 
@@ -41,27 +46,45 @@ int main(int argc, char * argv[]){
     return 1;
   }
 
-  auto count = count_flag ? args::get(count_flag) : -1;
-  auto first = first_flag ? args::get(first_flag) : 0;
-  auto every = every_flag ? args::get(every_flag) : 1;
-  auto address = address_flag ? args::get(address_flag) : "127.0.0.1";
-  auto port = port_flag ? args::get(port_flag) : 9000;
-  auto filename = args::get(filename_positional);
+  const auto filename = args::get(filename_positional);
 
-  int choice{Replay::NONE};
-  if (sequential_flag) choice |= SEQUENTIAL;
-  if (random_flag) choice |= RANDOM;
+  ReplayConfig config;
+  if (time_flag) config.counting_time = args::get(time_flag);
+  if (seed_flag) config.seed = args::get(seed_flag);
+  config.random_order = static_cast<bool>(random_flag);
+  if (address_flag) config.default_address = args::get(address_flag);
+  if (port_flag) config.default_port = args::get(port_flag);
+  if (config_flag) {
+    try {
+      config.senders = SenderConfigs::from_file(args::get(config_flag));
+    } catch (const std::exception & e) {
+      std::cerr << "Error reading sender configuration " << args::get(config_flag) << ":\n" << e.what() << std::endl;
+      return 1;
+    }
+  }
+  if (count_flag) {
+    const auto first = first_flag ? args::get(first_flag) : 0u;
+    const auto every = every_flag ? args::get(every_flag) : 1u;
+    config.subset = ReplaySubset{first, args::get(count_flag), every};
+  }
 
-  if (count) {
-    if (verbose){
-      std::cout << "Replaying " << count << " events from " << filename << " to " << address << ":" << port << std::endl;
+  if (verbose){
+    std::cout << "Replaying " << (count_flag ? "a subset of" : "all") << " events from " << filename;
+    std::cout << " to " << config.default_address << ":" << config.default_port;
+    if (time_flag) std::cout << " with counting time " << config.counting_time.value() << " s";
+    std::cout << std::endl;
+  }
+
+  try {
+    if (verbose) {
+      StreamParameterPublisher publisher(std::cout);
+      replay(filename, config, publisher);
+    } else {
+      replay(filename, config);
     }
-    replay_subset(filename, address, port, first, count, every, choice);
-  } else {
-    if (verbose){
-      std::cout << "Replaying all events from " << filename << " to " << address << ":" << port << std::endl;
-    }
-    replay_all(filename, address, port, choice);
+  } catch (const std::exception & e) {
+    std::cerr << "Replay failed:\n" << e.what() << std::endl;
+    return 1;
   }
   return EXIT_SUCCESS;
 }
