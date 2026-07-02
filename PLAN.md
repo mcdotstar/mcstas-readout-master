@@ -125,22 +125,51 @@ data, mixed readout types allowed.
    points with correct per-point weights and parameters; also merge-then-
    concatenate (MPI × scan) ordering.
 
-## Phase 4 — CollectorStar parity (the "switch")
+## Phase 4 — CollectorStar as the storage engine, typed components on top
 
 Do this only once phases 0–3 are green, so there is always one working path.
 
-1. Generalize the merge/concat/append functions to be datatype-agnostic
+Design (decided 2026-07-02): CollectorStar becomes the *single* storage
+engine, and type-fixing moves up into the McStas component layer. A family of
+`Collector{ReadoutType}.comp` components (CollectorCAEN, CollectorTTLMonitor,
+…) carry fixed struct-definition strings that correspond exactly to the
+EFU-known readout types. The generic CollectorStar interface remains available
+for users to write their own `Collector*.comp` components, but those are not
+EFU-sendable — as is true of the EFU itself, which only accepts well-defined
+data.
+
+"Sendable" is a checkable property, not a convention: replay compares the
+dataset's stored HDF5 compound datatype (exact on field names, offsets, and
+types) against a registry of known readout types — the existing
+`hdf_compound_type(ReadoutType)` definitions are that registry. Datasets that
+match are sampled and sent; datasets that don't are skipped for EFU replay but
+remain fully readable for offline analysis.
+
+Work items:
+1. Bring CollectorStar to Collector parity — it is further behind than
+   architecture.md claims: its actual interface is `add(const void*)` with
+   **no weight parameter**, it buffers everything in RAM and writes once, and
+   it has no CollectorSink integration (no points/cues, no parameters, no
+   per-point weights/normalizations, no MPI merge). Give it the sink-backed,
+   cue-based incremental layout of Collector.
+2. Per-ray weight is required for replay sampling (the per-ray Poisson draw
+   needs each stored readout's weight). Registry rule: every sendable type
+   includes `weight` and time-of-flight fields, as today's `*_event` structs
+   already do. The `Collector{ReadoutType}.comp` struct strings mirror those
+   event structs.
+3. Anti-drift safeguard: a unit test that parses each component's embedded
+   struct string through `TypeDescriptionParser` and asserts it produces the
+   same compound type as `hdf_compound_type(ReadoutType)`, so the
+   component-embedded strings cannot silently diverge from the C++ structs.
+4. Generalize the merge/concat/append functions to be datatype-agnostic
    (HighFive can copy compound data by the dataset's own datatype — most of
    the Collector implementation should generalize rather than be duplicated).
-2. Reader support for user-defined compound types (a `ReaderStar` or a
-   generalized Reader that surfaces raw structs + the parsed
-   TypeDescription).
-3. Design decision to resolve here: how replay maps an arbitrary user struct
-   onto an EFU readout payload. Simplest viable rule: the group's
-   `readout` attribute names a known readout type and the stored struct must
-   be layout-compatible (verified by size/field check at replay time).
-4. Port the CLI and the phase 1–3 tests to CollectorStar; only then deprecate
-   the fixed-type Collector per CLAUDE.md's "Switch to CollectorStar".
+5. Reader support for user-defined compound types (a generalized Reader that
+   surfaces raw structs plus the parsed TypeDescription; typed access when
+   the registry check passes).
+6. Port the CLI and the phase 1–3 tests to the new components; only then
+   deprecate the fixed-type Collector per CLAUDE.md's "Switch to
+   CollectorStar".
 
 ## Known risks / open questions
 
