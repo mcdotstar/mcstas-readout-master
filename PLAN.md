@@ -185,12 +185,13 @@ replay dispatches on the datatype-verified type and skips non-sendable groups.
 The canonical description strings live in lib/readout_type_descriptions.h with
 the anti-drift test in test/star_collector_test.cpp.
 
-Item 6 is started: CollectorCAEN.comp (star engine, canonical layout via
-`readout_description_for(ess_type)`, layout guarded by a record-size check)
-is the template; CollectorTTLMonitor/CDT/VMM3/BM0/BM2/BMI.comp remain, each a
-mechanical copy with its own stash struct and particle-variable mapping. The
-old in-RAM CollectorStar class and the typed CollectCAEN.comp stay until the
-family is complete.
+Item 6 is done: the full Collector{ReadoutType}.comp family exists
+(CAEN, TTLMonitor, CDT, VMM3, BM0, BM2, BMI), each storing whole records
+through the star engine with the canonical layout from
+`readout_description_for(ess_type)` and a record-size guard, with a
+mccode-antlr run test per component. Remaining decisions, not code: when to
+deprecate the typed CollectCAEN.comp and the old in-RAM CollectorStar class,
+now that the description-based path covers their use cases.
 
 ## Known risks / open questions
 
