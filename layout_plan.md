@@ -60,12 +60,21 @@ Reading references/mcpl (v2.2.8), the load-bearing ideas are:
   the first pass. The wheel ships binaries + components only, exactly like
   mcpl-core's "empty" Python surface.
 
-# Decisions (recommendations; veto before L1 starts)
+# Decisions (settled 2026-07-02)
 
-- **Package naming**: PyPI/conda names `mccode-readout-core` (bare "readout" is
-  too generic to claim), repo directory `readout_core/`, CMake package name and
-  binary names unchanged (`find_package(Readout)`, readout-config,
-  readout-replay, readout-combine).
+- **Package naming**: `mcstas-readout-master` — this matches the GitHub
+  upstream (g5t/mcstas-readout-master) and the conda-forge feedstock that
+  ALREADY EXISTS (conda-forge/mcstas-readout-master-feedstock, currently
+  building v0.3.3 from the release tag with conda-forge hdf5/highfive/catch2).
+  The PyPI distribution takes the same name. Repo directory `readout_core/`,
+  CMake package and binary names unchanged.
+- **Feedstock compatibility constraints on the restructure**: the existing
+  feedstock tests check `readout-config --help/--version`, `readout-replay
+  --help`, the presence of the installed `Readout.h`, and
+  `cmake-package-check Readout --targets Readout`. The L1 install layout must
+  keep the `Readout` CMake package name and exported target working; feedstock
+  updates (new version, readout-combine test, any path adjustments) land
+  together with the first post-restructure release.
 - **Windows**: keep the existing WIN32 shims compiling but target Linux + macOS
   wheels first; Windows wheels only if someone asks.
 - **Legacy sources** (readout_orig, Readout_merge, discrete path, Array, tester
@@ -100,10 +109,17 @@ Reading references/mcpl (v2.2.8), the load-bearing ideas are:
 
 ## L2 — PyPI wheel (scikit-build-core), HDF5 spike first
 
-1. **Spike (go/no-go)**: build a manylinux wheel with static HDF5 + HighFive +
+1. **Spike (de-risking, prior art exists)**: HDF5-bundled wheels have been
+   built for this project before and are known to work, but require care to
+   avoid symbol clashes — a statically bundled libhdf5 must not export symbols
+   that collide with another HDF5 loaded in the same process (h5py being the
+   obvious cohabitant). Consult the recent changes in the `brille` project as
+   the guideline when this work starts (symbol visibility / exclude-libs
+   treatment). Build a manylinux wheel with static HDF5 + HighFive +
    nlohmann_json via FetchContent behind a READOUT_BUNDLED_DEPS flag; auditwheel
-   must pass and a fresh venv must run readout-config/replay/combine and an
-   mccode-antlr compile+run of CollectorCAEN. Only then wire the rest.
+   must pass, `nm`/`objdump` must show no exported HDF5 symbols, and a fresh
+   venv (with h5py imported alongside) must run readout-config/replay/combine
+   and an mccode-antlr compile+run of CollectorCAEN.
 2. `readout_core/pyproject.toml` (scikit-build-core), CMake-generated
    `_readout_core` shim package with entry points for the three tools and a
    `cmakedir()` helper; sdist includes src/include/components/cmake.
@@ -117,12 +133,13 @@ with hdf5, highfive, nlohmann_json requirements) while preserving the current
 dev workflow (conan install for local deps + CMakeUserPresets). Validate with
 `conan create` and a scratch consumer.
 
-## L4 — conda-forge
+## L4 — conda-forge (feedstock update, not staged-recipes)
 
-staged-recipes submission for `mccode-readout-core` building the plain CMake
-project from a GitHub release tarball, hdf5/highfive/nlohmann_json from
-conda-forge. Requires a tagged release with the L1 layout; the feedstock lives
-outside this repo.
+The feedstock already exists: conda-forge/mcstas-readout-master-feedstock.
+After the first tagged release with the L1 layout: bump version/sha, adjust
+for any install-path changes, add nlohmann_json to host deps if it stops being
+vendored, and extend the tests (readout-combine --help, the component data
+dir via readout-config --show compdir).
 
 ## L5 — deferred until wanted
 
