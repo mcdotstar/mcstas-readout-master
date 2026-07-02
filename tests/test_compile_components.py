@@ -71,10 +71,10 @@ END
 
 
 # -----------------------------------------------------------------------
-# CollectCAEN
+# CollectorCAEN
 # -----------------------------------------------------------------------
 @requires_integration
-class TestCompileCollectCAEN:
+class TestCompileCollectorCAEN:
     def test_compile_basic(self):
         _compile_instrument(f"""
 DEFINE INSTRUMENT test_collect_caen_compile(string filename="output")
@@ -82,9 +82,9 @@ DEFINE INSTRUMENT test_collect_caen_compile(string filename="output")
 TRACE
 SEARCH SHELL "readout-config --show compdir"
 {CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
+COMPONENT collector = CollectorCAEN(
   ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
+  a_name="A", b_name="B", tof="tof",
   filename=filename, verbose=1
 ) AT (0, 0, 1) ABSOLUTE
 END
@@ -97,9 +97,9 @@ DEFINE INSTRUMENT test_collect_caen_points(string filename="output", int point=0
 TRACE
 SEARCH SHELL "readout-config --show compdir"
 {CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
+COMPONENT collector = CollectorCAEN(
   ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
+  a_name="A", b_name="B", tof="tof",
   filename=filename, point=point, total_points=total_points, verbose=1
 ) AT (0, 0, 1) ABSOLUTE
 END
@@ -156,7 +156,7 @@ END
 @requires_integration
 class TestCompileMultiComponent:
     def test_compile_all_together(self):
-        """An instrument with ReadoutCAEN, ReadoutTTLMonitor, and CollectCAEN."""
+        """An instrument with ReadoutCAEN, ReadoutTTLMonitor, and CollectorCAEN."""
         _compile_instrument(f"""
 DEFINE INSTRUMENT test_multi_compile(string filename="output")
 {CAEN_USERVARS}
@@ -176,9 +176,9 @@ COMPONENT monitor = ReadoutTTLMonitor(
   ip="127.0.0.1", port=9001, broadcast=0
 ) AT (0, 0, 2) ABSOLUTE
 
-COMPONENT collector = CollectCAEN(
+COMPONENT collector = CollectorCAEN(
   ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
+  a_name="A", b_name="B", tof="tof",
   filename=filename, verbose=1
 ) AT (0, 0, 3) ABSOLUTE
 

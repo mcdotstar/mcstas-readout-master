@@ -96,19 +96,19 @@ END
 
 
 # -----------------------------------------------------------------------
-# CollectCAEN run — produces HDF5 output
+# CollectorCAEN run — produces HDF5 output
 # -----------------------------------------------------------------------
 @requires_run
-class TestRunCollectCAEN:
+class TestRunCollectorCAENOutput:
     def test_run_produces_hdf5(self):
-        """CollectCAEN writes an HDF5 file with event data."""
+        """CollectorCAEN writes an HDF5 file with event data."""
         result, dats = _compile_and_run(f"""
 DEFINE INSTRUMENT test_collect_run(string filename="output")
 {CAEN_USERVARS}
 TRACE
 SEARCH SHELL "readout-config --show compdir"
 {CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
+COMPONENT collector = CollectorCAEN(
   ring="RING", fen="FEN", tube="TUBE",
   a_name="A", b_name="B", tof="tof",
   filename=filename, verbose=1
@@ -131,7 +131,7 @@ DEFINE INSTRUMENT test_collect_events(string filename="events_test")
 TRACE
 SEARCH SHELL "readout-config --show compdir"
 {CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
+COMPONENT collector = CollectorCAEN(
   ring="RING", fen="FEN", tube="TUBE",
   a_name="A", b_name="B", tof="tof",
   filename=filename, verbose=1
@@ -157,7 +157,7 @@ END
                 assert col in names, f"Missing column '{col}' in dataset"
 
     def test_collect_with_points(self, tmp_path):
-        """CollectCAEN with total_points creates point-based groups."""
+        """CollectorCAEN with total_points creates point-based groups."""
         h5py = pytest.importorskip("h5py")
 
         result, dats = _compile_and_run(f"""
@@ -166,7 +166,7 @@ DEFINE INSTRUMENT test_collect_points(string filename="points_test", int point=0
 TRACE
 SEARCH SHELL "readout-config --show compdir"
 {CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
+COMPONENT collector = CollectorCAEN(
   ring="RING", fen="FEN", tube="TUBE",
   a_name="A", b_name="B", tof="tof",
   filename=filename, point=point, total_points=total_points, verbose=1
@@ -540,7 +540,7 @@ END
 @requires_run
 class TestRunMultiComponent:
     def test_readout_and_collect_together(self):
-        """An instrument with ReadoutCAEN + CollectCAEN produces correct output."""
+        """An instrument with ReadoutCAEN + CollectorCAEN produces correct output."""
         result, dats = _compile_and_run(f"""
 DEFINE INSTRUMENT test_multi_run(string filename="multi_output")
 {CAEN_USERVARS}
@@ -560,7 +560,7 @@ COMPONENT monitor = ReadoutTTLMonitor(
   ip="127.0.0.1", port=9001, broadcast=0
 ) AT (0, 0, 2) ABSOLUTE
 
-COMPONENT collector = CollectCAEN(
+COMPONENT collector = CollectorCAEN(
   ring="RING", fen="FEN", tube="TUBE",
   a_name="A", b_name="B", tof="tof",
   filename=filename, verbose=1
@@ -571,4 +571,4 @@ END
         assert b"TRACE end" in result
         from pathlib import Path
         h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
-        assert len(h5_files) > 0, "Expected HDF5 output from CollectCAEN"
+        assert len(h5_files) > 0, "Expected HDF5 output from CollectorCAEN"

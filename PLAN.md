@@ -189,9 +189,16 @@ Item 6 is done: the full Collector{ReadoutType}.comp family exists
 (CAEN, TTLMonitor, CDT, VMM3, BM0, BM2, BMI), each storing whole records
 through the star engine with the canonical layout from
 `readout_description_for(ess_type)` and a record-size guard, with a
-mccode-antlr run test per component. Remaining decisions, not code: when to
-deprecate the typed CollectCAEN.comp and the old in-RAM CollectorStar class,
-now that the description-based path covers their use cases.
+mccode-antlr run test per component.
+
+The deprecations are complete (2026-07-02): CollectCAEN.comp is removed
+(CollectorCAEN.comp is its drop-in replacement — same parameters) and the
+old in-RAM CollectorStar class is deleted. Its parser→HDF5 bridge
+(`build_hdf5_compound_type`) moved to hdf_interface, and the Discrete
+samplers' record buffering moved to the minimal internal RecordBuffer
+(lib/RecordBuffer.h). The TypeDescriptionParser tests survive in
+test/type_description_test.cpp. Phase 4 — and with it every code item in
+this plan — is finished.
 
 ## Known risks / open questions
 

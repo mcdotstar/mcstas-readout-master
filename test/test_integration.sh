@@ -75,7 +75,7 @@ COMPONENT monitor_readout = ReadoutTTLMonitor(
 )
   AT (0, 0, 2) ABSOLUTE
 
-COMPONENT caen_collector = CollectCAEN(
+COMPONENT caen_collector = CollectorCAEN(
 ring="RING", fen="FEN", tube="TUBE", a_name="A", b_name="B", tof="tof",
 filename=filename, point=point, total_points=total_points, verbose=1
 ) AT (0, 0, 3) ABSOLUTE

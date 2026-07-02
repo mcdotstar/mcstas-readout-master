@@ -1,6 +1,6 @@
-"""MPI tests for CollectCAEN.
+"""MPI tests for CollectorCAEN.
 
-These tests compile and run CollectCAEN instruments with MPI enabled,
+These tests compile and run CollectorCAEN instruments with MPI enabled,
 verifying that event data from multiple ranks is correctly merged into a
 single HDF5 output file.
 
@@ -106,19 +106,19 @@ def _mpi_compile_and_run(
 # Tests
 # ---------------------------------------------------------------------------
 @_skip_no_readout
-class TestMPICollectCAEN:
-    """CollectCAEN tests compiled and run under MPI."""
+class TestMPICollectorCAEN:
+    """CollectorCAEN tests compiled and run under MPI."""
 
     @mpi_compiled_test
     def test_mpi_collect_runs(self):
-        """CollectCAEN compiles with mpicc and runs under mpirun without error."""
+        """CollectorCAEN compiles with mpicc and runs under mpirun without error."""
         result, dats = _mpi_compile_and_run(f"""
             DEFINE INSTRUMENT test_mpi_collect(string filename="mpi_output")
             {CAEN_USERVARS}
             TRACE
             SEARCH SHELL "readout-config --show compdir"
             {CAEN_ORIGIN_EXTEND}
-            COMPONENT collector = CollectCAEN(
+            COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
               event_mode="p", a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
@@ -136,7 +136,7 @@ class TestMPICollectCAEN:
             TRACE
             SEARCH SHELL "readout-config --show compdir"
             {CAEN_ORIGIN_EXTEND}
-            COMPONENT collector = CollectCAEN(
+            COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
               event_mode="p", a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
@@ -146,7 +146,7 @@ class TestMPICollectCAEN:
         assert b"TRACE end" in result
 
         h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
-        assert len(h5_files) > 0, "Expected HDF5 output from CollectCAEN"
+        assert len(h5_files) > 0, "Expected HDF5 output from CollectorCAEN"
         assert Path(h5_files[0]).exists()
 
     @mpi_compiled_test
@@ -160,7 +160,7 @@ class TestMPICollectCAEN:
             TRACE
             SEARCH SHELL "readout-config --show compdir"
             {CAEN_ORIGIN_EXTEND}
-            COMPONENT collector = CollectCAEN(
+            COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
               event_mode="p", a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
@@ -184,7 +184,7 @@ class TestMPICollectCAEN:
 
     @mpi_compiled_test
     def test_mpi_collect_with_points(self, tmp_path):
-        """CollectCAEN point-mode works under MPI."""
+        """CollectorCAEN point-mode works under MPI."""
         h5py = pytest.importorskip("h5py")
 
         result, dats = _mpi_compile_and_run(f"""
@@ -193,7 +193,7 @@ class TestMPICollectCAEN:
             TRACE
             SEARCH SHELL "readout-config --show compdir"
             {CAEN_ORIGIN_EXTEND}
-            COMPONENT collector = CollectCAEN(
+            COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
               event_mode="p", a_name="A", b_name="B", tof="tof",
               filename=filename, point=point, total_points=total_points, verbose=1
@@ -216,7 +216,7 @@ class TestMPICollectCAEN:
 
     @mpi_compiled_test
     def test_mpi_collect_four_ranks(self, tmp_path):
-        """CollectCAEN works correctly with 4 MPI ranks."""
+        """CollectorCAEN works correctly with 4 MPI ranks."""
         h5py = pytest.importorskip("h5py")
 
         result, dats = _mpi_compile_and_run(f"""
@@ -225,7 +225,7 @@ class TestMPICollectCAEN:
             TRACE
             SEARCH SHELL "readout-config --show compdir"
             {CAEN_ORIGIN_EXTEND}
-            COMPONENT collector = CollectCAEN(
+            COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
               event_mode="p", a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
@@ -250,7 +250,7 @@ class TestMPICollectCAEN:
 
     @mpi_compiled_test
     def test_mpi_collect_with_readout(self, tmp_path):
-        """Multi-component instrument: ReadoutCAEN + CollectCAEN under MPI."""
+        """Multi-component instrument: ReadoutCAEN + CollectorCAEN under MPI."""
         h5py = pytest.importorskip("h5py")
 
         result, dats = _mpi_compile_and_run(f"""
@@ -266,7 +266,7 @@ class TestMPICollectCAEN:
               ip="127.0.0.1", port=9000, broadcast=0
             ) AT (0, 0, 1) ABSOLUTE
             
-            COMPONENT collector = CollectCAEN(
+            COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
               event_mode="p", a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
@@ -287,7 +287,7 @@ class TestMPICollectCAEN:
 
     @mpi_compiled_test
     def test_multi_collectors(self, tmp_path):
-        """Multi-component instrument: 4x CollectCAEN under MPI."""
+        """Multi-component instrument: 4x CollectorCAEN under MPI."""
         h5py = pytest.importorskip("h5py")
 
         total_rays = 1000
@@ -312,22 +312,22 @@ class TestMPICollectCAEN:
               yheight = 2.) 
              AT (0, 0, 1) ABSOLUTE
             
-            COMPONENT collector_mm = CollectCAEN(
+            COMPONENT collector_mm = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
               event_mode="p", a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1, dataset_name="collector--"
             ) WHEN (x < 0 && y < 0) AT (0, 0, 2) ABSOLUTE 
-            COMPONENT collector_mp = CollectCAEN(
+            COMPONENT collector_mp = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
               event_mode="p", a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1, dataset_name="collector-+"
             ) WHEN (x < 0 && y >= 0) AT (0, 0, 2) ABSOLUTE 
-            COMPONENT collector_pm = CollectCAEN(
+            COMPONENT collector_pm = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
               event_mode="p", a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1, dataset_name="collector+-"
             ) WHEN (x >= 0 && y < 0) AT (0, 0, 2) ABSOLUTE 
-            COMPONENT collector_pp = CollectCAEN(
+            COMPONENT collector_pp = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
               event_mode="p", a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1, dataset_name="collector++"

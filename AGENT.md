@@ -1,20 +1,41 @@
 # Description
-This repository contains library functionality for collecting simulated readouts from a McStas neutron raytracing runtime via a custom component, CollectCAEN.comp. When the simulation runs that component holds a pointer to a Collector object (lib/CollectorClass.h) that provides a way to record any number of weighted ray readouts to a named HDF5 group, which statically defined dataset members, 'readouts', 'cue', 'weights', 'normalizations'. 
-If there is more than one CollectCAEN.comp, they will record readouts to different named groups independently.
-The Collector objects utilize a singleton CollectorSink to manage their common HDF5 file, which also defines static names of groups, datasets, attributes, and attribute values for a 'validated' Collector HDF5 file.
-The CollectorSink can also record simulation parameters to the file.
+This repository contains library functionality for collecting simulated readouts from a McStas
+neutron raytracing runtime and replaying them, statistically correctly, to ESS Event Formation
+Units (EFUs) after the fact — decoupling the simulation runtime from the data-acquisition
+pipeline.
 
-After some number of points are simulated, they will be concatenated via `concatenate_collector_files`, 
-which will produce one multi-point simulation output ready for replaying/reprocessing.
-The class Reader (lib/reader.h) is intended to provide an interface to the recorded simulation file.
-The functionality in lib/replay.h could then read and broadcast the collected readouts at a later time.
+Collection happens through the `Collector{ReadoutType}.comp` component family (CAEN, TTLMonitor,
+CDT, VMM3, BM0, BM2, BMI in share/Readout/). Each component stores whole records through the
+description-based collector engine: the C-struct layout of one record is described by a canonical
+string (lib/readout_type_descriptions.h) parsed at runtime into an HDF5 compound datatype.
+Multiple components write independent named groups into one file, each with the cue-based layout
+`readouts`, `cues`, `weights`, `normalizations`, managed by the singleton CollectorSink
+(lib/CollectorClass.h), which also records instrument parameters and optional per-group EFU
+address/port attributes.
+
+Users can collect arbitrary additional data by passing their own struct-description string to the
+same engine (`Collector(filename, name, description)` in C++, `collector_star_new` from C); such
+groups are readable and combinable but not EFU-sendable. EFU-sendability is decided by exact
+datatype comparison against the registry (`hdf_compound_type`), never by attributes — an
+attribute cannot lie about the record layout, and an anti-drift unit test pins the canonical
+description strings to the C++ event structs.
+
+Files from repeated or scanned simulation points are combined with the `readout-combine` CLI
+(validate / append / concatenate) into one multi-point file. The Reader/ReaderSource classes
+(lib/reader.h) provide access to points, records, weights, and parameters. `readout-replay`
+(lib/replay.h) steps through the points in a file, publishes each point's parameters through the
+ParameterPublisher interface (EPICS transport plugs in from outside the library), draws
+`n ~ Poisson(w * counting_time)` events per stored readout, and routes them to per-(detector,
+readout) EFU endpoints resolved from explicit configuration, file-embedded attributes, or
+defaults — in that precedence order.
 
 # Current state
-The Collector/CollectorSink, Reader/ReaderSource, and their tests are all working correctly.
-The Reader understands the multi-collector cue-based layout, points, and parameters, and the collector tests pass (84 of 85 tests pass; the one failing test is the integration test, which exercises the McStas component layer).
+All of the above is implemented and tested (ctest plus mccode-antlr run tests per component).
+The legacy per-ray Readout broadcasting components (ReadoutCAEN, ReadoutTTLMonitor,
+ReadoutDiscreteCAEN) remain for in-simulation streaming use cases.
 
 # Remaining work
-1. **Replay rewrite**: `lib/replay.cpp` loads all readouts into memory, ignores points and parameters, sends every ray as an event without Poisson/WRSWR sampling (statistically incorrect), and is hard-coded to a single EFU endpoint.  It needs to be rewritten to use the Reader, step through points, draw per-ray Poisson event counts, and route through a per-(detector, readout) Sender map.
-2. **EFU configuration in the file**: `CollectCAEN.comp` should optionally store EFU address/port as attributes on the collector group so that replay can discover endpoints from the file rather than requiring external configuration.
-3. **File combination CLI**: expose the existing library functions (`merge_collector_files`, `concatenate_collector_files`, `append_collector_files`, `validate_collector_file`) as a `readout-combine` binary, covering both the MPI-node-merge and the multi-point-concatenate use cases.
-4. **CollectorStar parity**: once the above three items are complete, extend the merge/concat/append/Reader/replay path to work with the user-defined-struct CollectorStar, and provide equivalent CLI tools and tests.
+1. EPICS implementation of ParameterPublisher (lives outside this repository; mccode-plumber).
+2. Consider a fixed-count replay mode ("exactly N events") using the retained WRSWR reservoir
+   sampler (lib/IndexSampler.h, lib/ctream).
+3. architecture.md still describes the pre-redesign state and could be refreshed or retired.
