@@ -24,6 +24,7 @@ project(Readout LANGUAGES C CXX VERSION "${READOUT_VERSION}")
 set(READOUT_LIBRARY_TARGET readout)
 set(READOUT_REPLAY_BINARY readout-replay)
 set(READOUT_CONFIG_BINARY readout-config)
+set(READOUT_COMBINE_BINARY readout-combine)
 set(READOUT_SINGLE_HEADER readout.h) # must match template file in project root
 SET(READOUT_LIB_DESTINATION lib)
 SET(READOUT_BIN_DESTINATION bin)
@@ -142,6 +143,12 @@ add_executable(${READOUT_CONFIG_BINARY})
 target_include_directories(${READOUT_CONFIG_BINARY} PRIVATE ${cargs_INCLUDE_DIR})
 target_link_libraries(${READOUT_CONFIG_BINARY} PRIVATE ${cargs_LIBRARIES})
 
+# target for file-combine CLI utility
+list(APPEND COMBINE_BIN_TARGETS ${READOUT_COMBINE_BINARY})
+add_executable(${READOUT_COMBINE_BINARY})
+target_include_directories(${READOUT_COMBINE_BINARY} PRIVATE ${cargs_INCLUDE_DIR})
+target_link_libraries(${READOUT_COMBINE_BINARY} PRIVATE ${cargs_LIBRARIES} ${READOUT_LIBRARY_TARGET})
+
 if (READOUT_BUILD_TESTS)
     # Catch2 is used for testing
     find_package(Catch2 REQUIRED)
@@ -226,7 +233,7 @@ endforeach()
 
 include(readout-hdf5)
 
-install(TARGETS ${READOUT_LIBRARY_TARGET} ${READOUT_REPLAY_BINARY} ${READOUT_CONFIG_BINARY} EXPORT ReadoutTargets
+install(TARGETS ${READOUT_LIBRARY_TARGET} ${READOUT_REPLAY_BINARY} ${READOUT_CONFIG_BINARY} ${READOUT_COMBINE_BINARY} EXPORT ReadoutTargets
         RUNTIME DESTINATION ${Readout_BINDIR}
         LIBRARY DESTINATION ${Readout_LIBDIR}
         ARCHIVE DESTINATION ${Readout_LIBDIR}
