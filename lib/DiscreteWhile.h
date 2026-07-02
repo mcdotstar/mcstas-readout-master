@@ -2,7 +2,10 @@
 
 #include "ctream/algorithms.hpp"
 
-#include "CollectorStar.h"
+#include <optional>
+#include <sstream>
+
+#include "RecordBuffer.h"
 
 
 /// \brief DiscreteWhile implements a reservoir sampling-based collection and sampling mechanism for streaming data.
@@ -19,14 +22,14 @@ class DiscreteWhile {
 public:
     using sampler_t = ctream::ReservoirSamplerWRSWRSKIP<size_t>;
 
-    DiscreteWhile(const size_t data_size, const std::string &name, const size_t samples, const uint32_t seed = std::random_device{}())
-        : collector_(data_size, name), sampler_(samples, seed) {}
+    DiscreteWhile(const size_t data_size, const std::string &/*name*/, const size_t samples, const uint32_t seed = std::random_device{}())
+        : collector_(data_size), sampler_(samples, seed) {}
 
-    DiscreteWhile(const std::string & description, const std::string &name, const size_t samples, const uint32_t seed = std::random_device{}())
-        : collector_(description, name), sampler_(samples, seed) {}
+    DiscreteWhile(const std::string & description, const std::string &/*name*/, const size_t samples, const uint32_t seed = std::random_device{}())
+        : collector_(description), sampler_(samples, seed) {}
 
-    DiscreteWhile(const std::string & description, const size_t data_size, const std::string &name, const size_t samples, const uint32_t seed = std::random_device{}())
-        : collector_(description, data_size, name), sampler_(samples, seed) {}
+    DiscreteWhile(const std::string & description, const size_t data_size, const std::string &/*name*/, const size_t samples, const uint32_t seed = std::random_device{}())
+        : collector_(description, data_size), sampler_(samples, seed) {}
 
     auto object_size() const {
         return collector_.object_size();
@@ -77,7 +80,7 @@ public:
     }
 
 private:
-    CollectorStar collector_;
+    RecordBuffer collector_;
     sampler_t sampler_;
     size_t seen_{0};
 };

@@ -2,27 +2,30 @@
 
 #include "ctream/algorithms.hpp"
 
-#include "CollectorStar.h"
+#include <optional>
+#include <sstream>
+
+#include "RecordBuffer.h"
 
 class DiscreteAfter {
 public:
   using sampler_t = ctream::ReservoirSamplerWRSWRSKIP<size_t>;
 private:
-  CollectorStar collector_;
+  RecordBuffer collector_;
   std::vector<double> weights_;
   std::optional<sampler_t> sampler_;
   double weight_{0.};
 
 public:
 
-  DiscreteAfter(const size_t data_size, const std::string &name)
-      : collector_(data_size, name) {}
+  DiscreteAfter(const size_t data_size, const std::string &/*name*/)
+      : collector_(data_size) {}
 
-  DiscreteAfter(const std::string & description, const std::string &name)
-      : collector_(description, name) {}
+  DiscreteAfter(const std::string & description, const std::string &/*name*/)
+      : collector_(description) {}
 
-  DiscreteAfter(const std::string & description, const size_t data_size, const std::string &name)
-      : collector_(description, data_size, name) {}
+  DiscreteAfter(const std::string & description, const size_t data_size, const std::string &/*name*/)
+      : collector_(description, data_size) {}
 
   auto object_size() const {
     return collector_.object_size();

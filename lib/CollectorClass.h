@@ -21,7 +21,6 @@
 #include "hdf_interface.h"
 #include "version.hpp"
 #include "efu_time.h"
-#include "CollectorStar.h"
 #include "TypeDescriptionParser.h"
 
 

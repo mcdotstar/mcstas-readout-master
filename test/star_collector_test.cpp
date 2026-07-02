@@ -8,7 +8,6 @@
 #include "cluon-complete.hpp"
 
 #include <CollectorClass.h>
-#include <CollectorStar.h>
 #include <TypeDescriptionParser.h>
 #include <readout_type_descriptions.h>
 #include <hdf_interface.h>

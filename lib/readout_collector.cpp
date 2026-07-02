@@ -3,7 +3,6 @@
 #include <filesystem>
 
 #include "CollectorClass.h"
-#include "CollectorStar.h"
 #include "readout_type_descriptions.h"
 
 #ifdef __cplusplus

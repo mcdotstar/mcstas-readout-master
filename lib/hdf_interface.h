@@ -7,6 +7,7 @@
 #include <highfive/H5DataSpace.hpp>
 
 #include "Readout.h"
+#include "TypeDescriptionParser.h"
 
 #ifdef WIN32
 // Export symbols if compile flags "READOUT_SHARED" and "READOUT_EXPORT" are set on Windows.
@@ -152,3 +153,9 @@ namespace HighFive {
   template<> RL_API DataType create_datatype<BM2_event>();
   template<> RL_API DataType create_datatype<BMI_event>();
 }
+
+/// \brief Build an HDF5 compound datatype from a parsed C-struct description
+///
+/// Array fields are not supported: descriptions used with the collector engine
+/// must contain scalar fields only.
+RL_API HighFive::CompoundType build_hdf5_compound_type(const TypeSchema & schema);

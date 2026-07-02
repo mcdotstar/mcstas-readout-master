@@ -4,7 +4,7 @@
 /// \file
 /// \brief Generic runtime-typed data collector for HDF5 output
 ///
-/// CollectorStar stores arbitrary C struct data described at runtime via
+/// A generic growable byte-array for fixed-size records, described at runtime via
 /// a C struct syntax string. It can write HDF5 compound datasets with
 /// proper field types, or store opaque blobs when no schema is provided.
 ///

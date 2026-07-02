@@ -2,7 +2,6 @@
 
 #include "ctream/algorithms.hpp"
 
-#include "CollectorStar.h"
 
 
 /// \brief IndexSampler implements a reservoir sampling-based sampling mechanism for data indices.
