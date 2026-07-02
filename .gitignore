@@ -60,3 +60,4 @@ devtools/wheelhouse
 *.comp.json
 *build-dev
 *tmp
+test_*.c
