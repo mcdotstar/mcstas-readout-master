@@ -100,7 +100,7 @@ SEARCH SHELL "readout-config --show compdir"
 {CAEN_ORIGIN_EXTEND}
 COMPONENT collector = CollectCAEN(
   ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
+  a_name="A", b_name="B", tof="tof",
   filename=filename, verbose=1
 ) AT (0, 0, 1) ABSOLUTE
 END
@@ -123,7 +123,7 @@ SEARCH SHELL "readout-config --show compdir"
 {CAEN_ORIGIN_EXTEND}
 COMPONENT collector = CollectCAEN(
   ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
+  a_name="A", b_name="B", tof="tof",
   filename=filename, verbose=1
 ) AT (0, 0, 1) ABSOLUTE
 END
@@ -158,7 +158,7 @@ SEARCH SHELL "readout-config --show compdir"
 {CAEN_ORIGIN_EXTEND}
 COMPONENT collector = CollectCAEN(
   ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
+  a_name="A", b_name="B", tof="tof",
   filename=filename, point=point, total_points=total_points, verbose=1
 ) AT (0, 0, 1) ABSOLUTE
 END
@@ -228,7 +228,7 @@ COMPONENT monitor = ReadoutTTLMonitor(
 
 COMPONENT collector = CollectCAEN(
   ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
+  a_name="A", b_name="B", tof="tof",
   filename=filename, verbose=1
 ) AT (0, 0, 3) ABSOLUTE
 

@@ -17,6 +17,9 @@ if ! [ -x ./readout-config ]; then
     echo "local readout-config not found."
     exit 1
 fi
+# Add the build directory to PATH so that CMD(readout-config ...) in component
+# DEPENDENCY lines is resolved when mcstas-antlr processes the .instr file.
+export PATH="${PWD}:${PATH}"
 compdir=$(./readout-config --show compdir)
 compileflags="-Wl,-rpath,. -L. -lreadout -I../lib"
 
@@ -73,7 +76,7 @@ COMPONENT monitor_readout = ReadoutTTLMonitor(
   AT (0, 0, 2) ABSOLUTE
 
 COMPONENT caen_collector = CollectCAEN(
-ring="RING", fen="FEN", tube="TUBE", event_mode="p", a_name="A", b_name="B", tof="tof",
+ring="RING", fen="FEN", tube="TUBE", a_name="A", b_name="B", tof="tof",
 filename=filename, point=point, total_points=total_points, verbose=1
 ) AT (0, 0, 3) ABSOLUTE
 

@@ -31,7 +31,7 @@ SHARE
 %include "lib-readout"
 
 // TODO If changing this struct, ensure that no element names clash with particle, component, or instrument parameter names!
-struct collect_caen_readout {
+struct collect_caen_stash {
     CAEN_readout_t readout;
     double stash_w; // weight
     double stash_t; // time
@@ -136,7 +136,7 @@ if (mpi_node_rank == mpi_node_root) {
 }
 #endif
 
-array_ptr = new_array(sizeof(struct collect_caen_readout));
+array_ptr = new_array(sizeof(struct collect_caen_stash));
 
 %}
 
@@ -149,7 +149,7 @@ int int_ring, int_fen, int_tube, int_A, int_B, int_C, int_D;
 double double_tof;
 
 if (weight) {
-    struct collect_caen_readout data = {
+    struct collect_caen_stash data = {
         .readout = {
             .channel = (uint16_t)(readout_particle_getvar_int(_particle, tube)),
             .a = (uint16_t)(a_present ? readout_particle_getvar_int(_particle, a_name) : a_value),
@@ -176,7 +176,7 @@ SAVE
 #if defined USE_MPI
   // Perform an MPI_Gather on the array_t data
   MPI_Datatype mpi_collect_readout_type;
-  MPI_Type_contiguous(sizeof(struct collect_caen_readout), MPI_BYTE, &mpi_collect_readout_type);
+  MPI_Type_contiguous(sizeof(struct collect_caen_stash), MPI_BYTE, &mpi_collect_readout_type);
   MPI_Type_commit(&mpi_collect_readout_type);
 
   int world_size;
@@ -185,7 +185,7 @@ SAVE
   int global_count = 0;
   int * recv_counts = NULL;
   int * displacements = NULL;
-  struct collect_caen_readout * recv_buffer = NULL;
+  struct collect_caen_stash * recv_buffer = NULL;
 
   if (mpi_node_rank == mpi_node_root) {
     recv_counts = (int *) malloc(world_size * sizeof(int));
@@ -199,7 +199,7 @@ SAVE
       displacements[i] = (i == 0) ? 0 : displacements[i-1] + recv_counts[i-1];
       global_count += recv_counts[i];
     }
-    recv_buffer = (struct collect_caen_readout *) malloc(global_count * sizeof(struct collect_caen_readout));
+    recv_buffer = (struct collect_caen_stash *) malloc(global_count * sizeof(struct collect_caen_stash));
   }
 
   const uint8_t * local_data = array_data(array_ptr);
@@ -208,7 +208,7 @@ SAVE
   if (mpi_node_rank == mpi_node_root) {
     // Loop over the received data and add it to the Collector instance
     for (int i=0; i < global_count; i++){
-      struct collect_caen_readout * data = &recv_buffer[i];
+      struct collect_caen_stash * data = &recv_buffer[i];
       collector_add(collector_ptr, data->stash_l, data->stash_f, data->stash_t, data->stash_w, (const void *)(&data->readout));
     }
     free(recv_buffer);
@@ -218,7 +218,7 @@ SAVE
   MPI_Type_free(&mpi_collect_readout_type);
 #else
   size_t count = array_size(array_ptr);
-  struct collect_caen_readout data;
+  struct collect_caen_stash data;
   for (size_t i=0; i < count; i++){
     array_get(array_ptr, i, (void *) &data);
     collector_add(collector_ptr, data.stash_l, data.stash_f, data.stash_t, data.stash_w, (const void *)(&data.readout));
