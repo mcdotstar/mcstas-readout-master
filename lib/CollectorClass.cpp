@@ -1116,21 +1116,21 @@ void combine_collector_files_concatenate(
   }
 }
 
-void append_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, const bool reset_datasets) {
+bool append_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, const bool reset_datasets) {
   if (const auto & res = verify_collector_files(in_filenames); res.size() > 0) {
     std::cerr << res << std::endl;
-    return;
+    return false;
   }
   auto [res, shapes] = verify_parameters_identical(in_filenames);
   if ( res.size() > 0) {
     std::cerr << res << std::endl;
-    return;
+    return false;
   }
   // figure out the unique datasets across all files
   const auto & [problems, collectors] = identify_collector_datasets(shapes);
   if ( !problems.empty() ) {
     std::cerr << problems << std::endl;
-    return;
+    return false;
   }
   // create the output file and grab its root group
   auto file = HighFive::File(out_filename, HighFive::File::Create);
@@ -1163,17 +1163,18 @@ void append_collector_files(const std::string & out_filename, const std::vector<
       }
     }
   }
+  return true;
 }
 
-void concatenate_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames) {
+bool concatenate_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames) {
   if (const auto & res = verify_collector_files(in_filenames); res.size() > 0) {
     std::cerr << res << std::endl;
-    return;
+    return false;
   }
   auto [consistency, shapes] = classify_file_parameters(in_filenames);
   if (Consistency::inconsistent == consistency) {
     std::cerr << "Inconsistent parameters across files" << std::endl;
-    return;
+    return false;
   }
   // figure out the unique datasets across all files
   if (const auto & [problems, collectors] = identify_collector_datasets(shapes); problems.empty() ) {
@@ -1185,26 +1186,29 @@ void concatenate_collector_files(const std::string & out_filename, const std::ve
       for (const auto & [filename, shape]: shapes) {
         if (!shape.has_all_readouts(collectors)) {
           std::cerr << "File " << filename << " is missing one or more collector group(s)" << std::endl;
-          return;
+          return false;
         }
       }
       combine_collector_files_concatenate(destination, shapes, collectors, in_filenames);
     } else {
       std::cerr << "Concatenation requires consistent *but not identical* parameters across files." << std::endl;
+      return false;
     }
   } else {
     std::cerr << problems << std::endl;
+    return false;
   }
+  return true;
 }
 
-void combine_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames) {
+bool combine_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames) {
   if (const auto & res = verify_collector_files(in_filenames); res.size() > 0) {
     std::cerr << res << std::endl;
-    return;
+    return false;
   }
   auto [consistency, shapes] = classify_file_parameters(in_filenames);
   if (Consistency::inconsistent == consistency) {
-    return;
+    return false;
   }
   // figure out the unique datasets across all files
   if (const auto & [problems, collectors] = identify_collector_datasets(shapes); problems.empty() ) {
@@ -1219,14 +1223,26 @@ void combine_collector_files(const std::string & out_filename, const std::vector
       for (const auto & [filename, shape]: shapes) {
         if (!shape.has_all_readouts(collectors)) {
           std::cerr << "File " << filename << " is missing one or more collector group(s)" << std::endl;
-          return;
+          return false;
         }
       }
       combine_collector_files_concatenate(destination, shapes, collectors, in_filenames);
     }
   } else {
     std::cerr << problems << std::endl;
+    return false;
   }
+  return true;
+}
+
+bool merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, const bool remove_after_merge) {
+  const bool ok = append_collector_files(out_filename, in_filenames, false);
+  if (ok && remove_after_merge) {
+    for (const auto & f : in_filenames) {
+      std::filesystem::remove(f);
+    }
+  }
+  return ok;
 }
 
 

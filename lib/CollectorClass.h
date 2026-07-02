@@ -64,10 +64,35 @@ RL_API bool validate_collector_files(
   std::set<std::string> & parameters
   );
 
-RL_API void append_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, bool reset_datasets);
-RL_API void concatenate_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames);
+/// \brief Append readouts from multiple same-point collector files into a single output file.
+///
+/// \param out_filename the output file to create (must not already exist — uses HighFive::File::Create)
+/// \param in_filenames the input files to combine; all must have identical parameters
+/// \param reset_datasets if true, zero out the readout/cue/weight/normalisation datasets in the input files after combining
+/// \returns true on success, false on any validation or write error (details printed to std::cerr)
+RL_API bool append_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, bool reset_datasets);
 
-RL_API void merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, bool remove_after_merge);
+/// \brief Concatenate readouts from multiple different-point collector files into a single multi-point output file.
+///
+/// \param out_filename the output file to create (must not already exist — uses HighFive::File::Create)
+/// \param in_filenames the input files to concatenate; parameters must be consistent (same names/types) but not identical (different values)
+/// \returns true on success, false on any validation or write error (details printed to std::cerr)
+RL_API bool concatenate_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames);
+
+/// \brief Merge (append) readouts from multiple same-point collector files, optionally removing the inputs afterwards.
+///
+/// \param out_filename the output file to create (must not already exist — uses HighFive::File::Create)
+/// \param in_filenames the input files to merge; all must have identical parameters
+/// \param remove_after_merge if true, remove each input file after a successful merge
+/// \returns true on success, false on any validation or write error (details printed to std::cerr)
+RL_API bool merge_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames, bool remove_after_merge);
+
+/// \brief Combine multiple collector files automatically choosing append vs concatenate based on parameter identity.
+///
+/// \param out_filename the output file to create (must not already exist — uses HighFive::File::Create)
+/// \param in_filenames the input files to combine
+/// \returns true on success, false on any validation or write error (details printed to std::cerr)
+RL_API bool combine_collector_files(const std::string & out_filename, const std::vector<std::string> & in_filenames);
 
 /// \brief Merge dataset(s) from multiple collector files into a single output file, for a specified scan point if applicable.
 ///
