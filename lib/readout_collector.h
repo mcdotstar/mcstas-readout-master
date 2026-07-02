@@ -1,6 +1,7 @@
 #ifndef COLLECTOR_WRAPPER
 #define COLLECTOR_WRAPPER
 
+#include <stddef.h>
 #include "readout_structs.h"
 
 #ifdef __cplusplus
@@ -40,6 +41,38 @@ extern "C" {
    * \param port     UDP port of the EFU (must be > 0)
    */
   RL_API void collector_efu(collector_t* c_ptr, const char* address, int port);
+
+  /** \brief Create a Collector for records of a user-described C struct layout.
+   *
+   * The description is a C struct field list, e.g. "double time; uint32_t pixel;",
+   * parsed at runtime into an HDF5 compound datatype. Records get the same cue-based
+   * group layout as typed collectors. When the description equals the canonical
+   * description of an EFU readout type (see readout_description_for()) the file is
+   * EFU-sendable; otherwise it is readable and combinable but skipped by replay.
+   *
+   * \param filename The name of the HDF5 file to write to
+   * \param dataset The name of the collector group. If nullptr or empty, defaults to "events".
+   * \param description The C struct field list describing one record
+   * \param normalization The normalization constant associated with the to-be-provided records
+   * \returns a new collector, or NULL if the description cannot be parsed
+   */
+  RL_API collector_t* collector_star_new(const char* filename, const char * dataset, const char * description, uint64_t normalization);
+
+  /** \brief Store one record in a description-based Collector.
+   * \param c_ptr Pointer to the Collector object returned by collector_star_new()
+   * \param weight The rate-weight of this record, accumulated into the point weight
+   * \param record Pointer to collector_record_size() bytes laid out per the description
+   */
+  RL_API void collector_star_add(const collector_t* c_ptr, double weight, const void* record);
+
+  ///\brief The size in bytes of one record for this collector (0 for NULL input)
+  RL_API size_t collector_record_size(const collector_t* c_ptr);
+
+  /** \brief The canonical record description for the readout type implied by an ESS detector type int.
+   * \param ess_type the detector type integer used by the components (e.g. 0x34 == 52 for BIFROST)
+   * \returns a parseable C struct field list, or NULL for unknown types
+   */
+  RL_API const char * readout_description_for(int ess_type);
 
   RL_API int collector_sink_open(const char * filename);
   RL_API int collector_sink_users(const char * filename);

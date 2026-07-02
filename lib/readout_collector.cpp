@@ -4,6 +4,7 @@
 
 #include "CollectorClass.h"
 #include "CollectorStar.h"
+#include "readout_type_descriptions.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,6 +32,39 @@ void collector_efu(collector_t* c_ptr, const char* address, const int port) {
   if (address == nullptr || address[0] == '\0') return;
   if (port <= 0) return;
   static_cast<Collector*>(c_ptr->obj)->setEFU(std::string(address), port);
+}
+
+collector_t* collector_star_new(const char* filename, const char * dataset, const char * description, const uint64_t normalization) {
+  if (description == nullptr || description[0] == '\0') {
+    std::cerr << "collector_star_new requires a non-empty type description" << std::endl;
+    return nullptr;
+  }
+  const std::string string_filename(filename);
+  const std::string dataset_name = (dataset != nullptr && dataset[0] != '\0') ? std::string(dataset) : "events";
+  try {
+    const auto c_ptr = static_cast<collector_t *>(malloc(sizeof(collector_t)));
+    c_ptr->obj = new Collector(string_filename, dataset_name, std::string(description), normalization);
+    return c_ptr;
+  } catch (const std::exception & ex) {
+    std::cerr << "collector_star_new failed: " << ex.what() << std::endl;
+    return nullptr;
+  }
+}
+
+void collector_star_add(const collector_t* c_ptr, const double weight, const void* record) {
+  if (c_ptr == nullptr || record == nullptr) return;
+  static_cast<Collector*>(c_ptr->obj)->addRecord(weight, record);
+}
+
+size_t collector_record_size(const collector_t* c_ptr) {
+  if (c_ptr == nullptr) return 0;
+  return static_cast<Collector*>(c_ptr->obj)->record_size();
+}
+
+const char * readout_description_for(const int ess_type) {
+  const auto detector = detectorType_from_int(ess_type);
+  const auto readout = readoutType_from_detectorType(detector);
+  return readout_type_description(readout);
 }
 
 int collector_sink_open(const char * filename) {

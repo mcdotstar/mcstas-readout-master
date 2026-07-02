@@ -178,6 +178,56 @@ END
 
 
 # -----------------------------------------------------------------------
+# CollectorCAEN run — the description-based (star engine) component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorCAEN:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorCAEN stores records whose compound layout matches the canonical
+        CAEN description, with the description recorded and no detector/readout
+        attributes (sendability is decided by the datatype)."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(f"""
+DEFINE INSTRUMENT test_collector_star(string filename="star_test")
+{CAEN_USERVARS}
+TRACE
+SEARCH SHELL "readout-config --show compdir"
+{CAEN_ORIGIN_EXTEND}
+COMPONENT collector = CollectorCAEN(
+  ring="RING", fen="FEN", tube="TUBE",
+  a_name="A", b_name="B", tof="tof",
+  filename=filename, verbose=1
+) AT (0, 0, 1) ABSOLUTE
+END
+""", parameters="-n 50 filename=star_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            # canonical CAEN layout: exact member names and C-struct size
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "channel", "a", "b", "c", "d")
+            assert ds.dtype.itemsize == 40, f"Expected itemsize 40, got {ds.dtype.itemsize}"
+            # the description string is recorded; detector/readout attributes are not written
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            # per-record weights were stored and accumulated into the point weight
+            total = group["weights"][()].sum()
+            assert total > 0.0
+
+
+# -----------------------------------------------------------------------
 # ReadoutTTLMonitor run
 # -----------------------------------------------------------------------
 @requires_run

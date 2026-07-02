@@ -171,6 +171,27 @@ Work items:
    deprecate the fixed-type Collector per CLAUDE.md's "Switch to
    CollectorStar".
 
+### Status (2026-07-02)
+
+Items 1–5 are implemented, with one design refinement: instead of bringing the
+old buffering CollectorStar class to parity, the existing Collector/CollectorSink
+became the single engine — Collector gained a description-based constructor
+(parse → HDF5 compound type) and `addRecord(weight, data)`, so user-described
+records get the identical cue-based layout, parameters, EFU attributes, and
+combination support. Reader gained `sendable_readout_type()` (exact datatype
+comparison against the registry — attributes are informative only and now
+optional), `get_raw`, `record_size`, `point_weight`, and `type_description`;
+replay dispatches on the datatype-verified type and skips non-sendable groups.
+The canonical description strings live in lib/readout_type_descriptions.h with
+the anti-drift test in test/star_collector_test.cpp.
+
+Item 6 is started: CollectorCAEN.comp (star engine, canonical layout via
+`readout_description_for(ess_type)`, layout guarded by a record-size check)
+is the template; CollectorTTLMonitor/CDT/VMM3/BM0/BM2/BMI.comp remain, each a
+mechanical copy with its own stash struct and particle-variable mapping. The
+old in-RAM CollectorStar class and the typed CollectCAEN.comp stay until the
+family is complete.
+
 ## Known risks / open questions
 
 - **Duplicate events**: a heavy ray can emit several identical events (same
