@@ -26,6 +26,13 @@ void collector_free(collector_t* c_ptr) {
   free(c_ptr);
 }
 
+void collector_efu(collector_t* c_ptr, const char* address, const int port) {
+  if (c_ptr == nullptr) return;
+  if (address == nullptr || address[0] == '\0') return;
+  if (port <= 0) return;
+  static_cast<Collector*>(c_ptr->obj)->setEFU(std::string(address), port);
+}
+
 int collector_sink_open(const char * filename) {
   const auto sink = CollectorSink::instance();
   if (!sink->is_setup()) return 0;

@@ -48,6 +48,8 @@ class Reader {
   std::vector<uint32_t> cue_values_;
   DetectorType detector_{DetectorType::Reserved};
   ReadoutType readout_{ReadoutType::CAEN};
+  std::optional<std::string> efu_address_{std::nullopt};
+  std::optional<uint16_t> efu_port_{std::nullopt};
 
   [[nodiscard]] std::pair<size_t, size_t> point_bounds(const size_t point) const {
     if (point >= cue_values_.size()) {
@@ -86,6 +88,16 @@ public:
     detector_ = detectorType_from_name(readouts_->getAttribute(CollectorSink::detector_attribute_name()).read<std::string>());
     readout_ = readoutType_from_name(readouts_->getAttribute(CollectorSink::readout_attribute_name()).read<std::string>());
 
+    if (group_->hasAttribute(CollectorSink::efu_address_attribute_name())) {
+      efu_address_ = group_->getAttribute(CollectorSink::efu_address_attribute_name()).read<std::string>();
+    }
+    if (group_->hasAttribute(CollectorSink::efu_port_attribute_name())) {
+      const auto port = group_->getAttribute(CollectorSink::efu_port_attribute_name()).read<int>();
+      if (port > 0 && port <= 65535) {
+        efu_port_ = static_cast<uint16_t>(port);
+      }
+    }
+
     cues_->read(cue_values_);
     if (cue_values_.empty()) {
       throw std::runtime_error("Collector cues dataset is empty");
@@ -108,6 +120,11 @@ public:
   RL_API [[nodiscard]] ReadoutType readout_type() const { return readout_; }
   RL_API [[nodiscard]] size_t size() const { return readouts_->getDimensions().back(); }
   RL_API [[nodiscard]] size_t points() const { return cue_values_.size(); }
+
+  /// Returns the EFU IP address embedded in the file, if any.
+  RL_API [[nodiscard]] std::optional<std::string> efu_address() const { return efu_address_; }
+  /// Returns the EFU UDP port embedded in the file, if any.
+  RL_API [[nodiscard]] std::optional<uint16_t> efu_port() const { return efu_port_; }
 
   RL_API [[nodiscard]] size_t point_offset(const size_t point) const {
     return point_bounds(point).first;

@@ -28,6 +28,19 @@ extern "C" {
   ///\brief Destroy an existing Collector object and free its resources
   RL_API void collector_free(collector_t* c_ptr);
 
+  /** \brief Attach optional EFU destination attributes to a Collector group.
+   *
+   * Writes `efu_address` (string) and `efu_port` (int) attributes onto the HDF5 group
+   * for the given collector so that replay can discover the EFU endpoint from the file
+   * without requiring external configuration.  The call is a no-op if \p address is
+   * NULL/empty or \p port is 0, and it never overwrites attributes that are already set.
+   *
+   * \param c_ptr  Pointer to the Collector object returned by collector_new()
+   * \param address  IP address (or FQDN) of the EFU
+   * \param port     UDP port of the EFU (must be > 0)
+   */
+  RL_API void collector_efu(collector_t* c_ptr, const char* address, int port);
+
   RL_API int collector_sink_open(const char * filename);
   RL_API int collector_sink_users(const char * filename);
 

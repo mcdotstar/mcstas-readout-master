@@ -62,18 +62,33 @@ void publish_point(const ReaderSource & source, const size_t point, ParameterPub
   publisher.point_ready(point);
 }
 
-std::map<std::pair<DetectorType, ReadoutType>, Sender> make_senders(const ReaderSource & source, const ReplayConfig & config) {
-  std::map<std::pair<DetectorType, ReadoutType>, Sender> senders;
+/// Resolve the SenderConfig for a given reader using three-level precedence:
+///  1. Explicit config.senders entry for (detector, readout) — highest precedence
+///  2. EFU address + port attributes embedded in the reader's collector group
+///  3. config.default_address / config.default_port — lowest precedence
+SenderConfig resolve_sender_config(const Reader & reader, const ReplayConfig & config) {
+  auto cfg = config.senders.find(reader.detector_type(), reader.readout_type());
+  if (cfg.has_value()) {
+    return cfg.value();
+  }
+  if (reader.efu_address().has_value() && reader.efu_port().has_value()) {
+    return SenderConfig{reader.detector_type(), reader.readout_type(),
+                        reader.efu_address().value(), reader.efu_port().value(), 0};
+  }
+  return SenderConfig{reader.detector_type(), reader.readout_type(),
+                      config.default_address, static_cast<uint16_t>(config.default_port), 0};
+}
+
+/// Build a Sender for each unique resolved SenderConfig across all readers.
+/// Readers that resolve to the same SenderConfig share one Sender (e.g. two groups
+/// aimed at the same EFU, or an explicit config override that collapses multiple groups).
+std::map<SenderConfig, Sender> make_senders(const ReaderSource & source, const ReplayConfig & config) {
+  std::map<SenderConfig, Sender> senders;
   for (const auto & reader : source.readers()) {
-    const auto key = std::make_pair(reader.detector_type(), reader.readout_type());
-    if (senders.contains(key)) {
-      continue;
+    const auto cfg = resolve_sender_config(reader, config);
+    if (!senders.contains(cfg)) {
+      senders.emplace(std::piecewise_construct, std::forward_as_tuple(cfg), std::forward_as_tuple(cfg));
     }
-    auto sender_config = config.senders.find(key.first, key.second);
-    if (!sender_config.has_value()) {
-      sender_config = SenderConfig{key.first, key.second, config.default_address, static_cast<uint16_t>(config.default_port), 0};
-    }
-    senders.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple(sender_config.value()));
   }
   return senders;
 }
@@ -168,7 +183,8 @@ void replay(const std::string & filename, const ReplayConfig & config, Parameter
   for (size_t point = 0; point < source.points(); ++point) {
     publish_point(source, point, publisher);
     for (const auto & reader : source.readers()) {
-      auto & sender = senders.at({reader.detector_type(), reader.readout_type()});
+      const auto cfg = resolve_sender_config(reader, config);
+      auto & sender = senders.at(cfg);
       stream_reader_point(reader, sender, point, config, rng, subset);
     }
     // a point boundary acts like a pulse: flush buffered packets and advance the pulse times

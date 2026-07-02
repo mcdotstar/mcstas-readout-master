@@ -136,6 +136,14 @@ public:
     static const std::string name{"readout"};
     return name;
   }
+  static const std::string & efu_address_attribute_name() {
+    static const std::string name{"efu_address"};
+    return name;
+  }
+  static const std::string & efu_port_attribute_name() {
+    static const std::string name{"efu_port"};
+    return name;
+  }
 
   static const std::string & parameter_group_type() {
     static const std::string name{"Parameters"};
@@ -376,6 +384,18 @@ public:
 
   template<class ... Args> void addParameter(Args && ... args) {
     CollectorSink::instance()->addParameter(std::forward<Args>(args)...);
+  }
+
+  /// Write optional EFU destination attributes onto this collector group.
+  /// Only writes if address is non-empty and port > 0; silently ignores already-set attributes.
+  RL_API void setEFU(const std::string & address, int port) {
+    if (!group_.has_value() || address.empty() || port <= 0) return;
+    if (!group_->hasAttribute(CollectorSink::efu_address_attribute_name())) {
+      group_->createAttribute<std::string>(CollectorSink::efu_address_attribute_name(), address);
+    }
+    if (!group_->hasAttribute(CollectorSink::efu_port_attribute_name())) {
+      group_->createAttribute<int>(CollectorSink::efu_port_attribute_name(), port);
+    }
   }
 
   ~Collector() {

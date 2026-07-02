@@ -7,8 +7,10 @@
 
 #include <Readout.h>
 #include <Structs.h>
+#include <CollectorClass.h>
 #include <reader.h>
 #include <replay.h>
+#include <SenderConfigs.h>
 #include "test_utils.h"
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
@@ -189,6 +191,37 @@ std::string write_caen_point_file(const std::string & base, const double chopper
   return filename;
 }
 
+/// Write a single file with two named CAEN collector groups pointing at different EFU ports.
+/// Returns the filename. The "left" group gets \p left_count readouts at \p left_port,
+/// and "right" gets \p right_count readouts at \p right_port.
+/// Both groups share a single parameter "scan_val" so the file is also concatenatable.
+std::string write_two_group_file(const std::string & base,
+                                 uint16_t left_count, int left_port,
+                                 uint16_t right_count, int right_port) {
+  namespace fs = std::filesystem;
+  auto filepath = fs::temp_directory_path() / fs::path(pid_filename(base, ".h5"));
+  fs::remove(filepath);
+  const auto filename = filepath.string();
+  {
+    Collector left(filename, "left", 0x34, 1u);
+    left.setEFU("127.0.0.1", left_port);
+    left.addParameter("scan_val", 1.0, std::optional<std::string>("arb"), std::nullopt);
+    Collector right(filename, "right", 0x34, 1u);
+    right.setEFU("127.0.0.1", right_port);
+    right.addParameter("scan_val", 1.0, std::optional<std::string>("arb"), std::nullopt);
+    CAEN_readout_t data{};
+    for (uint16_t i = 0; i < left_count; ++i) {
+      data.channel = 1; data.a = i;
+      left.addReadout(0, 0, static_cast<double>(i), 1.0, static_cast<const void *>(&data));
+    }
+    for (uint16_t i = 0; i < right_count; ++i) {
+      data.channel = 2; data.a = i;
+      right.addReadout(0, 0, static_cast<double>(i), 1.0, static_cast<const void *>(&data));
+    }
+  }
+  return filename;
+}
+
 } // namespace
 
 TEST_CASE("Multi-point replay samples Poisson events and publishes parameters", "[replay][points][statistics]") {
@@ -291,4 +324,100 @@ TEST_CASE("Replay with negligible counting time sends no events", "[replay][stat
   CHECK(stats->readouts == 0);
 
   fs::remove(fs::path(file_a));
+}
+
+TEST_CASE("Replay routes two groups to their file-embedded EFU ports", "[replay][routing][efu]") {
+  // File with a "left" group (300 readouts, port 9020) and a "right" group (700 readouts, port 9021).
+  // Both groups share CAEN detector type; with the new per-reader resolution they must be sent
+  // to separate ports derived from the embedded attributes.
+  namespace fs = std::filesystem;
+  const uint16_t left_count{300};
+  const uint16_t right_count{700};
+  const int left_port{9020};
+  const int right_port{9021};
+  const auto filename = write_two_group_file("replay_route", left_count, left_port, right_count, right_port);
+
+  auto left_stats  = std::make_shared<UDPStats>();
+  auto right_stats = std::make_shared<UDPStats>();
+
+  auto make_receiver = [](int port, std::shared_ptr<UDPStats> stats) {
+    return cluon::UDPReceiver("127.0.0.1", port,
+      [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+        const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
+        stats->packets++;
+        stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
+      });
+  };
+
+  cluon::UDPReceiver left_recv  = make_receiver(left_port,  left_stats);
+  cluon::UDPReceiver right_recv = make_receiver(right_port, right_stats);
+  REQUIRE(left_recv.isRunning());
+  REQUIRE(right_recv.isRunning());
+
+  // Replay without counting time (every stored readout sent exactly once) and without a
+  // default port that could mask misrouting.
+  ReplayConfig config;
+  config.default_port = 19999; // unused: both groups have embedded attributes
+  replay(filename, config);
+
+  // Allow time for UDP delivery
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+  CHECK(settled_readouts(left_stats)  == static_cast<int>(left_count));
+  CHECK(settled_readouts(right_stats) == static_cast<int>(right_count));
+
+  fs::remove(fs::path(filename));
+}
+
+TEST_CASE("Explicit SenderConfigs override file-embedded EFU routing", "[replay][routing][efu][precedence]") {
+  // Same two-group file as the routing test.  An explicit senders entry for (CAEN,CAEN)
+  // pointing at port 9022 should take precedence over the embedded attributes at 9020/9021,
+  // causing all 1000 readouts to arrive at 9022 and nothing at 9020 or 9021.
+  namespace fs = std::filesystem;
+  const uint16_t left_count{300};
+  const uint16_t right_count{700};
+  const int left_port{9020};
+  const int right_port{9021};
+  const int override_port{9022};
+  const auto filename = write_two_group_file("replay_prec", left_count, left_port, right_count, right_port);
+
+  auto left_stats     = std::make_shared<UDPStats>();
+  auto right_stats    = std::make_shared<UDPStats>();
+  auto override_stats = std::make_shared<UDPStats>();
+
+  auto make_receiver = [](int port, std::shared_ptr<UDPStats> stats) {
+    return cluon::UDPReceiver("127.0.0.1", port,
+      [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+        const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
+        stats->packets++;
+        stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
+      });
+  };
+
+  cluon::UDPReceiver left_recv     = make_receiver(left_port,     left_stats);
+  cluon::UDPReceiver right_recv    = make_receiver(right_port,    right_stats);
+  cluon::UDPReceiver override_recv = make_receiver(override_port, override_stats);
+  REQUIRE(left_recv.isRunning());
+  REQUIRE(right_recv.isRunning());
+  REQUIRE(override_recv.isRunning());
+
+  // Build an explicit SenderConfigs that routes BIFROST (0x34) → CAEN readouts to override_port
+  const std::string senders_json = R"({"senders":[
+    {"detector_type": "BIFROST", "readout_type": "CAEN",
+     "ip_address": "127.0.0.1", "udp_port": )" +
+    std::to_string(override_port) + R"(, "tcp_port": 0}
+  ]})";
+  ReplayConfig config;
+  config.senders = SenderConfigs::from_json(senders_json);
+  config.default_port = 19999; // also unused
+  replay(filename, config);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+  const int total = static_cast<int>(left_count + right_count);
+  CHECK(settled_readouts(override_stats) == total);
+  CHECK(left_stats->readouts  == 0);
+  CHECK(right_stats->readouts == 0);
+
+  fs::remove(fs::path(filename));
 }

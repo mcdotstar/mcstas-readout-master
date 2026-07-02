@@ -22,7 +22,9 @@ pulse_rate = 14,
 string filename = 0,
 string dataset_name = 0,
 int verbose=0, // -1: silent, 0: errors, 1: warnings, 2: info, 3: details
-int ess_type=52 // 0x34 == 52, 0x41==65
+int ess_type=52, // 0x34 == 52, 0x41==65
+string efu_address = 0, // Optional EFU IP address for replay routing; leave 0/empty to omit from file
+int efu_port = 0         // Optional EFU UDP port for replay routing; leave 0 to omit from file
 )
 OUTPUT PARAMETERS ()
 DEPENDENCY "-Wl,-rpath,CMD(readout-config --show libdir) -LCMD(readout-config --show libdir) -lreadout -ICMD(readout-config --show includedir)"
@@ -127,6 +129,10 @@ if (mpi_node_rank == mpi_node_root) {
 #endif
   // Create the Collector instance on the main node (or the only node if not using MPI)
   collector_ptr = collector_new(this_filename, this_dataset_name, ess_type, normalization);
+  // Attach optional EFU routing attributes so replay can discover endpoints from the file
+  if (efu_address != NULL && efu_address[0] != '\0' && efu_port > 0) {
+    collector_efu(collector_ptr, efu_address, efu_port);
+  }
   // Multiple components can use the same output file, so only send parameter updates if this is the first instance to open the file
   if (collector_sink_users(this_filename) == 1){
     // this is the first instance to open the file -- take this opportunity to send parameter updates
