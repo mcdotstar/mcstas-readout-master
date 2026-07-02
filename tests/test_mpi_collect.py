@@ -175,8 +175,10 @@ class TestMPICollectCAEN:
         assert Path(h5_path).exists()
 
         with h5py.File(str(h5_path), "r") as f:
-            assert "collector" in f, f"Missing 'collector' dataset; keys: {list(f.keys())}"
-            ds = f["collector"]
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            assert "readouts" in group, f"Missing 'readouts' dataset; keys: {list(group.keys())}"
+            ds = group["readouts"]
             # -n 100 is split across 2 ranks (50 each), all events collected
             assert ds.shape[0] == 100, f"Expected 100 events, got {ds.shape[0]}"
 
@@ -207,9 +209,10 @@ class TestMPICollectCAEN:
         assert Path(h5_path).exists()
 
         with h5py.File(str(h5_path), "r") as f:
-            assert "point_0" in f, f"Missing point_0 group; keys: {list(f.keys())}"
-            assert "collector" in f["point_0"], \
-                f"Missing 'collector' dataset in point_0; keys: {list(f['point_0'].keys())}"
+            assert "collector" in f, f"Missing collector group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group; keys: {list(group.keys())}"
 
     @mpi_compiled_test
     def test_mpi_collect_four_ranks(self, tmp_path):
@@ -238,7 +241,7 @@ class TestMPICollectCAEN:
 
         with h5py.File(str(h5_path), "r") as f:
             assert "collector" in f
-            ds = f["collector"]
+            ds = f["collector"]["readouts"]
             # 100 neutrons split across 4 ranks, all collected
             assert ds.shape[0] == 100, f"Expected 100 events, got {ds.shape[0]}"
             names = ds.dtype.names
@@ -279,7 +282,7 @@ class TestMPICollectCAEN:
 
         with h5py.File(str(h5_path), "r") as f:
             assert "collector" in f
-            assert f["collector"].shape[0] == 100
+            assert f["collector"]["readouts"].shape[0] == 100
 
 
     @mpi_compiled_test
@@ -341,7 +344,8 @@ class TestMPICollectCAEN:
 
         def is_present_count(name, container):
             assert name in container
-            return container[name].shape[0]
+            assert "readouts" in container[name]
+            return container[name]["readouts"].shape[0]
 
 
         with h5py.File(str(h5_path), "r") as f:

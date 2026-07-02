@@ -30,13 +30,9 @@ TEST_CASE("Store and retrieve CAEN packets", "[c][CAEN][io]"){
   auto filename = filepath.string();
 
   const uint16_t max{1000};
-  uint32_t detector_type{0x34};
-
-  auto detector_efu = readout_create("127.0.0.1", 9003, 8888, 1 / 14., static_cast<int>(detector_type));
-  readout_disable_network(detector_efu); // avoid sending packets -- just in case
-  readout_dump_to(detector_efu, filename.data());
-  // add events, one-by-one, to the HDF5 file
-  readout_newPacket(detector_efu);
+  constexpr int detector_type{0x34};
+  auto * collector = collector_new(filename.c_str(), "events", detector_type, 1u);
+  REQUIRE(collector != nullptr);
   CAEN_readout_t caen_data;
   for (uint16_t i=0; i<max; ++i){
     uint8_t ring = 1;
@@ -48,13 +44,12 @@ TEST_CASE("Store and retrieve CAEN packets", "[c][CAEN][io]"){
     caen_data.b = max - i;
     caen_data.c = 0;
     caen_data.d = 0;
-    readout_add(detector_efu, ring, fen, tof, static_cast<double>(i), static_cast<const void *>(&caen_data));
+    collector_add(collector, ring, fen, tof, static_cast<double>(i), static_cast<const void *>(&caen_data));
   }
-  readout_send(detector_efu);
-  readout_destroy(detector_efu);
+  collector_free(collector);
 
-  // with the ReadoutClass object destroyed, we should be able to re-open the file and check its contents
-  auto reader = Reader(filename);
+  ReaderSource source(filename);
+  const auto & reader = source.reader("events");
   REQUIRE(ReadoutType::CAEN == reader.readout_type());
   REQUIRE(max == reader.size());
   for (size_t i=0; i<reader.size(); ++i){
@@ -115,10 +110,8 @@ TEST_CASE("Store, replay and receive TTLMonitor packets","[c][TTLMonitor][io]"){
   REQUIRE(monitor_receiver.isRunning());
 
   char addr[] = "127.0.0.1";
-  auto monitor_efu = readout_create(addr, monitor_port, 8889, 1 / 14., static_cast<int>(monitor_type));
-  readout_disable_network(monitor_efu);
-  readout_dump_to(monitor_efu, filename.data());
-  readout_newPacket(monitor_efu);
+  auto * collector = collector_new(filename.c_str(), "events", static_cast<int>(monitor_type), 1u);
+  REQUIRE(collector != nullptr);
   TTLMonitor_readout_t ttl_data;
   for (uint16_t i=0; i<max; ++i){
     uint8_t tube = 3;
@@ -126,17 +119,17 @@ TEST_CASE("Store, replay and receive TTLMonitor packets","[c][TTLMonitor][io]"){
     ttl_data.pos = tube;
     ttl_data.channel = 0;
     ttl_data.adc = i;
-    readout_add(monitor_efu, 0, 100, tof, 0.0, static_cast<const void *>(&ttl_data));
+    collector_add(collector, 0, 100, tof, 0.0, static_cast<const void *>(&ttl_data));
     ttl_data.channel = 1;
     ttl_data.adc = max - i;
-    readout_add(monitor_efu, 0, 100, tof, 0.0, static_cast<const void *>(&ttl_data));
+    collector_add(collector, 0, 100, tof, 0.0, static_cast<const void *>(&ttl_data));
   }
-  readout_send(monitor_efu);
-  readout_destroy(monitor_efu);
+  collector_free(collector);
 
   REQUIRE(stats->readouts == 0); // No UDP communication has occurred yet
   {
-    auto reader = Reader(filename);
+    ReaderSource source(filename);
+    const auto & reader = source.reader("events");
     REQUIRE(ReadoutType::TTLMonitor == reader.readout_type());
     REQUIRE(2 * max == reader.size());
   }
@@ -151,4 +144,3 @@ TEST_CASE("Store, replay and receive TTLMonitor packets","[c][TTLMonitor][io]"){
   }
   REQUIRE(stats->readouts == expected);
 }
-

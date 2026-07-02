@@ -1,140 +1,131 @@
 #include <algorithm>
+#include <optional>
 #include <random>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 #include "replay.h"
 #include "reader.h"
 #include "ReadoutClass.h"
 
-#include "streamer.h"
+namespace {
 
-constexpr size_t PAGESIZE = 4u << 30;  // this should be user configurable
+  /*
+   * This is all wrong.
+   *
+   * Presently it will read and create a vector of all readouts for all collectors keeping track of the
+   * collector's specific reader and the index of the readout in its dataset, then either go through all readouts
+   * in order or out of order and send them all to a single Readout RMM->EFU forwarder.
+   *
+   * Instead, it should:
+   * 1. perform a for loop over the points in the collector file
+   * 2. For each point
+   *  a. update the EPICS mailbox with the values of all stored parameters
+   *  b. perform a for loop over the collectors, and for each collector
+   *    i. loop over (possibly out of order) the readouts within this single point,
+   *    ii. send each readout to a readout-type-specific Readout which was initialized for it previously
+   *
+   * for point in point:
+   *   for parameter in parameters.at(point):
+   *     update_epics(parameter.name, parameter.value);
+   *   for collector in collectors:
+   *     for readout in collector.readouts.at(point, ordered=in_order):
+   *       send_to_readout(readouts.at(collector.readout_type), readout);
+   */
 
-size_t element_size(ReadoutType type){
-  switch (type){
-    case ReadoutType::CAEN: return sizeof(CAEN_event);
-    case ReadoutType::TTLMonitor: return sizeof(TTLMonitor_event);
-    case ReadoutType::VMM3: return sizeof(VMM3_event);
-    case ReadoutType::CDT: return sizeof(CDT_event);
-    case ReadoutType::BM0: return sizeof(BM0_event);
-    case ReadoutType::BM2: return sizeof(BM2_event);
-    case ReadoutType::BMI: return sizeof(BMI_event);
+struct EventRef {
+  const Reader * reader;
+  size_t index;
+};
+
+void append_events_for_point(const ReaderSource & source, const size_t point, std::vector<EventRef> & events) {
+  for (const auto & reader : source.readers()) {
+    const auto offset = reader.point_offset(point);
+    const auto count = reader.point_size(point);
+    for (size_t i = 0; i < count; ++i) {
+      events.push_back(EventRef{&reader, offset + i});
+    }
+  }
+}
+
+std::vector<EventRef> collect_events(const ReaderSource & source, const std::optional<size_t> first = std::nullopt, const std::optional<size_t> number = std::nullopt, const size_t every = 1) {
+  if (every == 0) {
+    throw std::runtime_error("The replay step (every) must be at least 1");
+  }
+  std::vector<EventRef> all;
+  size_t total{0};
+  for (const auto & reader : source.readers()) {
+    total += reader.size();
+  }
+  all.reserve(total);
+  for (size_t point = 0; point < source.points(); ++point) {
+    append_events_for_point(source, point, all);
+  }
+
+  if (!first.has_value() || !number.has_value()) {
+    return all;
+  }
+
+  const auto begin = first.value();
+  if (begin >= all.size()) {
+    throw std::runtime_error("Requested first replay index is out of bounds");
+  }
+
+  std::vector<EventRef> subset;
+  subset.reserve(number.value());
+  for (size_t i = begin; i < all.size() && subset.size() < number.value(); i += every) {
+    subset.push_back(all.at(i));
+  }
+  if (subset.size() != number.value()) {
+    throw std::runtime_error("Requested replay subset exceeds available events");
+  }
+  return subset;
+}
+
+void add_event_to_readout(const EventRef & event, Readout & readout) {
+  switch (event.reader->readout_type()) {
+    case ReadoutType::CAEN: event.reader->get_CAEN(event.index, 1).front().add(readout); return;
+    case ReadoutType::TTLMonitor: event.reader->get_TTLMonitor(event.index, 1).front().add(readout); return;
+    case ReadoutType::VMM3: event.reader->get_VMM3(event.index, 1).front().add(readout); return;
+    case ReadoutType::CDT: event.reader->get_CDT(event.index, 1).front().add(readout); return;
+    case ReadoutType::BM0: event.reader->get_BM0(event.index, 1).front().add(readout); return;
+    case ReadoutType::BM2: event.reader->get_BM2(event.index, 1).front().add(readout); return;
+    case ReadoutType::BMI: event.reader->get_BMI(event.index, 1).front().add(readout); return;
     default: throw std::runtime_error("Readout type not implemented");
   }
 }
 
-bool loadable(ReadoutType type, size_t count){
-  auto size = element_size(type) * count;
-  return size <= PAGESIZE;
-}
-
-
-void load_replay_CAEN(const Reader & reader, Readout & readout, size_t first, size_t number, const std::vector<size_t> & indexes){
-  auto data = reader.get_CAEN(first, number);
-  for (auto i: indexes) data[i].add(readout);
-}
-void load_replay_TTLMonitor(const Reader & reader, Readout & readout, size_t first, size_t number, const std::vector<size_t> & indexes){
-  auto data = reader.get_TTLMonitor(first, number);
-  for (auto i: indexes) data[i].add(readout);
-}
-void load_replay_VMM3(const Reader & reader, Readout & readout, size_t first, size_t number, const std::vector<size_t> & indexes){
-  auto data = reader.get_VMM3(first, number);
-  for (auto i: indexes) data[i].add(readout);
-}
-void load_replay_CDT(const Reader & reader, Readout & readout, size_t first, size_t number, const std::vector<size_t> & indexes){
-  auto data = reader.get_CDT(first, number);
-  for (auto i: indexes) data[i].add(readout);
-}
-void load_replay_BM0(const Reader & reader, Readout & readout, size_t first, size_t number, const std::vector<size_t> & indexes){
-  auto data = reader.get_BM0(first, number);
-  for (auto i: indexes) data[i].add(readout);
-}
-void load_replay_BM2(const Reader & reader, Readout & readout, size_t first, size_t number, const std::vector<size_t> & indexes){
-  auto data = reader.get_BM2(first, number);
-  for (auto i: indexes) data[i].add(readout);
-}
-void load_replay_BMI(const Reader & reader, Readout & readout, size_t first, size_t number, const std::vector<size_t> & indexes){
-  auto data = reader.get_BMI(first, number);
-  for (auto i: indexes) data[i].add(readout);
-}
-
-
-void load_replay(const Reader & reader, Readout & readout, size_t first, size_t number, int control){
-  std::vector<size_t> indexes(number);
-  std::iota(indexes.begin(), indexes.end(), 0u);
-  if (control & RANDOM){
-    auto rng = std::default_random_engine {};
-    std::shuffle(indexes.begin(), indexes.end(), rng);
+void replay_events(std::vector<EventRef> events, const std::string & address, const int port, const int control) {
+  if (events.empty()) {
+    return;
   }
-  switch (reader.readout_type()) {
-    case ReadoutType::CAEN: return load_replay_CAEN(reader, readout, first, number, indexes);
-    case ReadoutType::TTLMonitor: return load_replay_TTLMonitor(reader, readout, first, number, indexes);
-    case ReadoutType::VMM3: return load_replay_VMM3(reader, readout, first, number, indexes);
-    case ReadoutType::CDT: return load_replay_CDT(reader, readout, first, number, indexes);
-    case ReadoutType::BM0: return load_replay_BM0(reader, readout, first, number, indexes);
-    case ReadoutType::BM2: return load_replay_BM2(reader, readout, first, number, indexes);
-    case ReadoutType::BMI: return load_replay_BMI(reader, readout, first, number, indexes);
-    default: throw std::runtime_error("Readout type not implemented");
+  if (control & RANDOM) {
+    auto rng = std::default_random_engine{};
+    std::ranges::shuffle(events, rng);
+  }
+
+  const auto detector = events.front().reader->detector_type();
+  for (const auto &[reader, index] : events) {
+    if (reader->detector_type() != detector) {
+      throw std::runtime_error("Collector groups have mixed detector types, replay expects a single detector");
+    }
+  }
+
+  auto readout = Readout(address, port, 0, detector);
+  for (const auto & event : events) {
+    add_event_to_readout(event, readout);
   }
 }
 
-void chunk_replay_CAEN(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
-  for (auto i: indexes) reader.get_CAEN(i, 1).front().add(readout);
-}
-void chunk_replay_TTLMonitor(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
-  for (auto i: indexes) reader.get_TTLMonitor(i, 1).front().add(readout);
-}
-void chunk_replay_VMM3(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
-  for (auto i: indexes) reader.get_VMM3(i, 1).front().add(readout);
-}
-void chunk_replay_CDT(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
-  for (auto i: indexes) reader.get_CDT(i, 1).front().add(readout);
-}
-void chunk_replay_BM0(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
-  for (auto i: indexes) reader.get_BM0(i, 1).front().add(readout);
-}
-void chunk_replay_BM2(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
-  for (auto i: indexes) reader.get_BM2(i, 1).front().add(readout);
-}
-void chunk_replay_BMI(const Reader & reader, Readout & readout, const std::vector<size_t> & indexes){
-  for (auto i: indexes) reader.get_BMI(i, 1).front().add(readout);
-}
-
-void chunk_replay(const Reader & reader, Readout & readout, size_t first, size_t number, size_t every, int control){
-  std::vector<size_t> indexes(number);
-  size_t i{first};
-  std::generate(indexes.begin(), indexes.end(), [&i,every](){auto j=i; i+=every; return j;});
-  if (control & RANDOM){
-    auto rng = std::default_random_engine {};
-    std::shuffle(indexes.begin(), indexes.end(), rng);
-  }
-  switch (reader.readout_type()) {
-    case ReadoutType::CAEN: return chunk_replay_CAEN(reader, readout, indexes);
-    case ReadoutType::TTLMonitor: return chunk_replay_TTLMonitor(reader, readout, indexes);
-    case ReadoutType::VMM3: return chunk_replay_VMM3(reader, readout, indexes);
-    case ReadoutType::CDT: return chunk_replay_CDT(reader, readout, indexes);
-    case ReadoutType::BM0: return chunk_replay_BM0(reader, readout, indexes);
-    case ReadoutType::BM2: return chunk_replay_BM2(reader, readout, indexes);
-    case ReadoutType::BMI: return chunk_replay_BMI(reader, readout, indexes);
-    default: throw std::runtime_error("Readout type not implemented");
-  }
-}
+} // namespace
 
 void replay_all(const std::string & filename, const std::string & address, int port, int control) {
-  auto reader = Reader(filename);
-  auto readout = Readout(address, port, 0, reader.detector_type());
-  if (loadable(reader.readout_type(), reader.size())) {
-    load_replay(reader, readout, 0, reader.size(), control);
-  } else {
-    chunk_replay(reader, readout, 0, reader.size(), 1, control);
-  }
+  const ReaderSource source(filename);
+  replay_events(collect_events(source), address, port, control);
 }
 
 void replay_subset(const std::string & filename, const std::string & address, int port, size_t first, size_t number, size_t every, int control) {
-  auto reader = Reader(filename);
-  auto readout = Readout(address, port, 0, reader.detector_type());
-  if (loadable(reader.readout_type(), number) && 1 == every){
-    load_replay(reader, readout, first, number, control);
-  } else {
-    chunk_replay(reader, readout, first, number, every, control);
-  }
+  const ReaderSource source(filename);
+  replay_events(collect_events(source, first, number, every), address, port, control);
 }

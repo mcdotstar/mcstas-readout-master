@@ -33,7 +33,8 @@ TEST_CASE("Collector CAEN create, add, and read back", "[collector][CAEN]") {
     collector_free(col);
   }
   {
-    Reader reader(filename, "events");
+    ReaderSource source(filename);
+    const auto & reader = source.reader("events");
     CHECK(reader.readout_type() == ReadoutType::CAEN);
     CHECK(reader.size() == 2);
     auto events = reader.get_CAEN(0, 2);
@@ -56,7 +57,8 @@ TEST_CASE("Collector TTLMonitor create, add, and read back", "[collector][TTLMon
     collector_free(col);
   }
   {
-    Reader reader(filename, "events");
+    ReaderSource source(filename);
+    const auto & reader = source.reader("events");
     CHECK(reader.readout_type() == ReadoutType::TTLMonitor);
     CHECK(reader.size() == 1);
   }
@@ -76,7 +78,8 @@ TEST_CASE("Collector CDT create, add, and read back", "[collector][CDT]") {
     collector_free(col);
   }
   {
-    Reader reader(filename, "events");
+    ReaderSource source(filename);
+    const auto & reader = source.reader("events");
     CHECK(reader.readout_type() == ReadoutType::CDT);
     CHECK(reader.size() == 3);
   }
@@ -94,7 +97,8 @@ TEST_CASE("Collector VMM3 create, add, and read back", "[collector][VMM3]") {
     collector_free(col);
   }
   {
-    Reader reader(filename, "events");
+    ReaderSource source(filename);
+    const auto & reader = source.reader("events");
     CHECK(reader.readout_type() == ReadoutType::VMM3);
     CHECK(reader.size() == 1);
   }
@@ -112,7 +116,8 @@ TEST_CASE("Collector BM0 create, add, and read back", "[collector][BM0]") {
     collector_free(col);
   }
   {
-    Reader reader(filename, "events");
+    ReaderSource source(filename);
+    const auto & reader = source.reader("events");
     CHECK(reader.readout_type() == ReadoutType::BM0);
     CHECK(reader.size() == 1);
   }
@@ -130,7 +135,8 @@ TEST_CASE("Collector BM2 create, add, and read back", "[collector][BM2]") {
     collector_free(col);
   }
   {
-    Reader reader(filename, "events");
+    ReaderSource source(filename);
+    const auto & reader = source.reader("events");
     CHECK(reader.readout_type() == ReadoutType::BM2);
     CHECK(reader.size() == 1);
   }
@@ -148,7 +154,8 @@ TEST_CASE("Collector BMI create, add, and read back", "[collector][BMI]") {
     collector_free(col);
   }
   {
-    Reader reader(filename, "events");
+    ReaderSource source(filename);
+    const auto & reader = source.reader("events");
     CHECK(reader.readout_type() == ReadoutType::BMI);
     CHECK(reader.size() == 1);
   }

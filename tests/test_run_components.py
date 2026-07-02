@@ -136,9 +136,10 @@ END
         h5_path = h5_files[0]
         assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
         with h5py.File(str(h5_path), "r") as f:
-            # CollectCAEN stores a compound dataset named after the component
-            assert "collector" in f, f"Missing 'collector' dataset; keys: {list(f.keys())}"
-            ds = f["collector"]
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            assert "readouts" in group, f"Missing 'readouts' dataset; keys: {list(group.keys())}"
+            ds = group["readouts"]
             assert ds.shape[0] == 50, f"Expected 50 events, got {ds.shape[0]}"
             # Verify expected columns exist in the compound dtype
             names = ds.dtype.names
@@ -170,8 +171,10 @@ END
         h5_path = h5_files[0]
         assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
         with h5py.File(str(h5_path), "r") as f:
-            # Point-based storage puts data in "point_0" group
-            assert "point_0" in f, f"Missing point_0 group; keys: {list(f.keys())}"
+            assert "collector" in f, f"Missing collector group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group; keys: {list(group.keys())}"
 
 
 # -----------------------------------------------------------------------

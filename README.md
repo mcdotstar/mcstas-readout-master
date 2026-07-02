@@ -218,6 +218,21 @@ TRACE
   ...
 ```
 
+## Collector file layout and replay
+
+Collector output is organized as **groups per collector component** at the HDF5 root (for example `collector`), not as a single flat `events` dataset.
+
+Each collector group contains:
+
+- `readouts` (compound event records)
+- `cues` (point end offsets into `readouts`)
+- `weights`
+- `normalizations`
+
+Optional scan/instrument metadata is stored in a root `parameters` group as 1-D datasets matching the point dimension.
+
+Replay now reads this collector-group layout directly. Legacy flat files are not supported by the collector reader/replay path.
+
 If multiple Readout components are included in an instrument, the `SEARCH SHELL` command is only needed once.
 Consult the McStas 3.3+ documentation for details of its use.
 

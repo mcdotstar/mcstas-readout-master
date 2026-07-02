@@ -160,14 +160,14 @@ HighFive::CompoundType hdf_compound_type(const ReadoutType readout){
   }
 }
 
-static void concat_dataset(const HighFive::DataSet & out, const size_t out_offset, const HighFive::DataSet & in, const std::optional<size_t> in_offset = std::nullopt, const std::optional<size_t> in_count = std::nullopt) {
-  const size_t offset = in_offset.value_or(0u);
-  const size_t count = in_count.value_or(in.getDimensions().front() - offset);
-  const auto type = out.getDataType();
-  std::vector<uint8_t> buffer(count * type.getSize());
-  in.select({offset}, {count}).read_raw(buffer.data(), type);
-  out.select({out_offset}, {count}).write_raw(buffer.data(), type);
-}
+// static void concat_dataset(const HighFive::DataSet & out, const size_t out_offset, const HighFive::DataSet & in, const std::optional<size_t> in_offset = std::nullopt, const std::optional<size_t> in_count = std::nullopt) {
+//   const size_t offset = in_offset.value_or(0u);
+//   const size_t count = in_count.value_or(in.getDimensions().front() - offset);
+//   const auto type = out.getDataType();
+//   std::vector<uint8_t> buffer(count * type.getSize());
+//   in.select({offset}, {count}).read_raw(buffer.data(), type);
+//   out.select({out_offset}, {count}).write_raw(buffer.data(), type);
+// }
 
 template<class T>
 static void ensure_file_attribute(HighFive::File & file, const std::string & name, const T & expected_value) {
@@ -231,7 +231,7 @@ std::string verify_collector_files(const std::vector<std::string> & filenames) {
     try {
       auto file = HighFive::File(filename, HighFive::File::ReadOnly);
       if (auto res = validate_file_attributes(file); res.size() > 0) return res;
-    } catch (std::exception ex) {
+    } catch (std::exception & ex) {
       std::stringstream res;
       res << " Error validating " << filename << ". Exception raised: " << ex.what();
       return res.str();
@@ -269,7 +269,7 @@ std::pair<std::string, std::map<std::string, CollectorShape>> verify_parameters_
     try {
       auto file = HighFive::File(filename, HighFive::File::ReadOnly);
       group = file.getGroup(CS::parameter_group_name());
-    } catch (std::exception ex) {
+    } catch (std::exception & ex) {
       res << "Unable to retrieve parameter group from " << filename << " due to exception " << ex.what();
       return {res.str(), {}};
     }
@@ -543,12 +543,46 @@ int validate_collector_file_impl(const HighFive::File & file, const std::string 
     std::cerr << "Warning: file " << filename << " does not have version information." << std::endl;
     return -1;
   }
-  if (const auto result = validate_collector_group(file.getGroup("/")); !result.empty()) {
+  const auto root = file.getGroup("/");
+  if (const auto result = validate_collector_root(root); !result.empty()) {
     std::cerr << "Warning: file " << filename << " has a root group with unexpected structure: " << std::endl << result;
     return -1;
   }
 
-  return 0;
+  std::optional<size_t> points;
+  const auto & cues_name = C::cue_dataset_name();
+  for (size_t i=0; i<root.getNumberObjects(); ++i) {
+    const auto name = root.getObjectName(i);
+    if (root.getObjectType(name) != ObjectType::Group) {
+      continue;
+    }
+    const auto group = root.getGroup(name);
+    if (group.hasAttribute(C::type_attribute()) && group.getAttribute(C::type_attribute()).read<std::string>() == C::collector_group_type()) {
+      const auto cue_dims = group.getDataSet(cues_name).getDimensions();
+      const auto group_points = cue_dims.back();
+      if (!points.has_value()) {
+        points = group_points;
+      } else if (points.value() != group_points) {
+        std::cerr << "Warning: file " << filename << " has inconsistent point counts across collector groups." << std::endl;
+        return -1;
+      }
+    } else if (name == C::parameter_group_name()) {
+      for (size_t j=0; j<group.getNumberObjects(); ++j) {
+        const auto pname = group.getObjectName(j);
+        if (group.getObjectType(pname) != ObjectType::Dataset) continue;
+        const auto dims = group.getDataSet(pname).getDimensions();
+        const auto parameter_points = dims.back();
+        if (!points.has_value()) {
+          points = parameter_points;
+        } else if (points.value() != parameter_points) {
+          std::cerr << "Warning: file " << filename << " has parameter vectors with inconsistent point counts." << std::endl;
+          return -1;
+        }
+      }
+    }
+  }
+
+  return static_cast<int>(points.value_or(0u));
 }
 
 int validate_collector_file(const std::string & filename) {
