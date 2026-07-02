@@ -1,32 +1,37 @@
 # 2026-07-02 Status
 
-This project is in a redevelopment state.
-It is the interface between the simulation world (McStas based) and the ESS data acquisition world (EPICS, Kafka and the EFU).
-As detailed in AGENT.md and architecture.md, the original design was based on a single McStas component, Readout, that would convert weighted rays to events and send them to an EFU during the simulation runtime.
-The new design is based on a Collector class that collects weighted rays and stores them in an HDF5 file for later processing, which allows for more flexibility and better statistical correctness.
+This project is the interface between the simulation world (McStas based) and the ESS data
+acquisition world (EPICS, Kafka and the EFU). The redevelopment from runtime event streaming
+to decoupled collect → combine → replay is **complete**; see AGENT.md for the architecture
+and PLAN.md for how it got here.
 
-## Requirements:
-1. A McStas component that collects weighted rays and sends them to the Collector class.
-2. A Collector class that manages the collection of weighted rays and stores them in an HDF5 file.
-3. A Reader class that can read the HDF5 file and provide an interface for accessing the collected data.
-4. A replay mechanism that can read the collected data and send it to an EFU or other processing pipeline.
-5. A set of command line utilities to combine multiple Collector files into a single file for replaying/reprocessing.
-   1. the combined files might be from one repeated simulation point
-   2. the combined files might be from multiple simulation points
-6. A set of tests to verify the functionality of the Collector, Reader, and replay mechanisms.
+In one paragraph: `Collector{ReadoutType}.comp` components (share/Readout/) store weighted-ray
+records into cue-based multi-point HDF5 files through a description-based engine (a C-struct
+description string parsed to an HDF5 compound datatype at runtime; canonical strings in
+lib/readout_type_descriptions.h). Files are combined with the `readout-combine` CLI
+(validate/append/concatenate) and replayed with `readout-replay`, which steps through points,
+publishes each point's parameters through the ParameterPublisher interface (EPICS transport is
+external — see ParameterPublisher.md), draws `n ~ Poisson(w * counting_time)` events per stored
+readout, and routes them to EFUs resolved from explicit config > file-embedded attributes >
+defaults. EFU-sendability of a collector group is decided by exact datatype comparison against
+the registry (`hdf_compound_type`), never by attributes, and an anti-drift test pins the
+canonical descriptions to the C++ event structs.
 
+## Building and testing
 
-## Outstanding issues:
-### Switch to CollectorStar
-Use the CollectorStar class to allow users to define their own data structures for collection, rather than being limited to the predefined structure in Collector.
+- The `build/` and `build-dev/` directories are configured with the conan **Debug** generators
+  and `-DREADOUT_DEVELOPMENT_MODE=ON` (see DEVELOPMENT.md). Do not reconfigure with different
+  flags; if needed: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DREADOUT_DEVELOPMENT_MODE=ON`.
+- C++ tests: `cmake --build build -j8 && cd build && ctest`.
+- McStas toolchain tests: `python3 -m pytest tests/` — these prefer `build-dev/` over `build/`
+  (tests/conftest.py), so rebuild **both** directories first or you will test stale binaries.
+- After changing a `.comp` file, delete any stale `share/Readout/*.comp.json` caches so
+  mccode-antlr re-parses.
 
-This will allow for more flexibility in the types of data that can be collected and stored, and will enable users to collect additional information about the rays, such as their full state.
-It will also reduce the maintenance overhead associated with the predefined structure in Collector, as users will be able to define their own structures as needed.
-The CollectorStar class will need the same type of command line utilities and tests as the Collector class, to ensure that it can be used effectively in the same way.
+## Remaining / external work
 
-### Replay and EFU integration
-The replay mechanism should be able to read the collected data from the HDF5 file and send it to an EFU or other processing pipeline, in a way that is compatible with the original design
-of the Readout class. This will allow for a seamless transition from the original design to the new design, and will enable users to continue using their existing EFU configurations without modification.
-
-An important consideration is that one collector file can contain data intended for multiple EFUs, and the replay mechanism should be able to handle this by sending the appropriate data to each EFU based on the configuration of the simulation.
-This means that it should be possible to provide the EFU configuration information to the Collector class directly.
+1. EPICS implementation of ParameterPublisher — requirements in ParameterPublisher.md; the
+   transport lives in mccode-plumber, not here.
+2. Optional: fixed-count replay mode ("exactly N events") on the retained WRSWR reservoir
+   sampler (lib/IndexSampler.h, lib/ctream), and paced replay (events spread over the counting
+   time) if downstream consumers need realistic wall-clock intervals.

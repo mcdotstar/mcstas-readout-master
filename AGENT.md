@@ -36,6 +36,7 @@ ReadoutDiscreteCAEN) remain for in-simulation streaming use cases.
 
 # Remaining work
 1. EPICS implementation of ParameterPublisher (lives outside this repository; mccode-plumber).
+   The interface contract and implementation requirements are written down in
+   ParameterPublisher.md.
 2. Consider a fixed-count replay mode ("exactly N events") using the retained WRSWR reservoir
    sampler (lib/IndexSampler.h, lib/ctream).
-3. architecture.md still describes the pre-redesign state and could be refreshed or retired.
