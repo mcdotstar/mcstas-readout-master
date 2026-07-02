@@ -393,7 +393,7 @@ public:
     // Add the normalization to the existing dataset value -- which was initialized to [0]
     const auto nds = group_->getDataSet(CollectorSink::normalization_dataset_name());
     auto ns = nds.select({nds.getDimensions().back() - 1}, {1});
-    ns.write(normalization_ + selection.read<uint64_t>());
+    ns.write(normalization_ + ns.read<uint64_t>());
 
     const auto sink = CollectorSink::instance();
     if (const auto count = sink->removeCollector(name_); count != 1) {

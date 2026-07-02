@@ -297,6 +297,7 @@ std::pair<std::string, std::map<std::string, CollectorShape>> verify_parameters_
           return {res.str(), {}};
         }
         // Parameter datasets across datasets must all have the same names, datatypes, units, and descriptions
+        shapes.at(filename).parameters.insert(name);
         if (first) {
           parameters.insert(name);
           type.insert({name, ds.getDataType()});
@@ -311,7 +312,6 @@ std::pair<std::string, std::map<std::string, CollectorShape>> verify_parameters_
             res << "Extra parameter " << name << " in file " << filename << ".";
             return {res.str(), {}};
           }
-          shapes.at(filename).parameters.insert(name);
           if (type.at(name) != ds.getDataType()) {
             res << "Data type mismatch for " << name << " in file " << filename << ".";
             return {res.str(), {}};
@@ -339,10 +339,8 @@ std::pair<std::string, std::map<std::string, CollectorShape>> verify_parameters_
     if (!first) {
       for (const auto & name: parameters) {
         if (!shapes.at(filename).parameters.contains(name)) {
-          if (!parameters.contains(name)) {
-            res << "File " << filename << "is missing parameter " << name << ".";
-            return {res.str(), {}};
-          }
+          res << "File " << filename << " is missing parameter " << name << ".";
+          return {res.str(), {}};
         }
       }
     }
@@ -751,8 +749,8 @@ bool validate_collector_files(
 }
 
 
-template<class GroupOrDataSet>
-void copy_attribute(const GroupOrDataSet & source, const std::string & name, GroupOrDataSet & destination) {
+template<class SourceType, class DestinationType>
+void copy_attribute(const SourceType & source, const std::string & name, DestinationType & destination) {
   if (!source.hasAttribute(name)) {
     return;
   }
@@ -816,10 +814,10 @@ void empty_like_dataset(const HighFive::Group & source, const std::string & name
     dimensions.back() = size.value();
   }
   const auto space = HighFive::DataSpace(dimensions);
-  destination.createDataSet(name, space, ds.getDataType());
+  auto out = destination.createDataSet(name, space, ds.getDataType());
 
-  for (const auto & attr: source.listAttributeNames()) {
-    copy_attribute(source, attr, destination);
+  for (const auto & attr: ds.listAttributeNames()) {
+    copy_attribute(ds, attr, out);
   }
 }
 
@@ -904,8 +902,8 @@ void combine_collector_group(const HighFive::Group & source, const std::string &
     normalizations[point] += add_normalizations[point];
   }
   to_group.getDataSet(cdn).write(cues);
-  to_group.getDataSet(cdn).write(weights);
-  to_group.getDataSet(cdn).write(normalizations);
+  to_group.getDataSet(wdn).write(weights);
+  to_group.getDataSet(ndn).write(normalizations);
 }
 
 void insert_dataset_at(const HighFive::Group & source, const std::string & name, const HighFive::Group & destination, const std::vector<size_t>& offset) {
@@ -946,7 +944,7 @@ void concatenate_collector_group (
   } else {
     while (pre < total_points && offsets[pre] > 0) ++pre;
   }
-  if (pre + points >= total_points) {
+  if (pre + points > total_points) {
     std::cerr << "Out of bounds readout concatenation in " << name << " after " << pre << " points" << std::endl;
   }
   for (size_t point=0; point < points; ++point) {
@@ -965,11 +963,20 @@ void concatenate_collector_group (
     // and the output following the prior point's last entry (or zero if no point yet)
     auto this_offset = pre + point > 0 ? offsets[pre + point - 1] : 0u;
     to_group.getDataSet(rdn).select({this_offset}, {shape[point]}).write_raw(buffer.data(), type);
-    offsets[point] = this_offset + shape[point];
+    offsets[pre + point] = this_offset + shape[point];
   }
 
+  // cues are per-file readout end-offsets: shift them by the readouts already concatenated
+  {
+    const uint32_t base = pre > 0 ? offsets[pre - 1] : 0u;
+    std::vector<uint32_t> cues(points);
+    from_group.getDataSet(CS::cue_dataset_name()).read(cues);
+    for (auto & cue : cues) {
+      cue += base;
+    }
+    to_group.getDataSet(CS::cue_dataset_name()).select({pre}, {points}).write(cues);
+  }
   // concatenate the remaining required datasets
-  insert_dataset_at(from_group, CS::cue_dataset_name(), to_group, {pre});
   insert_dataset_at(from_group, CS::weight_dataset_name(), to_group, {pre});
   insert_dataset_at(from_group, CS::normalization_dataset_name(), to_group, {pre});
 
@@ -1126,7 +1133,9 @@ void append_collector_files(const std::string & out_filename, const std::vector<
     return;
   }
   // create the output file and grab its root group
-  auto outfile = HighFive::File(out_filename, HighFive::File::Create).getGroup("/");
+  auto file = HighFive::File(out_filename, HighFive::File::Create);
+  ensure_file_attributes(file);
+  auto outfile = file.getGroup("/");
   // do the actual combining
   combine_collector_files_equivalent_points(outfile, shapes, collectors, in_filenames);
 
@@ -1168,7 +1177,9 @@ void concatenate_collector_files(const std::string & out_filename, const std::ve
   }
   // figure out the unique datasets across all files
   if (const auto & [problems, collectors] = identify_collector_datasets(shapes); problems.empty() ) {
-    auto destination = HighFive::File(out_filename, HighFive::File::Create).getGroup("/");
+    auto file = HighFive::File(out_filename, HighFive::File::Create);
+    ensure_file_attributes(file);
+    auto destination = file.getGroup("/");
     if (Consistency::consistent == consistency) {
       // Check for identical collector group names -- each file's collectors should be identical to the set 'collectors'
       for (const auto & [filename, shape]: shapes) {
@@ -1197,7 +1208,9 @@ void combine_collector_files(const std::string & out_filename, const std::vector
   }
   // figure out the unique datasets across all files
   if (const auto & [problems, collectors] = identify_collector_datasets(shapes); problems.empty() ) {
-    auto destination = HighFive::File(out_filename, HighFive::File::Create).getGroup("/");
+    auto file = HighFive::File(out_filename, HighFive::File::Create);
+    ensure_file_attributes(file);
+    auto destination = file.getGroup("/");
     if (Consistency::identical == consistency) {
       combine_collector_files_equivalent_points(destination, shapes, collectors, in_filenames);
     }
