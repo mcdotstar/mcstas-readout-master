@@ -16,6 +16,16 @@ from conftest import (
     CAEN_ORIGIN_EXTEND,
     TTL_USERVARS,
     TTL_ORIGIN_EXTEND,
+    CDT_USERVARS,
+    CDT_ORIGIN_EXTEND,
+    VMM3_USERVARS,
+    VMM3_ORIGIN_EXTEND,
+    BM0_USERVARS,
+    BM0_ORIGIN_EXTEND,
+    BM2_USERVARS,
+    BM2_ORIGIN_EXTEND,
+    BMI_USERVARS,
+    BMI_ORIGIN_EXTEND,
 )
 
 
@@ -248,6 +258,280 @@ COMPONENT monitor = ReadoutTTLMonitor(
 END
 """)
         assert b"TRACE end" in result
+
+
+# -----------------------------------------------------------------------
+# Multi-component run
+# -----------------------------------------------------------------------
+# -----------------------------------------------------------------------
+# CollectorTTLMonitor run — description-based TTLMonitor component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorTTLMonitor:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorTTLMonitor stores records with canonical TTLMonitor layout."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(f"""
+DEFINE INSTRUMENT test_collector_ttl(string filename="ttl_test")
+{TTL_USERVARS}
+TRACE
+SEARCH SHELL "readout-config --show compdir"
+{TTL_ORIGIN_EXTEND}
+COMPONENT collector = CollectorTTLMonitor(
+  ring="RING", fen="FEN",
+  position="A", identity="TUBE", value="B", tof="tof",
+  filename=filename, verbose=1
+) AT (0, 0, 1) ABSOLUTE
+END
+""", parameters="-n 50 filename=ttl_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "channel", "pos", "adc")
+            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            total = group["weights"][()].sum()
+            assert total > 0.0
+
+
+# -----------------------------------------------------------------------
+# CollectorCDT run — description-based CDT component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorCDT:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorCDT stores records with canonical CDT layout."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(f"""
+DEFINE INSTRUMENT test_collector_cdt(string filename="cdt_test")
+{CDT_USERVARS}
+TRACE
+SEARCH SHELL "readout-config --show compdir"
+{CDT_ORIGIN_EXTEND}
+COMPONENT collector = CollectorCDT(
+  ring="RING", fen="FEN",
+  om_name="OM", cathode_name="CATHODE", anode_name="ANODE", tof="tof",
+  filename=filename, verbose=1
+) AT (0, 0, 1) ABSOLUTE
+END
+""", parameters="-n 50 filename=cdt_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "om", "cathode", "anode")
+            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            total = group["weights"][()].sum()
+            assert total > 0.0
+
+
+# -----------------------------------------------------------------------
+# CollectorVMM3 run — description-based VMM3 component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorVMM3:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorVMM3 stores records with canonical VMM3 layout."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(f"""
+DEFINE INSTRUMENT test_collector_vmm3(string filename="vmm3_test")
+{VMM3_USERVARS}
+TRACE
+SEARCH SHELL "readout-config --show compdir"
+{VMM3_ORIGIN_EXTEND}
+COMPONENT collector = CollectorVMM3(
+  ring="RING", fen="FEN",
+  bc_name="BC", otadc_name="OTADC", geo_name="GEO",
+  tdc_name="TDC", vmm_name="VMM", channel_name="CHANNEL",
+  tof="tof", filename=filename, verbose=1
+) AT (0, 0, 1) ABSOLUTE
+END
+""", parameters="-n 50 filename=vmm3_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "bc", "otadc", "geo", "tdc", "vmm", "channel")
+            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            total = group["weights"][()].sum()
+            assert total > 0.0
+
+
+# -----------------------------------------------------------------------
+# CollectorBM0 run — description-based BM0 component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorBM0:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorBM0 stores records with canonical BM0 layout."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(f"""
+DEFINE INSTRUMENT test_collector_bm0(string filename="bm0_test")
+{BM0_USERVARS}
+TRACE
+SEARCH SHELL "readout-config --show compdir"
+{BM0_ORIGIN_EXTEND}
+COMPONENT collector = CollectorBM0(
+  ring="RING", fen="FEN",
+  channel_name="CHANNEL", tof="tof",
+  filename=filename, verbose=1
+) AT (0, 0, 1) ABSOLUTE
+END
+""", parameters="-n 50 filename=bm0_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "channel")
+            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            total = group["weights"][()].sum()
+            assert total > 0.0
+
+
+# -----------------------------------------------------------------------
+# CollectorBM2 run — description-based BM2 component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorBM2:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorBM2 stores records with canonical BM2 layout."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(f"""
+DEFINE INSTRUMENT test_collector_bm2(string filename="bm2_test")
+{BM2_USERVARS}
+TRACE
+SEARCH SHELL "readout-config --show compdir"
+{BM2_ORIGIN_EXTEND}
+COMPONENT collector = CollectorBM2(
+  ring="RING", fen="FEN",
+  channel_name="CHANNEL", pos_x_name="POSX", pos_y_name="POSY",
+  tof="tof", filename=filename, verbose=1
+) AT (0, 0, 1) ABSOLUTE
+END
+""", parameters="-n 50 filename=bm2_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "channel", "pos_x", "pos_y")
+            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            total = group["weights"][()].sum()
+            assert total > 0.0
+
+
+# -----------------------------------------------------------------------
+# CollectorBMI run — description-based BMI component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorBMI:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorBMI stores records with canonical BMI layout."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(f"""
+DEFINE INSTRUMENT test_collector_bmi(string filename="bmi_test")
+{BMI_USERVARS}
+TRACE
+SEARCH SHELL "readout-config --show compdir"
+{BMI_ORIGIN_EXTEND}
+COMPONENT collector = CollectorBMI(
+  ring="RING", fen="FEN",
+  channel_name="CHANNEL", sum_name="SUM", adc_name="ADC",
+  tof="tof", filename=filename, verbose=1
+) AT (0, 0, 1) ABSOLUTE
+END
+""", parameters="-n 50 filename=bmi_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "channel", "sum", "adc")
+            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            total = group["weights"][()].sum()
+            assert total > 0.0
 
 
 # -----------------------------------------------------------------------

@@ -1,0 +1,240 @@
+DEFINE COMPONENT CollectorBMI
+DEFINITION PARAMETERS()
+SETTING PARAMETERS (
+string ring = 0,
+string fen = 0,
+string channel_name = 0,
+string sum_name = 0,
+string adc_name = 0,
+string tof = "t",
+int point=0,
+int total_points=0,
+int ring_count=1,
+int fen_count=1,
+int fen_value=0,
+int channel_value=0,
+int sum_value=0,
+int adc_value=0,
+pulse_rate = 14,
+string filename = 0,
+string dataset_name = 0,
+int verbose=0, // -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+int ess_type=250, // 0xfa == 250: CBMI, the only DetectorType that maps to ReadoutType::BMI
+string efu_address = 0, // Optional EFU IP address for replay routing; leave 0/empty to omit from file
+int efu_port = 0         // Optional EFU UDP port for replay routing; leave 0 to omit from file
+)
+OUTPUT PARAMETERS ()
+DEPENDENCY "-Wl,-rpath,CMD(readout-config --show libdir) -LCMD(readout-config --show libdir) -lreadout -ICMD(readout-config --show includedir)"
+SHARE
+%{
+%include "lib-readout"
+
+/* One stored record, laid out to match the canonical BMI description from
+ * readout_description_for(ess_type): uint8 ring, uint8 FEN, double time, double weight,
+ * uint8 channel, uint8 sum, uint32 adc.  Member names are prefixed to avoid clashing
+ * with particle, component, or instrument parameter names. */
+struct collector_bmi_record {
+    uint8_t  rec_ring;
+    uint8_t  rec_fen;
+    double   rec_time;
+    double   rec_weight;
+    uint8_t  rec_channel;
+    uint8_t  rec_sum;
+    uint32_t rec_adc;
+};
+%}
+
+DECLARE
+%{
+array_t * array_ptr;
+collector_t * collector_ptr;
+
+int fen_present;
+int channel_present;
+int sum_present;
+int adc_present;
+
+char * this_filename;
+char * this_dataset_name;
+%}
+
+INITIALIZE
+%{
+char * basepath = mcfull_file("", NULL);
+
+this_filename = NULL;
+char * safe_filename = NULL;
+if (filename == NULL || filename[0] == '\0') {
+  safe_filename = (char *) calloc(17, sizeof(char));
+  strcpy(safe_filename, "collected_events");
+} else {
+  safe_filename = (char *) calloc(strlen(filename)+1, sizeof(char));
+  strcpy(safe_filename, filename);
+}
+this_filename = (char *) calloc(collector_construct_filename_size(basepath, safe_filename), sizeof(char));
+collector_construct_filename(basepath, safe_filename, this_filename);
+free(safe_filename);
+if (basepath) free(basepath);
+
+int have_dataset_name = (dataset_name != NULL) && (dataset_name[0] != '\0');
+this_dataset_name = (char *) calloc(strlen(have_dataset_name ? dataset_name : NAME_CURRENT_COMP)+1, sizeof(char));
+strcpy(this_dataset_name, have_dataset_name ? dataset_name : NAME_CURRENT_COMP);
+
+fen_present     = ((fen          != NULL) && (fen[0]          != '\0')) ? 1 : 0;
+channel_present = ((channel_name != NULL) && (channel_name[0] != '\0')) ? 1 : 0;
+sum_present     = ((sum_name     != NULL) && (sum_name[0]     != '\0')) ? 1 : 0;
+adc_present     = ((adc_name     != NULL) && (adc_name[0]     != '\0')) ? 1 : 0;
+
+int failure=0;
+particle_getvar(_particle, ring, &failure); if (failure) collector_error(NAME_CURRENT_COMP, ring);
+if (fen_present){
+    particle_getvar(_particle, fen, &failure); if (failure) collector_error(NAME_CURRENT_COMP, fen);
+}
+if (channel_present){
+    particle_getvar(_particle, channel_name, &failure); if (failure) collector_error(NAME_CURRENT_COMP, channel_name);
+}
+if (sum_present){
+    particle_getvar(_particle, sum_name, &failure); if (failure) collector_error(NAME_CURRENT_COMP, sum_name);
+}
+if (adc_present){
+    particle_getvar(_particle, adc_name, &failure); if (failure) collector_error(NAME_CURRENT_COMP, adc_name);
+}
+particle_getvar(_particle, tof, &failure); if (failure) collector_error(NAME_CURRENT_COMP, tof);
+
+if (this_filename == NULL || this_filename[0] == '\0') {
+  collector_error(NAME_CURRENT_COMP, "Filename is empty after processing, cannot create Collector instance.");
+}
+
+const char * record_description = readout_description_for(ess_type);
+if (record_description == NULL) {
+  collector_error(NAME_CURRENT_COMP, "No canonical record description for the given ess_type.");
+}
+
+uint64_t normalization = (uint64_t)mcget_ncount();
+
+#ifdef USE_MPI
+collector_ptr = NULL;
+normalization *= (uint64_t) mpi_node_count;
+if (mpi_node_rank == mpi_node_root) {
+#endif
+  collector_ptr = collector_star_new(this_filename, this_dataset_name, record_description, normalization);
+  if (collector_ptr == NULL) {
+    collector_error(NAME_CURRENT_COMP, "Could not create the description-based Collector instance.");
+  }
+  if (collector_record_size(collector_ptr) != sizeof(struct collector_bmi_record)) {
+    collector_error(NAME_CURRENT_COMP, "Record layout mismatch between component struct and canonical description.");
+  }
+  if (efu_address != NULL && efu_address[0] != '\0' && efu_port > 0) {
+    collector_efu(collector_ptr, efu_address, efu_port);
+  }
+  if (collector_sink_users(this_filename) == 1){
+    collector_sink_parameters(NAME_CURRENT_COMP);
+  }
+#ifdef USE_MPI
+}
+#endif
+
+array_ptr = new_array(sizeof(struct collector_bmi_record));
+
+%}
+
+TRACE
+%{
+double weight = p * (double)(mcget_ncount());
+
+if (weight) {
+    struct collector_bmi_record data = {
+        .rec_ring    = (uint8_t) (readout_particle_getvar_int(_particle, ring)),
+        .rec_fen     = (uint8_t) (fen_present     ? readout_particle_getvar_int(_particle, fen)         : fen_value),
+        .rec_time    = particle_getvar(_particle, tof, 0),
+        .rec_weight  = weight,
+        .rec_channel = (uint8_t) (channel_present ? readout_particle_getvar_int(_particle, channel_name): channel_value),
+        .rec_sum     = (uint8_t) (sum_present     ? readout_particle_getvar_int(_particle, sum_name)    : sum_value),
+        .rec_adc     = (uint32_t)(adc_present     ? readout_particle_getvar_int(_particle, adc_name)    : adc_value)
+    };
+    if (verbose > 2)
+      printf("(%2u %2u) ch=%2u sum=%2u adc=%8u %0.10f -- Collected\n",
+             data.rec_ring, data.rec_fen, data.rec_channel, data.rec_sum, data.rec_adc, data.rec_time);
+
+    array_add(array_ptr, (const void *)(&data));
+}
+
+%}
+
+SAVE
+%{
+#if defined USE_MPI
+  MPI_Datatype mpi_collect_record_type;
+  MPI_Type_contiguous(sizeof(struct collector_bmi_record), MPI_BYTE, &mpi_collect_record_type);
+  MPI_Type_commit(&mpi_collect_record_type);
+
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+  int local_count = (int) array_size(array_ptr);
+  int global_count = 0;
+  int * recv_counts = NULL;
+  int * displacements = NULL;
+  struct collector_bmi_record * recv_buffer = NULL;
+
+  if (mpi_node_rank == mpi_node_root) {
+    recv_counts = (int *) malloc(world_size * sizeof(int));
+    displacements = (int *) malloc(world_size * sizeof(int));
+  }
+
+  MPI_Gather(&local_count, 1, MPI_INT, recv_counts, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+  if (mpi_node_rank == mpi_node_root) {
+    for (int i=0; i < world_size; i++){
+      displacements[i] = (i == 0) ? 0 : displacements[i-1] + recv_counts[i-1];
+      global_count += recv_counts[i];
+    }
+    recv_buffer = (struct collector_bmi_record *) malloc(global_count * sizeof(struct collector_bmi_record));
+  }
+
+  const uint8_t * local_data = array_data(array_ptr);
+  MPI_Gatherv((void *)local_data, local_count, mpi_collect_record_type, recv_buffer, recv_counts, displacements, mpi_collect_record_type, 0, MPI_COMM_WORLD);
+
+  if (mpi_node_rank == mpi_node_root) {
+    for (int i=0; i < global_count; i++){
+      struct collector_bmi_record * data = &recv_buffer[i];
+      collector_star_add(collector_ptr, data->rec_weight, (const void *)data);
+    }
+    free(recv_buffer);
+    free(recv_counts);
+    free(displacements);
+  }
+  MPI_Type_free(&mpi_collect_record_type);
+#else
+  size_t count = array_size(array_ptr);
+  struct collector_bmi_record data;
+  for (size_t i=0; i < count; i++){
+    array_get(array_ptr, i, (void *) &data);
+    collector_star_add(collector_ptr, data.rec_weight, (const void *)(&data));
+  }
+#endif
+array_clear(array_ptr);
+%}
+
+
+FINALLY
+%{
+if (array_size(array_ptr) != 0) {
+  fprintf(stderr, "Warning: array still has %zu elements at FINALLY block of %s\n", array_size(array_ptr), NAME_CURRENT_COMP);
+}
+
+if (collector_ptr != NULL) {
+  collector_free(collector_ptr);
+  collector_ptr = NULL;
+}
+
+delete_array(array_ptr);
+array_ptr = NULL;
+free(this_filename);
+free(this_dataset_name);
+%}
+
+MCDISPLAY
+%{
+%}
+
+END

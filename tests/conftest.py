@@ -174,3 +174,135 @@ vx = 0; vy = 0; vz = 1000;
 p = 1;
 %}
 """
+
+CDT_USERVARS = """\
+USERVARS %{
+int RING;
+int FEN;
+int OM;
+int CATHODE;
+int ANODE;
+double tof;
+%}
+"""
+
+CDT_ORIGIN_EXTEND = """\
+COMPONENT origin = Arm() AT (0, 0, 0) ABSOLUTE
+EXTEND %{
+RING = 1;
+FEN = 0;
+OM = 2;
+CATHODE = 3;
+ANODE = 4;
+tof = 0.001;
+x = 0; y = 0; z = 0;
+vx = 0; vy = 0; vz = 1000;
+p = 1;
+%}
+"""
+
+VMM3_USERVARS = """\
+USERVARS %{
+int RING;
+int FEN;
+int BC;
+int OTADC;
+int GEO;
+int TDC;
+int VMM;
+int CHANNEL;
+double tof;
+%}
+"""
+
+VMM3_ORIGIN_EXTEND = """\
+COMPONENT origin = Arm() AT (0, 0, 0) ABSOLUTE
+EXTEND %{
+RING = 1;
+FEN = 0;
+BC = 100;
+OTADC = 200;
+GEO = 1;
+TDC = 2;
+VMM = 3;
+CHANNEL = 4;
+tof = 0.001;
+x = 0; y = 0; z = 0;
+vx = 0; vy = 0; vz = 1000;
+p = 1;
+%}
+"""
+
+BM0_USERVARS = """\
+USERVARS %{
+int RING;
+int FEN;
+int CHANNEL;
+double tof;
+%}
+"""
+
+BM0_ORIGIN_EXTEND = """\
+COMPONENT origin = Arm() AT (0, 0, 0) ABSOLUTE
+EXTEND %{
+RING = 1;
+FEN = 0;
+CHANNEL = 5;
+tof = 0.001;
+x = 0; y = 0; z = 0;
+vx = 0; vy = 0; vz = 1000;
+p = 1;
+%}
+"""
+
+BM2_USERVARS = """\
+USERVARS %{
+int RING;
+int FEN;
+int CHANNEL;
+int POSX;
+int POSY;
+double tof;
+%}
+"""
+
+BM2_ORIGIN_EXTEND = """\
+COMPONENT origin = Arm() AT (0, 0, 0) ABSOLUTE
+EXTEND %{
+RING = 1;
+FEN = 0;
+CHANNEL = 5;
+POSX = 100;
+POSY = 200;
+tof = 0.001;
+x = 0; y = 0; z = 0;
+vx = 0; vy = 0; vz = 1000;
+p = 1;
+%}
+"""
+
+BMI_USERVARS = """\
+USERVARS %{
+int RING;
+int FEN;
+int CHANNEL;
+int SUM;
+int ADC;
+double tof;
+%}
+"""
+
+BMI_ORIGIN_EXTEND = """\
+COMPONENT origin = Arm() AT (0, 0, 0) ABSOLUTE
+EXTEND %{
+RING = 1;
+FEN = 0;
+CHANNEL = 5;
+SUM = 7;
+ADC = 1000;
+tof = 0.001;
+x = 0; y = 0; z = 0;
+vx = 0; vy = 0; vz = 1000;
+p = 1;
+%}
+"""
