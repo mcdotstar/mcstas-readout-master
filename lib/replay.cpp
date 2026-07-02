@@ -67,15 +67,17 @@ void publish_point(const ReaderSource & source, const size_t point, ParameterPub
 ///  2. EFU address + port attributes embedded in the reader's collector group
 ///  3. config.default_address / config.default_port — lowest precedence
 SenderConfig resolve_sender_config(const Reader & reader, const ReplayConfig & config) {
-  auto cfg = config.senders.find(reader.detector_type(), reader.readout_type());
+  // only called for sendable readers, where the datatype-verified readout type exists
+  const auto readout = reader.sendable_readout_type().value();
+  auto cfg = config.senders.find(reader.detector_type(), readout);
   if (cfg.has_value()) {
     return cfg.value();
   }
   if (reader.efu_address().has_value() && reader.efu_port().has_value()) {
-    return SenderConfig{reader.detector_type(), reader.readout_type(),
+    return SenderConfig{reader.detector_type(), readout,
                         reader.efu_address().value(), reader.efu_port().value(), 0};
   }
-  return SenderConfig{reader.detector_type(), reader.readout_type(),
+  return SenderConfig{reader.detector_type(), readout,
                       config.default_address, static_cast<uint16_t>(config.default_port), 0};
 }
 
@@ -85,6 +87,9 @@ SenderConfig resolve_sender_config(const Reader & reader, const ReplayConfig & c
 std::map<SenderConfig, Sender> make_senders(const ReaderSource & source, const ReplayConfig & config) {
   std::map<SenderConfig, Sender> senders;
   for (const auto & reader : source.readers()) {
+    if (!reader.sendable_readout_type().has_value()) {
+      continue;
+    }
     const auto cfg = resolve_sender_config(reader, config);
     if (!senders.contains(cfg)) {
       senders.emplace(std::piecewise_construct, std::forward_as_tuple(cfg), std::forward_as_tuple(cfg));
@@ -145,7 +150,8 @@ void stream_point(const Reader & reader, Sender & sender, const size_t point, co
 
 void stream_reader_point(const Reader & reader, Sender & sender, const size_t point, const ReplayConfig & config,
                          std::mt19937 & rng, std::optional<SubsetState> & subset) {
-  switch (reader.readout_type()) {
+  // dispatch on the datatype-verified type, never the (optional, unverified) attribute
+  switch (reader.sendable_readout_type().value()) {
     case ReadoutType::CAEN: return stream_point<CAEN_event, &Reader::get_CAEN>(reader, sender, point, config, rng, subset);
     case ReadoutType::TTLMonitor: return stream_point<TTLMonitor_event, &Reader::get_TTLMonitor>(reader, sender, point, config, rng, subset);
     case ReadoutType::VMM3: return stream_point<VMM3_event, &Reader::get_VMM3>(reader, sender, point, config, rng, subset);
@@ -172,7 +178,9 @@ void replay(const std::string & filename, const ReplayConfig & config, Parameter
     }
     size_t total{0};
     for (const auto & reader : source.readers()) {
-      total += reader.size();
+      if (reader.sendable_readout_type().has_value()) {
+        total += reader.size();
+      }
     }
     if (config.subset->first >= total) {
       throw std::runtime_error("Requested first replay index is out of bounds");
@@ -180,9 +188,19 @@ void replay(const std::string & filename, const ReplayConfig & config, Parameter
     subset = SubsetState{config.subset.value()};
   }
 
+  for (const auto & reader : source.readers()) {
+    if (!reader.sendable_readout_type().has_value()) {
+      std::cout << "Collector group \"" << reader.collector_name()
+                << "\" stores user-described records that match no EFU readout type; skipping." << std::endl;
+    }
+  }
+
   for (size_t point = 0; point < source.points(); ++point) {
     publish_point(source, point, publisher);
     for (const auto & reader : source.readers()) {
+      if (!reader.sendable_readout_type().has_value()) {
+        continue;
+      }
       const auto cfg = resolve_sender_config(reader, config);
       auto & sender = senders.at(cfg);
       stream_reader_point(reader, sender, point, config, rng, subset);

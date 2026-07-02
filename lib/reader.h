@@ -46,8 +46,10 @@ class Reader {
   std::optional<HighFive::Group> group_;
   std::optional<HighFive::DataSet> readouts_, cues_, weights_, normalizations_;
   std::vector<uint32_t> cue_values_;
-  DetectorType detector_{DetectorType::Reserved};
-  ReadoutType readout_{ReadoutType::CAEN};
+  std::optional<DetectorType> detector_{std::nullopt};
+  std::optional<ReadoutType> readout_{std::nullopt};
+  std::optional<ReadoutType> sendable_{std::nullopt};
+  std::optional<std::string> description_{std::nullopt};
   std::optional<std::string> efu_address_{std::nullopt};
   std::optional<uint16_t> efu_port_{std::nullopt};
 
@@ -85,8 +87,26 @@ public:
     weights_ = group_->getDataSet(CollectorSink::weight_dataset_name());
     normalizations_ = group_->getDataSet(CollectorSink::normalization_dataset_name());
 
-    detector_ = detectorType_from_name(readouts_->getAttribute(CollectorSink::detector_attribute_name()).read<std::string>());
-    readout_ = readoutType_from_name(readouts_->getAttribute(CollectorSink::readout_attribute_name()).read<std::string>());
+    // detector/readout attributes are informative and only present on registry-typed groups
+    if (readouts_->hasAttribute(CollectorSink::detector_attribute_name())) {
+      detector_ = detectorType_from_name(readouts_->getAttribute(CollectorSink::detector_attribute_name()).read<std::string>());
+    }
+    if (readouts_->hasAttribute(CollectorSink::readout_attribute_name())) {
+      readout_ = readoutType_from_name(readouts_->getAttribute(CollectorSink::readout_attribute_name()).read<std::string>());
+    }
+    if (readouts_->hasAttribute(CollectorSink::parameter_description_attribute_name())) {
+      description_ = readouts_->getAttribute(CollectorSink::parameter_description_attribute_name()).read<std::string>();
+    }
+    // EFU-sendability is decided by the stored datatype matching a registry compound type,
+    // not by the attributes: an attribute cannot lie about the record layout
+    const auto stored = readouts_->getDataType();
+    for (const auto rt : {ReadoutType::CAEN, ReadoutType::TTLMonitor, ReadoutType::CDT, ReadoutType::VMM3,
+                          ReadoutType::BM0, ReadoutType::BM2, ReadoutType::BMI}) {
+      if (stored == hdf_compound_type(rt)) {
+        sendable_ = rt;
+        break;
+      }
+    }
 
     if (group_->hasAttribute(CollectorSink::efu_address_attribute_name())) {
       efu_address_ = group_->getAttribute(CollectorSink::efu_address_attribute_name()).read<std::string>();
@@ -116,10 +136,41 @@ public:
   RL_API ~Reader() = default;
 
   RL_API [[nodiscard]] const std::string & collector_name() const { return group_name_; }
-  RL_API [[nodiscard]] DetectorType detector_type() const { return detector_; }
-  RL_API [[nodiscard]] ReadoutType readout_type() const { return readout_; }
+  /// The detector named by the group's attribute, or Reserved for user-described groups
+  RL_API [[nodiscard]] DetectorType detector_type() const { return detector_.value_or(DetectorType::Reserved); }
+  /// The readout type named by the group's attribute, or implied by the stored datatype
+  RL_API [[nodiscard]] ReadoutType readout_type() const {
+    if (readout_.has_value()) { return readout_.value(); }
+    if (sendable_.has_value()) { return sendable_.value(); }
+    throw std::runtime_error("Collector group has no readout type: it stores user-described records");
+  }
+  /// The registry readout type whose compound datatype exactly matches the stored records,
+  /// or nullopt when the group stores user-described records that no EFU accepts
+  RL_API [[nodiscard]] std::optional<ReadoutType> sendable_readout_type() const { return sendable_; }
+  /// The original type-description string for user-described groups, if recorded
+  RL_API [[nodiscard]] const std::optional<std::string> & type_description() const { return description_; }
   RL_API [[nodiscard]] size_t size() const { return readouts_->getDimensions().back(); }
   RL_API [[nodiscard]] size_t points() const { return cue_values_.size(); }
+  RL_API [[nodiscard]] HighFive::DataType datatype() const { return readouts_->getDataType(); }
+  RL_API [[nodiscard]] size_t record_size() const { return readouts_->getDataType().getSize(); }
+
+  /// The accumulated rate-weight of one point
+  RL_API [[nodiscard]] double point_weight(const size_t point) const {
+    if (point >= cue_values_.size()) {
+      throw std::runtime_error("Out of bounds point requested");
+    }
+    return weights_->select({point}, {1}).read<double>();
+  }
+
+  /// Raw access to stored records for user-described groups: count records starting at index,
+  /// each record_size() bytes in the stored layout
+  RL_API [[nodiscard]] std::vector<uint8_t> get_raw(const size_t index, const size_t count) const {
+    if (index >= size() || index + count > size()) { throw std::runtime_error("Out of bounds record requested"); }
+    const auto datatype = readouts_->getDataType();
+    std::vector<uint8_t> buffer(count * datatype.getSize());
+    readouts_->select({index}, {count}).read_raw(buffer.data(), datatype);
+    return buffer;
+  }
 
   /// Returns the EFU IP address embedded in the file, if any.
   RL_API [[nodiscard]] std::optional<std::string> efu_address() const { return efu_address_; }
@@ -135,7 +186,7 @@ public:
   }
 
   RL_API auto get_CAEN(const size_t index, const size_t count) const {
-    if (readout_ != ReadoutType::CAEN){ throw std::runtime_error("Non CAEN readout type"); }
+    if (sendable_ != ReadoutType::CAEN){ throw std::runtime_error("Non CAEN readout type"); }
     if (index >= size() || index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
     std::vector<CAEN_event> event(count);
     const auto datatype = readouts_->getDataType();
@@ -143,7 +194,7 @@ public:
     return event;
   }
   RL_API auto get_TTLMonitor(const size_t index, const size_t count) const {
-    if (readout_ != ReadoutType::TTLMonitor){ throw std::runtime_error("Non TTLMonitor readout type"); }
+    if (sendable_ != ReadoutType::TTLMonitor){ throw std::runtime_error("Non TTLMonitor readout type"); }
     if (index >= size() || index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
     std::vector<TTLMonitor_event> event(count);
     const auto datatype = readouts_->getDataType();
@@ -151,7 +202,7 @@ public:
     return event;
   }
   RL_API auto get_VMM3(const size_t index, const size_t count) const{
-    if (readout_ != ReadoutType::VMM3) { throw std::runtime_error("Non VMM3 readout type"); }
+    if (sendable_ != ReadoutType::VMM3) { throw std::runtime_error("Non VMM3 readout type"); }
     if (index >= size() || index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
     std::vector<VMM3_event> event(count);
     const auto datatype = readouts_->getDataType();
@@ -159,7 +210,7 @@ public:
     return event;
   }
   RL_API auto get_CDT(const size_t index, const size_t count) const{
-    if (readout_ != ReadoutType::CDT) { throw std::runtime_error("Non CDT readout type"); }
+    if (sendable_ != ReadoutType::CDT) { throw std::runtime_error("Non CDT readout type"); }
     if (index >= size() || index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
     std::vector<CDT_event> event(count);
     const auto datatype = readouts_->getDataType();
@@ -167,7 +218,7 @@ public:
     return event;
   }
   RL_API auto get_BM0(const size_t index, const size_t count) const{
-    if (readout_ != ReadoutType::BM0) { throw std::runtime_error("Non BM0 readout type"); }
+    if (sendable_ != ReadoutType::BM0) { throw std::runtime_error("Non BM0 readout type"); }
     if (index >= size() || index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
     std::vector<BM0_event> event(count);
     const auto datatype = readouts_->getDataType();
@@ -175,7 +226,7 @@ public:
     return event;
   }
   RL_API auto get_BM2(const size_t index, const size_t count) const{
-    if (readout_ != ReadoutType::BM2) { throw std::runtime_error("Non BM2 readout type"); }
+    if (sendable_ != ReadoutType::BM2) { throw std::runtime_error("Non BM2 readout type"); }
     if (index >= size() || index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
     std::vector<BM2_event> event(count);
     const auto datatype = readouts_->getDataType();
@@ -183,7 +234,7 @@ public:
     return event;
   }
   RL_API auto get_BMI(const size_t index, const size_t count) const {
-    if (readout_ != ReadoutType::BMI) { throw std::runtime_error("Non BMI readout type"); }
+    if (sendable_ != ReadoutType::BMI) { throw std::runtime_error("Non BMI readout type"); }
     if (index >= size() || index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
     std::vector<BMI_event> event(count);
     const auto datatype = readouts_->getDataType();

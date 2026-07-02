@@ -479,14 +479,8 @@ std::string validate_collector_group(const HighFive::Group & group) {
       return std::format("Dataset {} should be 1-D but is {}-D instead", name, dims.size());
     }
   }
-  auto readouts = group.getDataSet(C::readout_dataset_name());
-  if (!readouts.hasAttribute(C::detector_attribute_name())) {
-    return "readout dataset should have a detector name attribute";
-  }
-  if (!readouts.hasAttribute(C::readout_attribute_name())) {
-    return "readout dataset should have a readout attribute name";
-  }
-
+  // detector/readout attributes are optional: user-described record groups omit them,
+  // and EFU-sendability is decided by the stored compound datatype, not the attributes
   return {};
 }
 

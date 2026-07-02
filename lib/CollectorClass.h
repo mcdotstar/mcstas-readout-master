@@ -21,6 +21,8 @@
 #include "hdf_interface.h"
 #include "version.hpp"
 #include "efu_time.h"
+#include "CollectorStar.h"
+#include "TypeDescriptionParser.h"
 
 
 #ifdef WIN32
@@ -251,6 +253,22 @@ public:
     const DetectorType& detector,
     const ReadoutType& readout
     ) {
+    return getCollector(name, hdf_compound_type(readout), detector, readout);
+  }
+
+  /// \brief Get (or create) a collector group for records of an arbitrary compound datatype.
+  ///
+  /// The typed overload above resolves the registry datatype for its ReadoutType; this
+  /// overload accepts any compound type so user-described records get the same cue-based
+  /// layout. The detector/readout attributes are only written when known, and the original
+  /// type description string (when given) is stored as a dataset attribute.
+  RL_API std::optional<HighFive::Group> getCollector(
+    const std::string& name,
+    const HighFive::DataType& datatype,
+    const std::optional<DetectorType>& detector = std::nullopt,
+    const std::optional<ReadoutType>& readout = std::nullopt,
+    const std::optional<std::string>& description = std::nullopt
+    ) {
     using namespace HighFive;
     if (!file_.has_value()) {
       std::cerr << "File not initialized, cannot get dataset!" << std::endl;
@@ -260,7 +278,6 @@ public:
       collector_ = file_->getGroup("/");
     }
     if (!collector_->exist(name)) {
-      const auto compound_type = hdf_compound_type(readout);
       auto group = collector_->createGroup(name);
       group.createAttribute<std::string>(type_attribute(), collector_group_type());
 
@@ -269,8 +286,13 @@ public:
       props.add(Chunking(std::vector<hsize_t>{100}));
 
       // create the readouts dataset, set to an empty vector []
-      auto ds = group.createDataSet(readout_dataset_name(), DataSpace({0}, {DataSpace::UNLIMITED}), compound_type, props);
-      ensure_dataset_attributes(ds, detector, readout);
+      auto ds = group.createDataSet(readout_dataset_name(), DataSpace({0}, {DataSpace::UNLIMITED}), datatype, props);
+      if (detector.has_value() && readout.has_value()) {
+        ensure_dataset_attributes(ds, detector.value(), readout.value());
+      }
+      if (description.has_value()) {
+        ds.createAttribute<std::string>(parameter_description_attribute_name(), description.value());
+      }
       // create the weights dataset, and set its value to [0.]
       const auto ws = group.createDataSet(weight_dataset_name(), DataSpace({1}, {DataSpace::UNLIMITED}), AtomicType<double>(), props);
       ws.select({0},{1}).write(0.);
@@ -351,8 +373,10 @@ class Collector {
   std::optional<HighFive::DataSet> dataset_;
   double weight_{0};
   uint64_t normalization_{0};
-  DetectorType detector_{DetectorType::Reserved};
-  ReadoutType readout_{ReadoutType::CAEN};
+  std::optional<DetectorType> detector_{DetectorType::Reserved};
+  std::optional<ReadoutType> readout_{ReadoutType::CAEN};
+  std::optional<HighFive::DataType> datatype_{std::nullopt};
+  size_t record_size_{0};
 
 public:
 
@@ -361,19 +385,65 @@ public:
     std::string name,
     const int Type=0x34,
     const uint64_t normalization=0
-  ): name_{std::move(name)}, normalization_{normalization}, detector_{detectorType_from_int(Type)}, readout_{readoutType_from_detectorType(detector_)} {
+  ): name_{std::move(name)}, normalization_{normalization}, detector_{detectorType_from_int(Type)}, readout_{readoutType_from_detectorType(detector_.value())} {
+    datatype_ = hdf_compound_type(readout_.value());
+    record_size_ = datatype_->getSize();
     const auto sink = CollectorSink::instance();
     if (!sink->is_setup()) {
       sink->setup(filename);
     }
-    group_ = sink->getCollector(name_, detector_, readout_);
+    group_ = sink->getCollector(name_, detector_.value(), readout_.value());
     dataset_ = group_->getDataSet(CollectorSink::readout_dataset_name());
+  }
+
+  /// \brief A description-based collector: records of a user-defined C struct layout.
+  ///
+  /// The description is parsed to an HDF5 compound type and stored records get the same
+  /// cue-based group layout as the typed collectors. When the description matches one of
+  /// the canonical readout_type_description() strings the resulting file is EFU-sendable;
+  /// otherwise it is readable and combinable but skipped by replay.
+  RL_API explicit Collector(
+    const std::string &filename,
+    std::string name,
+    const std::string &type_description,
+    const uint64_t normalization=0
+  ): name_{std::move(name)}, normalization_{normalization}, detector_{std::nullopt}, readout_{std::nullopt} {
+    const auto schema = parse_type_description(type_description);
+    datatype_ = build_hdf5_compound_type(schema);
+    record_size_ = schema.total_size;
+    const auto sink = CollectorSink::instance();
+    if (!sink->is_setup()) {
+      sink->setup(filename);
+    }
+    group_ = sink->getCollector(name_, datatype_.value(), std::nullopt, std::nullopt, type_description);
+    dataset_ = group_->getDataSet(CollectorSink::readout_dataset_name());
+  }
+
+  RL_API [[nodiscard]] size_t record_size() const { return record_size_; }
+
+  /// \brief Store one record of the collector's compound type, accumulating its weight.
+  ///
+  /// \param weight the rate-weight of this record, accumulated into the point weight
+  /// \param data pointer to record_size() bytes laid out per the collector's datatype
+  RL_API void addRecord(const double weight, const void * data) {
+    if (!dataset_.has_value() || !datatype_.has_value()) {
+      std::cerr << "Dataset not initialized, cannot save record!" << std::endl;
+      return;
+    }
+    weight_ += weight;
+    auto & d = dataset_.value();
+    const auto pos = d.getDimensions().back();
+    d.resize({pos + 1});
+    d.select({pos}, {1}).write_raw(static_cast<const uint8_t *>(data), datatype_.value());
   }
 
   // Add a readout with time and weight information to the writer's storage
   RL_API void addReadout(const uint8_t Ring, const uint8_t FEN, const double tof, const double weight, const void * data) {
+    if (!readout_.has_value()) {
+      throw std::runtime_error("addReadout requires a typed Collector; use addRecord with a description-based Collector");
+    }
     weight_ += weight;
-    switch (readout_) {
+    switch (readout_.value()) {
       case ReadoutType::CAEN: {
         const CAEN_event event{Ring, FEN, tof, weight, static_cast<const CAEN_readout_t*>(data)};
         return saveReadout(event);

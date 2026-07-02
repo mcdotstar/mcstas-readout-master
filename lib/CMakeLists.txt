@@ -12,6 +12,7 @@ list(APPEND LIB_SOURCES
         CollectorClass.cpp
         TypeDescriptionParser.cpp
         CollectorStar.cpp
+        readout_type_descriptions.cpp
         Array.cpp
 )
 
