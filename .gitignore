@@ -61,3 +61,4 @@ devtools/wheelhouse
 *build-dev
 *tmp
 test_*.c
+references/

@@ -1,0 +1,141 @@
+# Overarching Goal
+Restructure this library to be installed via Conda/Mamba (via Conda-Forge), Conan, or Pip (via PyPI).
+
+We can and should learn from the `mcpl` and `ncrystal` projects which have successfully implemented C++ libraries with Python bindings and Conda packaging.
+Both of these projects' repositories are inside the `references/` folder within this directory.
+The `mcpl` project is slightly simpler and may be more appropriate as a reference for our implementation.
+
+The current structure of readout is based on an earlier form of mcpl, which is another reason that following its lead is probably worthwhile.
+
+# The mcpl pattern (what we are copying)
+
+Reading references/mcpl (v2.2.8), the load-bearing ideas are:
+
+1. **A monorepo of separately installable packages**: `mcpl_core` (the native
+   library + CLI tools, a standalone CMake project that is *also* pip-installable
+   via scikit-build-core), `mcpl_python` (pure-Python API, setuptools),
+   `mcpl_extra` (optional apps), `mcpl_metapkg` (`pip install mcpl` = the bundle).
+   The repo-root CMakeLists.txt exists only to build everything and run ctest in
+   development/CI; it is not what packages build.
+2. **Self-locating config tool**: `mcpl-config` is a compiled binary that
+   resolves every resource path *relative to its own location*
+   (`mcplcfg_resolverelpath(bindir, relpath)` in mcpl_core/app_config/main.c),
+   with the relative paths baked in at configure time per install layout. One
+   mechanism covers the wheel layout, the standard CMake install, and the build
+   tree — this is the generalization of our READOUT_DEVELOPMENT_MODE hack, and
+   the fix for the PATH-inheritance problem DEVELOPMENT.md describes.
+3. **The wheel is just a container**: no Python C-API anywhere. scikit-build-core
+   builds the ordinary CMake project into the wheel; a tiny CMake-*generated*
+   shim package (`skbld_autogen/_mcpl_core`, from cmake/template_pymod.py.in)
+   provides console entry points that exec the bundled binaries, plus a
+   `cmakedir()` helper so downstream CMake can `find_package` a wheel-installed
+   library. Wheels are `py3`/ABI-agnostic.
+4. **One VERSION file** at the repo root, injected into CMake and every
+   pyproject.
+5. **conda-forge is downstream**: feedstocks build the same CMake project from
+   release tarballs with dependencies from conda-forge; nothing conda-specific
+   lives in the repo beyond a sane install layout.
+
+# What is different for readout (the real work)
+
+- **We have external dependencies; mcpl has none.** HDF5 (linked), HighFive +
+  nlohmann_json (header-only, via conan today), cluon/ctream/args.hxx (already
+  vendored). Conda and Conan get HDF5 from their ecosystems — easy. **PyPI wheels
+  must bundle a static libhdf5** (the h5py approach): build static HDF5 inside
+  cibuildwheel (or FetchContent it when building wheels) and let auditwheel
+  verify nothing leaks. This is the highest-risk item and must be de-risked
+  first (phase L2 starts with a spike).
+- **McStas components are runtime data**: share/Readout/*.comp + lib-readout.{h,c}
+  are located by mccode-antlr through `readout-config --show compdir` and the
+  components' `CMD(readout-config ...)` DEPENDENCY lines. The self-locating
+  config pattern serves this directly, and it is the user-facing win:
+  `pip install <core>` puts readout-config on PATH and instruments just work.
+- **C++ consumers exist**: mccode-plumber will link libreadout and call
+  `replay()` with its EPICS ParameterPublisher, so the installed package must
+  export usable headers (replay.h, reader.h, CollectorClass.h, SenderConfigs.h,
+  the C API headers) and a working `find_package(Readout)` — the current
+  install(EXPORT) is a starting point but the public/private header split must
+  be made deliberate.
+- **No Python API exists yet** — so no `readout_python` and no metapackage in
+  the first pass. The wheel ships binaries + components only, exactly like
+  mcpl-core's "empty" Python surface.
+
+# Decisions (recommendations; veto before L1 starts)
+
+- **Package naming**: PyPI/conda names `mccode-readout-core` (bare "readout" is
+  too generic to claim), repo directory `readout_core/`, CMake package name and
+  binary names unchanged (`find_package(Readout)`, readout-config,
+  readout-replay, readout-combine).
+- **Windows**: keep the existing WIN32 shims compiling but target Linux + macOS
+  wheels first; Windows wheels only if someone asks.
+- **Legacy sources** (readout_orig, Readout_merge, discrete path, Array, tester
+  helpers) move into readout_core/src unchanged — restructuring is not the time
+  to prune features.
+
+# Phases
+
+## L1 — Repo restructure + self-locating readout-config (no packaging yet)
+
+1. Move to the mcpl shape:
+   - `readout_core/src/` (everything in lib/ except public headers),
+     `readout_core/include/readout/` (deliberate public set: the C API headers,
+     Readout.h umbrella, and the C++ consumer headers reader.h/replay.h/
+     CollectorClass.h/Sender*.h/enums.h/Structs.h/hdf_interface.h + generated
+     version.hpp), `readout_core/app_config/`, `readout_core/app_replay/`,
+     `readout_core/app_combine/`, `readout_core/components/` (share/Readout),
+     `readout_core/cmake/`, root `tests/` + `test/` stay as the dev/CI suite
+     driven by the root CMakeLists (mcpl style).
+   - `VERSION` file at root as the single version source (feeds CMake and later
+     the pyprojects).
+2. Rewrite readout-config on the mcpl model: paths resolved relative to the
+   binary, per-layout relative paths baked at configure time (build-tree,
+   standard install, wheel). Delete READOUT_DEVELOPMENT_MODE and the
+   header-copy/symlink machinery — the build-tree layout replaces it, and
+   run_tests.sh/DEVELOPMENT.md shrink accordingly.
+3. Modernize install: namespaced `install(TARGETS ... EXPORT)`, public headers
+   as a FILE_SET, components + lib-readout.{h,c} to a data dir, ReadoutConfig
+   package files. Acceptance: ctest 94/94 and pytest suites green against BOTH
+   the build tree and an installed prefix (new CI-able script), and
+   `find_package(Readout)` works from a scratch consumer project.
+
+## L2 — PyPI wheel (scikit-build-core), HDF5 spike first
+
+1. **Spike (go/no-go)**: build a manylinux wheel with static HDF5 + HighFive +
+   nlohmann_json via FetchContent behind a READOUT_BUNDLED_DEPS flag; auditwheel
+   must pass and a fresh venv must run readout-config/replay/combine and an
+   mccode-antlr compile+run of CollectorCAEN. Only then wire the rest.
+2. `readout_core/pyproject.toml` (scikit-build-core), CMake-generated
+   `_readout_core` shim package with entry points for the three tools and a
+   `cmakedir()` helper; sdist includes src/include/components/cmake.
+3. cibuildwheel config (linux x86_64 + macOS arm64/x86_64) in GitHub Actions;
+   TestPyPI first.
+
+## L3 — Conan recipe
+
+Rewrite conanfile.py as a real publishable recipe (build/package/package_info
+with hdf5, highfive, nlohmann_json requirements) while preserving the current
+dev workflow (conan install for local deps + CMakeUserPresets). Validate with
+`conan create` and a scratch consumer.
+
+## L4 — conda-forge
+
+staged-recipes submission for `mccode-readout-core` building the plain CMake
+project from a GitHub release tarball, hdf5/highfive/nlohmann_json from
+conda-forge. Requires a tagged release with the L1 layout; the feedstock lives
+outside this repo.
+
+## L5 — deferred until wanted
+
+`readout_python` (h5py-based Reader conveniences, replay orchestration) and a
+`mccode-readout` metapackage, mcpl_python/mcpl_metapkg style.
+
+# Risks
+
+- **HDF5-in-wheel** is the make-or-break item; hence the L2 spike before any
+  other L2 work.
+- The restructure moves every file; do it as pure `git mv` + path fixes in one
+  commit series with the full test matrix green at each step, no behavior
+  changes mixed in.
+- mccode-antlr caches component paths (~/.cache/mccodeantlr and .comp.json
+  files); layout changes must be verified with cleared caches.
+
