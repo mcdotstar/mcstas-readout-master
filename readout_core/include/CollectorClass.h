@@ -113,21 +113,6 @@ RL_API void merge_collector_datasets(const std::string & out_filename, const std
 /// collector group, will be copied from one of the input files to the output file.
 RL_API void copy_collector_parameters(const std::string & out_filename, const std::vector<std::string> & in_filenames);
 
-inline HighFive::CompoundType hdf_compound_type(ReadoutType readout) {
-  using namespace HighFive;
-  switch (readout) {
-    case ReadoutType::CAEN: return create_datatype<CAEN_event>();
-    case ReadoutType::TTLMonitor: return create_datatype<TTLMonitor_event>();
-    case ReadoutType::CDT: return create_datatype<CDT_event>();
-    case ReadoutType::VMM3: return create_datatype<VMM3_event>();
-    case ReadoutType::BM0: return create_datatype<BM0_event>();
-    case ReadoutType::BM2: return create_datatype<BM2_event>();
-    case ReadoutType::BMI: return create_datatype<BMI_event>();
-    default: throw std::runtime_error("Saving this readout type is not implemented yet!");
-  }
-}
-
-
 // A singleton object to hold the current runtime's output file for the collector
 class CollectorSink {
 protected:
@@ -536,7 +521,7 @@ private:
   template<class T>
   void saveReadout(T data) {
     //TODO Consider buffering this internally and only writing when the buffer is full (or closing the file)
-    if (!dataset_.has_value()) {
+    if (!dataset_.has_value() || !datatype_.has_value()) {
       std::cerr << "Dataset not initialized, cannot save readout!" << std::endl;
       return;
     }
@@ -545,7 +530,7 @@ private:
     auto pos = d.getDimensions().back();
     auto size = pos + 1;
     d.resize({size});
-    d.select({pos}, {1}).write(data); // select(offset, count)
+    d.select({pos}, {1}).write_raw(reinterpret_cast<const uint8_t *>(&data), datatype_.value());
   }
 };
 

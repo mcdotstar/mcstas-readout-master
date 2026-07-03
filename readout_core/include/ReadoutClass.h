@@ -127,17 +127,7 @@ public:
 
 private:
   HighFive::CompoundType datatype() const {
-    using namespace HighFive;
-    switch (readoutType_from_detectorType(Type)){
-      case ReadoutType::CAEN: return create_datatype<CAEN_event>();
-      case ReadoutType::TTLMonitor: return create_datatype<TTLMonitor_event>();
-      case ReadoutType::CDT: return create_datatype<CDT_event>();
-      case ReadoutType::VMM3: return create_datatype<VMM3_event>();
-      case ReadoutType::BM0: return create_datatype<BM0_event>();
-      case ReadoutType::BM2: return create_datatype<BM2_event>();
-      case ReadoutType::BMI: return create_datatype<BMI_event>();
-      default: throw std::runtime_error("Saving this readout type is not implemented yet!");
-    }
+    return ::hdf_compound_type(readoutType_from_detectorType(Type));
   }
 
   void check_size_and_send();

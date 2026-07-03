@@ -59,6 +59,7 @@ public:
     props.add(HighFive::Chunking(std::vector<hsize_t>{100}));
 
     auto hc_type = hdf_compound_type();
+    datatype = hc_type;
     hc_type.commit(file.value(), readoutType_name(readout));
     dataset = file.value().createDataSet(dataset_name, dataspace, hc_type, props);
 
@@ -93,28 +94,18 @@ public:
   }
 
   template<class T> void saveReadout(T data){
-    if (file.has_value() and dataset.has_value()) {
+    if (file.has_value() and dataset.has_value() and datatype.has_value()) {
       auto & ds = dataset.value();
       // the dataset should be 1-D ... hopefully that's true
       auto pos = ds.getDimensions().back();
       auto size = pos + 1;
       ds.resize({size});
-      ds.select({pos}, {1}).write(data); // select(offset, count)
+      ds.select({pos}, {1}).write_raw(reinterpret_cast<const uint8_t *>(&data), datatype.value());
     }
   }
 
 private:
   HighFive::CompoundType hdf_compound_type() const {
-    using namespace HighFive;
-    switch (readout){
-      case ReadoutType::CAEN: return create_datatype<CAEN_event>();
-      case ReadoutType::TTLMonitor: return create_datatype<TTLMonitor_event>();
-      case ReadoutType::CDT: return create_datatype<CDT_event>();
-      case ReadoutType::VMM3: return create_datatype<VMM3_event>();
-      case ReadoutType::BM0: return create_datatype<BM0_event>();
-      case ReadoutType::BM2: return create_datatype<BM2_event>();
-      case ReadoutType::BMI: return create_datatype<BMI_event>();
-      default: throw std::runtime_error("Saving this readout type is not implemented yet!");
-    }
+    return ::hdf_compound_type(readout);
   }
 };

@@ -9,6 +9,8 @@
 #include "Readout.h"
 #include "TypeDescriptionParser.h"
 
+enum class ReadoutType;
+
 #ifdef WIN32
 // Export symbols if compile flags "READOUT_SHARED" and "READOUT_EXPORT" are set on Windows.
     #ifdef READOUT_SHARED
@@ -153,6 +155,9 @@ namespace HighFive {
   template<> RL_API DataType create_datatype<BM2_event>();
   template<> RL_API DataType create_datatype<BMI_event>();
 }
+
+/// \brief Build the canonical HDF5 compound type for a known readout type.
+RL_API HighFive::CompoundType hdf_compound_type(ReadoutType readout);
 
 /// \brief Build an HDF5 compound datatype from a parsed C-struct description
 ///

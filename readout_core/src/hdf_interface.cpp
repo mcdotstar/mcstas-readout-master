@@ -1,4 +1,5 @@
 #include "hdf_interface.h"
+#include "enums.h"
 #include <unordered_map>
 
 
@@ -98,6 +99,19 @@ namespace HighFive {
   template<> DataType create_datatype<BM0_event>(){return create_compound_bm0_readout();}
   template<> DataType create_datatype<BM2_event>(){return create_compound_bm2_readout();}
   template<> DataType create_datatype<BMI_event>(){return create_compound_bmi_readout();}
+}
+
+HighFive::CompoundType hdf_compound_type(const ReadoutType readout) {
+  switch (readout) {
+    case ReadoutType::CAEN: return create_compound_caen_readout();
+    case ReadoutType::TTLMonitor: return create_compound_ttlmonitor_readout();
+    case ReadoutType::CDT: return create_compound_dream_readout();
+    case ReadoutType::VMM3: return create_compound_vmm3_readout();
+    case ReadoutType::BM0: return create_compound_bm0_readout();
+    case ReadoutType::BM2: return create_compound_bm2_readout();
+    case ReadoutType::BMI: return create_compound_bmi_readout();
+    default: throw std::runtime_error("Saving this readout type is not implemented yet!");
+  }
 }
 
 namespace {
