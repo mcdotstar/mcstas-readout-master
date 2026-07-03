@@ -67,6 +67,19 @@ target_include_directories(${READOUT_LIBRARY_TARGET} PRIVATE
 find_package(nlohmann_json REQUIRED)
 target_link_libraries(${READOUT_LIBRARY_TARGET} PRIVATE nlohmann_json::nlohmann_json)
 
+# HDF5 is linked statically (see conanfile.py). For wheel builds its symbols
+# must not leak out of libreadout, or they can clash with another HDF5 loaded
+# in the same process (e.g. h5py importing alongside — the brille lesson).
+# For ordinary builds the symbols MUST leak: in-process C++ consumers (our own
+# tester, mccode-plumber) run header-inline HighFive code that has to bind to
+# the library's HDF5 instance — hiding it gives them a second, conflicting
+# static copy at link time. Hence an explicit toggle, ON only for wheels whose
+# consumers exec the bundled binaries or link the C API alone.
+set(READOUT_HIDE_BUNDLED_SYMBOLS OFF CACHE BOOL "Hide statically linked dependency symbols (wheel builds)")
+if (READOUT_HIDE_BUNDLED_SYMBOLS AND NOT WIN32 AND NOT APPLE)
+    target_link_options(${READOUT_LIBRARY_TARGET} PRIVATE "LINKER:--exclude-libs,ALL")
+endif()
+
 # ---- CLI tools ---------------------------------------------------------------
 
 set(ARGS_INCLUDE_DIR "${CMAKE_CURRENT_LIST_DIR}/app_common")
@@ -89,6 +102,17 @@ target_link_libraries(${READOUT_REPLAY_BINARY} PRIVATE ${READOUT_LIBRARY_TARGET}
 add_executable(${READOUT_COMBINE_BINARY} app_combine/main.cpp)
 target_include_directories(${READOUT_COMBINE_BINARY} PRIVATE "${ARGS_INCLUDE_DIR}")
 target_link_libraries(${READOUT_COMBINE_BINARY} PRIVATE ${READOUT_LIBRARY_TARGET})
+
+# Installed (and wheel-shipped) binaries find libreadout relative to themselves,
+# matching the readout-config self-location scheme:
+file(RELATIVE_PATH Readout_LIB_FROM_BIN "${PROJECT_BINARY_DIR}/${Readout_BINDIR}" "${PROJECT_BINARY_DIR}/${Readout_LIBDIR}")
+if (APPLE)
+    set(Readout_INSTALL_RPATH "@loader_path/${Readout_LIB_FROM_BIN}")
+else()
+    set(Readout_INSTALL_RPATH "$ORIGIN/${Readout_LIB_FROM_BIN}")
+endif()
+set_target_properties(${READOUT_REPLAY_BINARY} ${READOUT_COMBINE_BINARY}
+        PROPERTIES INSTALL_RPATH "${Readout_INSTALL_RPATH}")
 
 # ---- dependencies needing all targets ------------------------------------------
 

@@ -30,6 +30,10 @@ test -f "$("${CONFIG}" --show compdir)/CollectorCAEN.comp" || { echo "components
 test -f "$("${CONFIG}" --show includedir)/reader.h" || { echo "C++ headers not installed"; exit 1; }
 test -f "$("${CONFIG}" --show includedir)/version.hpp" || { echo "version.hpp not installed"; exit 1; }
 
+echo "== installed binaries run (INSTALL_RPATH check, no LD_LIBRARY_PATH)"
+env -u LD_LIBRARY_PATH "${PREFIX}/bin/readout-replay" --help > /dev/null
+env -u LD_LIBRARY_PATH "${PREFIX}/bin/readout-combine" --help > /dev/null
+
 echo "== find_package(Readout) consumer builds and runs"
 CONSUMER="${SCRATCH}/consumer"
 mkdir -p "${CONSUMER}"
