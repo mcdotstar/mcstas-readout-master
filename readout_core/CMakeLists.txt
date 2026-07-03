@@ -33,7 +33,6 @@ file(RELATIVE_PATH Readout_CMAKE2INC "${PROJECT_BINARY_DIR}/${Readout_CMAKEDIR}"
 
 add_library(${READOUT_LIBRARY_TARGET} SHARED)
 set(Readout_LIBNAME "${CMAKE_SHARED_LIBRARY_PREFIX}${READOUT_LIBRARY_TARGET}${CMAKE_SHARED_LIBRARY_SUFFIX}")
-set_target_properties(${READOUT_LIBRARY_TARGET} PROPERTIES PUBLIC_HEADER include/Readout.h)
 set_target_properties(${READOUT_LIBRARY_TARGET} PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
 add_library(Readout::${READOUT_LIBRARY_TARGET} ALIAS ${READOUT_LIBRARY_TARGET})
 
@@ -63,8 +62,10 @@ target_include_directories(${READOUT_LIBRARY_TARGET} PRIVATE
         "${CMAKE_CURRENT_LIST_DIR}/src/ctream"
 )
 
+# nlohmann_json is used only inside SenderConfigs.cpp: keep it out of the
+# installed export so find_package(Readout) does not require it downstream
 find_package(nlohmann_json REQUIRED)
-target_link_libraries(${READOUT_LIBRARY_TARGET} PUBLIC nlohmann_json::nlohmann_json)
+target_link_libraries(${READOUT_LIBRARY_TARGET} PRIVATE nlohmann_json::nlohmann_json)
 
 # ---- CLI tools ---------------------------------------------------------------
 
@@ -137,8 +138,7 @@ write_basic_package_version_file( "${PROJECT_BINARY_DIR}/ReadoutConfigVersion.cm
 install(TARGETS ${READOUT_LIBRARY_TARGET} ${READOUT_REPLAY_BINARY} ${READOUT_CONFIG_BINARY} ${READOUT_COMBINE_BINARY} EXPORT ReadoutTargets
         RUNTIME DESTINATION ${Readout_BINDIR}
         LIBRARY DESTINATION ${Readout_LIBDIR}
-        ARCHIVE DESTINATION ${Readout_LIBDIR}
-        PUBLIC_HEADER DESTINATION ${Readout_INCDIR})
+        ARCHIVE DESTINATION ${Readout_LIBDIR})
 install(EXPORT ${PROJECT_NAME}Targets FILE ${PROJECT_NAME}Targets.cmake NAMESPACE Readout:: DESTINATION ${Readout_CMAKEDIR})
 
 configure_file("${CMAKE_CURRENT_LIST_DIR}/cmake/ReadoutConfig.cmake.in" "${PROJECT_BINARY_DIR}/ReadoutConfig.cmake" @ONLY)
@@ -152,11 +152,9 @@ install(FILES ${ALL_COMPONENTS} DESTINATION ${Readout_DATADIR})
 file(GLOB ALL_MCCODE_LIBS "${CMAKE_CURRENT_LIST_DIR}/components/lib-*")
 install(FILES ${ALL_MCCODE_LIBS} DESTINATION ${Readout_DATADIR})
 
-# The C API headers used by the components' generated code:
-install(FILES
-        "${CMAKE_CURRENT_LIST_DIR}/include/readout_orig.h"
-        "${CMAKE_CURRENT_LIST_DIR}/include/readout_collector.h"
-        "${CMAKE_CURRENT_LIST_DIR}/include/readout_discrete.h"
-        "${CMAKE_CURRENT_LIST_DIR}/include/readout_structs.h"
-        DESTINATION ${Readout_INCDIR}
-)
+# The full public header set: the C API headers used by the components'
+# generated code, plus the C++ consumer surface (reader, replay, Collector,
+# Sender, ...) used by tools like mccode-plumber. C++ consumers must provide
+# HighFive/HDF5 headers themselves (they are not part of the export).
+install(DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/include/" DESTINATION ${Readout_INCDIR})
+install(FILES "${CMAKE_BINARY_DIR}/gen/version.hpp" DESTINATION ${Readout_INCDIR})

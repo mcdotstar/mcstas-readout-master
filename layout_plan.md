@@ -85,6 +85,22 @@ Reading references/mcpl (v2.2.8), the load-bearing ideas are:
 
 ## L1 — Repo restructure + self-locating readout-config (no packaging yet)
 
+**Status: DONE (2026-07-03).** Notes against the original text: readout-config
+was already self-locating (helper.cpp resolves baked relative paths against
+the binary via /proc/self/exe, _NSGetExecutablePath, GetModuleFileName), so
+the work was unifying the layouts rather than rewriting the tool — the build
+tree now mirrors the install prefix (bin/, lib{,64}/, include/, share/Readout)
+and one set of baked relative paths serves both; READOUT_DEVELOPMENT_MODE and
+run_tests.sh are deleted. Public headers install flat (include/Readout.h stays
+where the feedstock checks it) rather than under include/readout/. The full
+C++ consumer surface plus generated version.hpp now installs; nlohmann_json
+became a PRIVATE link so find_package(Readout) has no third-party
+requirements; C++ consumers bring HighFive themselves. devel/check_install.sh
+verifies an installed prefix end-to-end (readout-config resolution, a scratch
+find_package(Readout) C consumer — which caught missing stdint.h/stddef.h
+includes in the C API headers — and the pytest run-tests executed against the
+installed prefix via READOUT_BUILD_DIR).
+
 1. Move to the mcpl shape:
    - `readout_core/src/` (everything in lib/ except public headers),
      `readout_core/include/readout/` (deliberate public set: the C API headers,

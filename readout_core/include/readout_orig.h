@@ -1,6 +1,7 @@
 #ifndef READOUT_WRAPPER
 #define READOUT_WRAPPER
 
+#include <stddef.h>
 #include "readout_structs.h"
 
 #ifdef WIN32

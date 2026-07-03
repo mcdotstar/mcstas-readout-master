@@ -27,9 +27,10 @@
 #define RL_API
 #endif
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
-#include <cstdint>
 #endif
 
   struct CAEN_readout {

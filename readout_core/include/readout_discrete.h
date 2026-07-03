@@ -15,9 +15,10 @@
 #define DISCRETER_API
 #endif
 
-#ifdef __cplusplus
-#include <cstdint>
+#include <stdint.h>
 #include <stddef.h>
+
+#ifdef __cplusplus
 extern "C" {
 #endif
 
