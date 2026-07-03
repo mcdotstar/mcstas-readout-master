@@ -113,16 +113,23 @@ RL_API void merge_collector_datasets(const std::string & out_filename, const std
 /// collector group, will be copied from one of the input files to the output file.
 RL_API void copy_collector_parameters(const std::string & out_filename, const std::vector<std::string> & in_filenames);
 
-inline HighFive::CompoundType hdf_compound_type(ReadoutType readout) {
+inline const HighFive::CompoundType & hdf_compound_type(ReadoutType readout) {
   using namespace HighFive;
+  static const CompoundType caen = create_datatype<CAEN_event>();
+  static const CompoundType ttl = create_datatype<TTLMonitor_event>();
+  static const CompoundType cdt = create_datatype<CDT_event>();
+  static const CompoundType vmm3 = create_datatype<VMM3_event>();
+  static const CompoundType bm0 = create_datatype<BM0_event>();
+  static const CompoundType bm2 = create_datatype<BM2_event>();
+  static const CompoundType bmi = create_datatype<BMI_event>();
   switch (readout) {
-    case ReadoutType::CAEN: return create_datatype<CAEN_event>();
-    case ReadoutType::TTLMonitor: return create_datatype<TTLMonitor_event>();
-    case ReadoutType::CDT: return create_datatype<CDT_event>();
-    case ReadoutType::VMM3: return create_datatype<VMM3_event>();
-    case ReadoutType::BM0: return create_datatype<BM0_event>();
-    case ReadoutType::BM2: return create_datatype<BM2_event>();
-    case ReadoutType::BMI: return create_datatype<BMI_event>();
+    case ReadoutType::CAEN: return caen;
+    case ReadoutType::TTLMonitor: return ttl;
+    case ReadoutType::CDT: return cdt;
+    case ReadoutType::VMM3: return vmm3;
+    case ReadoutType::BM0: return bm0;
+    case ReadoutType::BM2: return bm2;
+    case ReadoutType::BMI: return bmi;
     default: throw std::runtime_error("Saving this readout type is not implemented yet!");
   }
 }
