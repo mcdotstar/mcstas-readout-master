@@ -163,10 +163,18 @@ wheels via cibuildwheel and publishes on GitHub releases (trusted publishing,
 
 ## L3 — Conan recipe
 
-Rewrite conanfile.py as a real publishable recipe (build/package/package_info
-with hdf5, highfive, nlohmann_json requirements) while preserving the current
-dev workflow (conan install for local deps + CMakeUserPresets). Validate with
-`conan create` and a scratch consumer.
+**Status: DONE (2026-07-03).** conanfile.py is now a full recipe serving three
+roles from one file: dev-dependency provider (in-tree conan provider),
+wheel-backend input (scikit-build-core-conan — which copies the recipe to a
+temp dir, so set_version falls back gracefully when VERSION is absent), and a
+publishable package (`conan create .` builds, packages via cmake.install, and
+test_package/ verifies a find_package(Readout) C consumer plus the
+self-locating tools from the package cache). package_info uses
+cmake_find_mode=none + builddirs so consumers get the project's own
+relocatable ReadoutConfig.cmake; highfive is a transitive_headers requirement
+(C++ header consumers need it), nlohmann_json is visible=False (PRIVATE
+link), catch2 is a test_requires. Publishing to a remote (conancenter or a
+private remote) is a separate decision — the recipe is ready.
 
 ## L4 — conda-forge (feedstock update, not staged-recipes)
 
