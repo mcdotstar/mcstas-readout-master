@@ -403,7 +403,11 @@ function(detect_host_profile output_file)
     endif()
 
     string(APPEND PROFILE "[conf]\n")
-    string(APPEND PROFILE "tools.cmake.cmaketoolchain:generator=${CMAKE_GENERATOR}\n")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+        string(APPEND PROFILE "tools.cmake.cmaketoolchain:generator=Ninja\n")
+    else()
+        string(APPEND PROFILE "tools.cmake.cmaketoolchain:generator=${CMAKE_GENERATOR}\n")
+    endif()
 
     # propagate compilers via profile
     append_compiler_executables_configuration()

@@ -2,12 +2,11 @@
 #define COLLECTOR_WRAPPER
 
 #include <stddef.h>
+#include <stdint.h>
 #include "readout_structs.h"
 
 #ifdef __cplusplus
 extern "C" {
-#include <cstddef>
-#include <cstdint>
 #endif
 
   struct collector;

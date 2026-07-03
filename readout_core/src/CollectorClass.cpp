@@ -124,9 +124,12 @@ class CollectorShape {
     // we should have already verified that all concatenated objects have identical readout keys
     for (const auto & name: readouts | std::views::keys) {
       out.readouts[name] = std::vector<uint32_t>();
-      out.readouts.at(name).reserve(readouts.at(name).size() + other.readouts.at(name).size());
-      out.readouts.at(name).append_range(readouts.at(name));
-      out.readouts.at(name).append_range(other.readouts.at(name));
+      auto & out_readouts = out.readouts.at(name);
+      const auto & this_readouts = readouts.at(name);
+      const auto & other_readouts = other.readouts.at(name);
+      out_readouts.reserve(this_readouts.size() + other_readouts.size());
+      out_readouts.insert(out_readouts.end(), this_readouts.begin(), this_readouts.end());
+      out_readouts.insert(out_readouts.end(), other_readouts.begin(), other_readouts.end());
     }
     return out;
   }
@@ -137,9 +140,11 @@ CollectorShape concatenate_shapes(const std::vector<const CollectorShape *> & sh
   for (const auto & name: shapes.front()->readouts | std::views::keys) {
     out.readouts[name] = std::vector<uint32_t>();
     const auto length = std::transform_reduce(shapes.begin(), shapes.end(), 0u, std::plus<size_t>(), [&name](const auto & a){return a->readouts.at(name).size();});
-    out.readouts.at(name).reserve(length);
+    auto & out_readouts = out.readouts.at(name);
+    out_readouts.reserve(length);
     for (const auto & shape: shapes) {
-      out.readouts.at(name).append_range(shape->readouts.at(name));
+      const auto & shape_readouts = shape->readouts.at(name);
+      out_readouts.insert(out_readouts.end(), shape_readouts.begin(), shape_readouts.end());
     }
   }
   return out;
