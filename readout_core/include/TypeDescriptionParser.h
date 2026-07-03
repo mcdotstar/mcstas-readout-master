@@ -15,6 +15,23 @@
 #include <vector>
 #include <stdexcept>
 
+#ifdef WIN32
+// Export symbols if compile flags "READOUT_SHARED" and "READOUT_EXPORT" are set on Windows.
+    #ifdef READOUT_SHARED
+        #ifdef READOUT_EXPORT
+            #define RL_API __declspec(dllexport)
+        #else
+            #define RL_API __declspec(dllimport)
+        #endif
+    #else
+        // Disable definition if linking statically.
+        #define RL_API
+    #endif
+#else
+// Disable definition for non-Win32 systems.
+#define RL_API
+#endif
+
 /// A single field in a parsed struct description
 struct SchemaField {
   std::string name;
@@ -62,4 +79,4 @@ public:
 /// Pointers and nested structs are NOT supported.
 ///
 /// \throws TypeDescriptionError on parse failure
-TypeSchema parse_type_description(const std::string& description);
+RL_API TypeSchema parse_type_description(const std::string& description);

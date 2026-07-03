@@ -42,6 +42,12 @@ if (APPLE)
 endif()
 add_library(Readout::${READOUT_LIBRARY_TARGET} ALIAS ${READOUT_LIBRARY_TARGET})
 
+if (MSVC)
+    # When building a shared library on Windows, only this target should export;
+    # all dependents should import via READOUT_SHARED.
+    target_compile_definitions(${READOUT_LIBRARY_TARGET} PUBLIC READOUT_SHARED PRIVATE READOUT_EXPORT)
+endif()
+
 target_sources(${READOUT_LIBRARY_TARGET} PRIVATE
         src/readout_orig.cpp
         src/readout_collector.cpp

@@ -42,7 +42,7 @@ if (MSVC)
     add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
     add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
     # Prevent Windows.h from defining its own min and max macros
-    add_definitions(-DNOMINMAX -DREADOUT_SHARED -DREADOUT_EXPORT)
+    add_definitions(-DNOMINMAX)
 elseif(APPLE)
     add_compile_options(-Wall -Wextra -pedantic)
     if (READOUT_BUILD_ON_CONDA)

@@ -113,7 +113,7 @@ RL_API void merge_collector_datasets(const std::string & out_filename, const std
 /// collector group, will be copied from one of the input files to the output file.
 RL_API void copy_collector_parameters(const std::string & out_filename, const std::vector<std::string> & in_filenames);
 
-HighFive::CompoundType hdf_compound_type(ReadoutType readout);
+RL_API HighFive::CompoundType hdf_compound_type(ReadoutType readout);
 
 
 // A singleton object to hold the current runtime's output file for the collector
@@ -214,8 +214,8 @@ public:
 
   CollectorSink(CollectorSink &other) = delete;
   void operator=(const CollectorSink &) = delete;
-  static CollectorSink * instance();
-  static void destroy();
+  static RL_API CollectorSink * instance();
+  static RL_API void destroy();
 
   bool is_setup() const { return filename_.has_value(); }
   [[nodiscard]] std::string current_filename() const { return filename_.value_or(""); }
@@ -537,4 +537,3 @@ private:
 
 std::string filename_for_collector(const std::string & basepath, const std::string & basename, const std::string & extension = "h5");
 std::string filename_for_collector_node(const std::string & basepath, const std::string & basename, int node, int nodes);
-
