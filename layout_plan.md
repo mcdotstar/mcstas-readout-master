@@ -125,6 +125,25 @@ installed prefix via READOUT_BUILD_DIR).
 
 ## L2 — PyPI wheel (scikit-build-core), HDF5 spike first
 
+**Status: DONE locally (2026-07-03); CI wheels await a push/release.** Notes:
+following brille (not mcpl) on two points — the build backend is
+scikit-build-core-conan with the existing repo-root conanfile.py supplying
+static HDF5, and pyproject.toml lives at the repo root since there is exactly
+one installable package. The shim is a static python/_readout_core package
+(not CMake-generated like mcpl's): entry points exec the bundled binaries
+under _readout_core/data, plus a cmakedir() helper. Wheels are py3-none
+(no Python C-API). The symbol-clash spike resolved into an explicit
+READOUT_HIDE_BUNDLED_SYMBOLS toggle: ON for wheels (nm shows zero H5 exports,
+readout API intact), OFF otherwise because in-process C++ consumers running
+header-inline HighFive code must bind the library's HDF5 — hiding it hands
+them a second static copy and 24 tests fail (empirically confirmed).
+Verified locally: fresh-venv wheel install, all three tools run, no dynamic
+HDF5 dependency, and the mccode-antlr pytest suite passes against the wheel
+installation (READOUT_BUILD_DIR=<site-packages>/_readout_core/data) with
+h5py present. .github/workflows/wheels.yml builds sdist + manylinux/macOS
+wheels via cibuildwheel and publishes on GitHub releases (trusted publishing,
+'pypi' environment — needs one-time PyPI-side setup).
+
 1. **Spike (de-risking, prior art exists)**: HDF5-bundled wheels have been
    built for this project before and are known to work, but require care to
    avoid symbol clashes — a statically bundled libhdf5 must not export symbols
