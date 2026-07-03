@@ -21,7 +21,7 @@ import pytest
 # Locate key paths relative to the repository root
 # ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SHARE_READOUT = REPO_ROOT / "share" / "Readout"
+SHARE_READOUT = REPO_ROOT / "readout_core" / "components"
 
 # Build directory: honour READOUT_BUILD_DIR env var, else fall back to common names
 _BUILD_DIR_CANDIDATES = ["build-dev", "build", "cmake-build-debug", "cmake-build-release"]

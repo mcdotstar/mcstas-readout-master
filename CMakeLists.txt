@@ -14,62 +14,18 @@ if (READOUT_USE_CONAN)
     set(CMAKE_PROJECT_TOP_LEVEL_INCLUDES "${CMAKE_CURRENT_LIST_DIR}/cmake/conan_provider.cmake")
 endif()
 
-# Read the version of readout
+# Read the version of readout (from the VERSION file and git metadata);
+# generates version.hpp in ${CMAKE_BINARY_DIR}/gen
 include(check)
-checkSetup(READOUT) # generates version.hpp and adds the generated directory as a target include directory
-# So that we can print it to the console along with the specified build type
+checkSetup(READOUT)
 message(STATUS "Build Readout v${READOUT_VERSION} with type ${CMAKE_BUILD_TYPE}")
 project(Readout LANGUAGES C CXX VERSION "${READOUT_VERSION}")
 
-set(READOUT_LIBRARY_TARGET readout)
-set(READOUT_REPLAY_BINARY readout-replay)
-set(READOUT_CONFIG_BINARY readout-config)
-set(READOUT_COMBINE_BINARY readout-combine)
-set(READOUT_SINGLE_HEADER readout.h) # must match template file in project root
-SET(READOUT_LIB_DESTINATION lib)
-SET(READOUT_BIN_DESTINATION bin)
-SET(READOUT_INCLUDE_DESTINATION include)
-set(READOUT_TESTER_TARGET readout_tester)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(GNUInstallDirs)
-
-if (READOUT_DEVELOPMENT_MODE)
-    # In development mode, use fixed relative paths from build directory
-    # This allows the local build to work without system installation
-    set(Readout_BINDIR ".")
-    set(Readout_LIBDIR "")
-    set(Readout_INCDIR "include")
-    set(Readout_DATADIR "share/Readout")
-    message(STATUS "READOUT_DEVELOPMENT_MODE=ON: Using relative paths from build directory")
-else()
-    # In installation mode, use standard directory structure
-    set(Readout_BINDIR "${CMAKE_INSTALL_BINDIR}")  # e.g. <prefix>/bin
-    set(Readout_LIBDIR "${CMAKE_INSTALL_LIBDIR}")  # e.g. <prefix>/lib
-    set(Readout_INCDIR "${CMAKE_INSTALL_INCLUDEDIR}")  # e.g. <prefix>/include
-    set(Readout_DATADIR "${CMAKE_INSTALL_DATADIR}/${PROJECT_NAME}") # e.g. <prefix>/share/Readout>
-endif()
-
-if (NOT Readout_CMAKEDIR)
-    set(Readout_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}") #e.g. <prefix>/lib/cmake/Readout>
-endif()
-
-#Get a few relative paths, mostly for expansion in various installed files (we
-#use PROJECT_BINARY_DIR as prefix here, but it should not matter which as long
-#as it is an absolute path):
-file(RELATIVE_PATH Readout_BIN2LIB "${PROJECT_BINARY_DIR}/${Readout_BINDIR}" "${PROJECT_BINARY_DIR}/${Readout_LIBDIR}")
-file(RELATIVE_PATH Readout_BIN2INC "${PROJECT_BINARY_DIR}/${Readout_BINDIR}" "${PROJECT_BINARY_DIR}/${Readout_INCDIR}")
-file(RELATIVE_PATH Readout_BIN2DATA "${PROJECT_BINARY_DIR}/${Readout_BINDIR}" "${PROJECT_BINARY_DIR}/${Readout_DATADIR}")
-file(RELATIVE_PATH Readout_CMAKE2ROOT "${PROJECT_BINARY_DIR}/${Readout_CMAKEDIR}" "${PROJECT_BINARY_DIR}/")
-file(RELATIVE_PATH Readout_CMAKE2BIN "${PROJECT_BINARY_DIR}/${Readout_CMAKEDIR}" "${PROJECT_BINARY_DIR}/${Readout_BINDIR}")
-file(RELATIVE_PATH Readout_CMAKE2LIB "${PROJECT_BINARY_DIR}/${Readout_CMAKEDIR}" "${PROJECT_BINARY_DIR}/${Readout_LIBDIR}")
-file(RELATIVE_PATH Readout_CMAKE2INC "${PROJECT_BINARY_DIR}/${Readout_CMAKEDIR}" "${PROJECT_BINARY_DIR}/${Readout_INCDIR}")
-
-include(CMakePackageConfigHelpers)
-write_basic_package_version_file( "${PROJECT_BINARY_DIR}/ReadoutConfigVersion.cmake"
-        VERSION ${Readout_VERSION} COMPATIBILITY SameMajorVersion )
 
 add_definitions(-DUSE_HIGHFIVE)
 if (MSVC)
@@ -83,7 +39,6 @@ if (MSVC)
     # Prevent Windows.h from defining its own min and max macros
     add_definitions(-DNOMINMAX -DREADOUT_SHARED -DREADOUT_EXPORT)
 elseif(APPLE)
-    # lots of warnings -- add -Werror for  all warnings as errors
     add_compile_options(-Wall -Wextra -pedantic)
     if (READOUT_BUILD_ON_CONDA)
         # Enable use of, e.g. std::filesystem::path on macOS under Conda:
@@ -91,174 +46,29 @@ elseif(APPLE)
         add_definitions(-D_LIBCPP_DISABLE_AVAILABILITY)
     endif()
 else()
-    # lots of warnings -- add -Werror for  all warnings as errors
     add_compile_options(-Wall -Wextra -pedantic)
 endif()
 
-set(CMAKE_MACOSX_RPATH OFF)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif(NOT CMAKE_BUILD_TYPE)
-
 if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
     add_definitions(-DDEBUG)
 endif()
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-# With GCC 10+ the interproceedural optmization only adds to compilation time without improving performance
-SET(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
-
-#
-## Cargs is used to help parse command line arguments in the CLI utilities
-#find_package(cargs REQUIRED)
-
-
-list(APPEND CXX_TARGETS ${READOUT_REPLAY_BINARY})
-if (READOUT_BUILD_TESTS)
-    list(APPEND CXX_TARGETS ${READOUT_TESTER_BINARY})
-endif()
-
-
-# target for C++ shared library
-add_library(${READOUT_LIBRARY_TARGET} SHARED)
-list(APPEND LIB_TARGETS ${READOUT_LIBRARY_TARGET})
-set(Readout_LIBNAME "${CMAKE_SHARED_LIBRARY_PREFIX}${READOUT_LIBRARY_TARGET}${CMAKE_SHARED_LIBRARY_SUFFIX}")
-set_target_properties(${READOUT_LIBRARY_TARGET} PROPERTIES PUBLIC_HEADER lib/Readout.h)
-set_target_properties(${READOUT_LIBRARY_TARGET} PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
-
-find_package(nlohmann_json REQUIRED)
-target_link_libraries(${READOUT_LIBRARY_TARGET} PUBLIC nlohmann_json::nlohmann_json)
-
-add_library(Readout::${READOUT_LIBRARY_TARGET} ALIAS ${READOUT_LIBRARY_TARGET}) # always alias namespaces locally
-
-# target for file-replay CLI utility
-list(APPEND BIN_TARGETS ${READOUT_REPLAY_BINARY})
-add_executable(${READOUT_REPLAY_BINARY})
-target_include_directories(${READOUT_REPLAY_BINARY} PRIVATE ${cargs_INCLUDE_DIR})
-target_link_libraries(${READOUT_REPLAY_BINARY} PRIVATE ${cargs_LIBRARIES} ${READOUT_LIBRARY_TARGET})
-
-# target for config tool CLI utility
-list(APPEND CONFIG_BIN_TARGETS ${READOUT_CONFIG_BINARY})
-add_executable(${READOUT_CONFIG_BINARY})
-target_include_directories(${READOUT_CONFIG_BINARY} PRIVATE ${cargs_INCLUDE_DIR})
-target_link_libraries(${READOUT_CONFIG_BINARY} PRIVATE ${cargs_LIBRARIES})
-
-# target for file-combine CLI utility
-list(APPEND COMBINE_BIN_TARGETS ${READOUT_COMBINE_BINARY})
-add_executable(${READOUT_COMBINE_BINARY})
-target_include_directories(${READOUT_COMBINE_BINARY} PRIVATE ${cargs_INCLUDE_DIR})
-target_link_libraries(${READOUT_COMBINE_BINARY} PRIVATE ${cargs_LIBRARIES} ${READOUT_LIBRARY_TARGET})
+# With GCC 10+ the interprocedural optimization only adds to compilation time without improving performance
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
 
 if (READOUT_BUILD_TESTS)
-    # Catch2 is used for testing
-    find_package(Catch2 REQUIRED)
-    # Threads are used in the library tests
-    set(THREADS_PREFER_PTHREAD_FLAG ON)
-    find_package(Threads REQUIRED)
-    # target for testing library functionality
-    add_executable(${READOUT_TESTER_TARGET})
-    # target_include_directories(${READOUT_TESTER_TARGET} PRIVATE lib)
-    target_link_libraries(${READOUT_TESTER_TARGET} PRIVATE Catch2::Catch2WithMain Threads::Threads ${READOUT_LIBRARY_TARGET})
     include(CTest)
-    include(Catch)
-    catch_discover_tests(${READOUT_TESTER_TARGET})
 endif()
 
-add_subdirectory(lib)  # sources for libreadout
-add_subdirectory(src)  # sources for file interface in C++
+# The library, CLI tools, McStas components, and install rules:
+add_subdirectory(readout_core)
 
+# The test suite lives at the repository root (mcpl-style): it exercises the
+# readout_core targets but is not part of any installed package.
 if (READOUT_BUILD_TESTS)
-    add_subdirectory(test) # sources for the testing binary
+    add_subdirectory(test)
 endif()
-
-# In development mode, create symlinks/directories in build root for easy testing
-if (READOUT_DEVELOPMENT_MODE)
-    # Create lib and include directories in build root pointing to their actual locations
-    add_custom_command(TARGET ${READOUT_LIBRARY_TARGET} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E echo "Setting up development mode symlinks..."
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/lib"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/include"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/share/Readout"
-    )
-    
-    # Create symlink to the library
-    add_custom_command(TARGET ${READOUT_LIBRARY_TARGET} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E create_symlink
-            "${CMAKE_CURRENT_BINARY_DIR}/lib/libreadout${CMAKE_SHARED_LIBRARY_SUFFIX}"
-            "${CMAKE_BINARY_DIR}/lib/libreadout${CMAKE_SHARED_LIBRARY_SUFFIX}"
-    )
-    
-    # Copy only public headers to build include directory (Readout.h is the public API)
-    # Also copy internal headers that might be needed for compilation
-    add_custom_command(TARGET ${READOUT_LIBRARY_TARGET} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/lib/Readout.h"
-            "${CMAKE_BINARY_DIR}/include/Readout.h"
-        COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_orig.h"
-            "${CMAKE_BINARY_DIR}/include/readout_orig.h"
-        COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_collector.h"
-            "${CMAKE_BINARY_DIR}/include/readout_collector.h"
-        COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_structs.h"
-            "${CMAKE_BINARY_DIR}/include/readout_structs.h"
-        COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_discrete.h"
-            "${CMAKE_BINARY_DIR}/include/readout_discrete.h"
-#        COMMAND ${CMAKE_COMMAND} -E copy
-#            "${CMAKE_CURRENT_SOURCE_DIR}/lib/CollectorClass.h"
-#            "${CMAKE_BINARY_DIR}/include/CollectorClass.h"
-#        COMMAND ${CMAKE_COMMAND} -E copy
-#            "${CMAKE_CURRENT_SOURCE_DIR}/lib/Structs.h"
-#            "${CMAKE_BINARY_DIR}/include/Structs.h"
-#        COMMAND ${CMAKE_COMMAND} -E copy
-#            "${CMAKE_CURRENT_SOURCE_DIR}/lib/enums.h"
-#            "${CMAKE_BINARY_DIR}/include/enums.h"
-    )
-    
-    # Copy components to build directory (more reliable than symlink for directories)
-    add_custom_command(TARGET ${READOUT_LIBRARY_TARGET} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E echo "Copying McStas components to build directory..."
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/share/Readout"
-            "${CMAKE_BINARY_DIR}/share/Readout"
-    )
-endif()
-
-list(APPEND CXX_TARGETS ${LIB_TARGETS})
-foreach(CXX_TARGET IN LISTS CXX_TARGETS)
-    addCheckDependency(${CXX_TARGET})
-endforeach()
-
-include(readout-hdf5)
-
-install(TARGETS ${READOUT_LIBRARY_TARGET} ${READOUT_REPLAY_BINARY} ${READOUT_CONFIG_BINARY} ${READOUT_COMBINE_BINARY} EXPORT ReadoutTargets
-        RUNTIME DESTINATION ${Readout_BINDIR}
-        LIBRARY DESTINATION ${Readout_LIBDIR}
-        ARCHIVE DESTINATION ${Readout_LIBDIR}
-        PUBLIC_HEADER DESTINATION ${Readout_INCDIR})
-# The following would allow for importing Readout by another CMake ... but causes a CMake configuration error
-install(EXPORT ${PROJECT_NAME}Targets FILE ${PROJECT_NAME}Targets.cmake NAMESPACE Readout:: DESTINATION ${Readout_CMAKEDIR})
-
-configure_file("${PROJECT_SOURCE_DIR}/cmake/ReadoutConfig.cmake.in" "${PROJECT_BINARY_DIR}/ReadoutConfig.cmake" @ONLY)
-
-install(FILES "${PROJECT_BINARY_DIR}/ReadoutConfigVersion.cmake" "${PROJECT_BINARY_DIR}/ReadoutConfig.cmake"
-        DESTINATION ${Readout_CMAKEDIR} )
-
-configure_file("${PROJECT_SOURCE_DIR}/cmake/readout_config.h.in" "${CMAKE_BINARY_DIR}/readout_config.h" @ONLY)
-
-# Copy the component file to the include directory too
-file(GLOB ALL_COMPONENTS "${CMAKE_CURRENT_SOURCE_DIR}/share/Readout/*.comp")
-install(FILES ${ALL_COMPONENTS} DESTINATION ${Readout_DATADIR})
-file(GLOB ALL_MCCODE_LIBS "${CMAKE_CURRENT_SOURCE_DIR}/share/Readout/lib-*")
-install(FILES ${ALL_MCCODE_LIBS} DESTINATION ${Readout_DATADIR})
-
-# Copy the separate headers
-install(FILES
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_orig.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_collector.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_discrete.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/lib/readout_structs.h"
-        DESTINATION ${Readout_INCDIR}
-)
