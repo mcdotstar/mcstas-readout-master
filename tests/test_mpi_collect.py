@@ -120,7 +120,7 @@ class TestMPICollectorCAEN:
             {CAEN_ORIGIN_EXTEND}
             COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
             ) AT (0, 0, 1) ABSOLUTE
             END
@@ -138,7 +138,7 @@ class TestMPICollectorCAEN:
             {CAEN_ORIGIN_EXTEND}
             COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
             ) AT (0, 0, 1) ABSOLUTE
             END
@@ -162,7 +162,7 @@ class TestMPICollectorCAEN:
             {CAEN_ORIGIN_EXTEND}
             COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
             ) AT (0, 0, 1) ABSOLUTE
             END
@@ -195,7 +195,7 @@ class TestMPICollectorCAEN:
             {CAEN_ORIGIN_EXTEND}
             COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
             ) AT (0, 0, 1) ABSOLUTE
             END
@@ -236,7 +236,7 @@ class TestMPICollectorCAEN:
             
             COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
             ) AT (0, 0, 2) ABSOLUTE
             END
@@ -282,22 +282,22 @@ class TestMPICollectorCAEN:
             
             COMPONENT collector_mm = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1, dataset_name="collector--"
             ) WHEN (x < 0 && y < 0) AT (0, 0, 2) ABSOLUTE 
             COMPONENT collector_mp = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1, dataset_name="collector-+"
             ) WHEN (x < 0 && y >= 0) AT (0, 0, 2) ABSOLUTE 
             COMPONENT collector_pm = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1, dataset_name="collector+-"
             ) WHEN (x >= 0 && y < 0) AT (0, 0, 2) ABSOLUTE 
             COMPONENT collector_pp = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1, dataset_name="collector++"
             ) WHEN (x >= 0 && y >= 0) AT (0, 0, 2) ABSOLUTE 
             
