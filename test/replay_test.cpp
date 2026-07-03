@@ -15,15 +15,76 @@
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
 #include <process.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 int process_id() {return _getpid();}
 #else
 #include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 int process_id() {return static_cast<int>(getpid());}
 #endif
 
 std::string pid_filename(const std::string& base, const std::string& ext){
   return base + std::to_string(process_id()) + ext;
 }
+
+#if defined(_WIN32)
+static int find_free_udp_port() {
+  WSADATA wsaData;
+  if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+    return -1;
+  }
+  SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (sock == INVALID_SOCKET) {
+    WSACleanup();
+    return -1;
+  }
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  addr.sin_port = htons(0);
+  if (bind(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) {
+    closesocket(sock);
+    WSACleanup();
+    return -1;
+  }
+  int len = static_cast<int>(sizeof(addr));
+  if (getsockname(sock, reinterpret_cast<sockaddr*>(&addr), &len) == SOCKET_ERROR) {
+    closesocket(sock);
+    WSACleanup();
+    return -1;
+  }
+  const int port = ntohs(addr.sin_port);
+  closesocket(sock);
+  WSACleanup();
+  return port;
+}
+#else
+static int find_free_udp_port() {
+  const int sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (sock < 0) {
+    return -1;
+  }
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  addr.sin_port = htons(0);
+  if (bind(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+    close(sock);
+    return -1;
+  }
+  socklen_t len = sizeof(addr);
+  if (getsockname(sock, reinterpret_cast<sockaddr*>(&addr), &len) == -1) {
+    close(sock);
+    return -1;
+  }
+  const int port = ntohs(addr.sin_port);
+  close(sock);
+  return port;
+}
+#endif
 
 TEST_CASE("Store and retrieve CAEN packets", "[c][CAEN][io]"){
   // create a temporary filename where we can store an HDF5 file:
@@ -333,8 +394,15 @@ TEST_CASE("Replay routes two groups to their file-embedded EFU ports", "[replay]
   namespace fs = std::filesystem;
   const uint16_t left_count{300};
   const uint16_t right_count{700};
-  const int left_port{9020};
-  const int right_port{9021};
+  const int left_port = find_free_udp_port();
+  REQUIRE(left_port > 0);
+  int right_port = find_free_udp_port();
+  REQUIRE(right_port > 0);
+  if (right_port == left_port) {
+    right_port = find_free_udp_port();
+    REQUIRE(right_port > 0);
+    REQUIRE(right_port != left_port);
+  }
   const auto filename = write_two_group_file("replay_route", left_count, left_port, right_count, right_port);
 
   auto left_stats  = std::make_shared<UDPStats>();
@@ -376,9 +444,20 @@ TEST_CASE("Explicit SenderConfigs override file-embedded EFU routing", "[replay]
   namespace fs = std::filesystem;
   const uint16_t left_count{300};
   const uint16_t right_count{700};
-  const int left_port{9020};
-  const int right_port{9021};
-  const int override_port{9022};
+  const int left_port = find_free_udp_port();
+  REQUIRE(left_port > 0);
+  int right_port = find_free_udp_port();
+  REQUIRE(right_port > 0);
+  while (right_port == left_port) {
+    right_port = find_free_udp_port();
+    REQUIRE(right_port > 0);
+  }
+  int override_port = find_free_udp_port();
+  REQUIRE(override_port > 0);
+  while (override_port == left_port || override_port == right_port) {
+    override_port = find_free_udp_port();
+    REQUIRE(override_port > 0);
+  }
   const auto filename = write_two_group_file("replay_prec", left_count, left_port, right_count, right_port);
 
   auto left_stats     = std::make_shared<UDPStats>();
