@@ -145,8 +145,6 @@ protected:
   std::optional<HighFive::File> file_{std::nullopt};
   std::optional<HighFive::Group> collector_, parameters_{std::nullopt};
 
-  static CollectorSink * instance_;
-
 public:
   static const std::string & type_attribute() {
     static const std::string name{"type"};
@@ -233,8 +231,13 @@ public:
 
   CollectorSink(CollectorSink &other) = delete;
   void operator=(const CollectorSink &) = delete;
-  static RL_API CollectorSink * instance();
-  static RL_API void destroy();
+  static CollectorSink * instance() {
+    static CollectorSink singleton;
+    return &singleton;
+  }
+  static void destroy() {
+    instance()->teardown();
+  }
 
   bool is_setup() const { return filename_.has_value(); }
   [[nodiscard]] std::string current_filename() const { return filename_.value_or(""); }

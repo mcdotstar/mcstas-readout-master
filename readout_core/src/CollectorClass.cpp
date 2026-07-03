@@ -4,23 +4,6 @@
 #include <ranges>
 #include <set>
 
-CollectorSink * CollectorSink::instance_ = nullptr;
-
-CollectorSink * CollectorSink::instance() {
-  if (instance_ == nullptr) {
-    instance_ = new CollectorSink();
-  }
-  return instance_;
-}
-
-void CollectorSink::destroy() {
-  if (instance_ != nullptr) {
-    instance_->teardown();
-    delete instance_;
-    instance_ = nullptr;
-  }
-}
-
 class CollectorShape {
   using readouts_t = std::map<std::string, std::vector<uint32_t>>;
   public:
