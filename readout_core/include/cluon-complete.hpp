@@ -25,6 +25,7 @@
 #if defined(__APPLE__)
   #include <utility>
 #endif
+#include <cstddef>
 #include <typeinfo>
 #include <type_traits>
 #include <stdexcept>

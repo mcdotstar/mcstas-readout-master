@@ -34,6 +34,12 @@ file(RELATIVE_PATH Readout_CMAKE2INC "${PROJECT_BINARY_DIR}/${Readout_CMAKEDIR}"
 add_library(${READOUT_LIBRARY_TARGET} SHARED)
 set(Readout_LIBNAME "${CMAKE_SHARED_LIBRARY_PREFIX}${READOUT_LIBRARY_TARGET}${CMAKE_SHARED_LIBRARY_SUFFIX}")
 set_target_properties(${READOUT_LIBRARY_TARGET} PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
+if (APPLE)
+    # Keep dylib install_name resolvable from executable @rpath entries in wheel repair.
+    set_target_properties(${READOUT_LIBRARY_TARGET} PROPERTIES
+            MACOSX_RPATH ON
+            INSTALL_NAME_DIR "@rpath")
+endif()
 add_library(Readout::${READOUT_LIBRARY_TARGET} ALIAS ${READOUT_LIBRARY_TARGET})
 
 target_sources(${READOUT_LIBRARY_TARGET} PRIVATE

@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.30)
 cmake_policy(SET CMP0076 NEW) # Ensure target_sources converts relative paths
 cmake_policy(SET CMP0017 NEW) # Prefer cmake's own files for include/find_package before CMAKE_MODULE_PATH
 
-set(CMAKE_MACOSX_RPATH OFF)
 list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 set(READOUT_BUILD_ON_CONDA OFF CACHE BOOL "Set to ON to build for conda")
