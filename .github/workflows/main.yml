@@ -34,7 +34,7 @@ jobs:
 
       - name: Install Python-based dependencies
         run: |
-          python -m pip install conan numpy
+          python -m pip install conan numpy mccode-antlr
           echo "pythonInterpreter=`which python`" >> $GITHUB_ENV
 
       - name: Cache conan setup
