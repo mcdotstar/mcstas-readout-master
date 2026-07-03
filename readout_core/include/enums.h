@@ -1,5 +1,5 @@
 #pragma once
-#include "hdf_interface.h"
+#include <string>
 
 #ifdef WIN32
 // Export symbols if compile flags "READOUT_SHARED" and "READOUT_EXPORT" are set on Windows.

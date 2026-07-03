@@ -1,4 +1,6 @@
 #include "enums.h"
+#include <sstream>
+#include <stdexcept>
 
 DetectorType detectorType_from_int(const int type){
   switch(type){

@@ -24,10 +24,23 @@ else
     echo "local readout-config not found."
     exit 1
 fi
+compdir=$("${readout_config}" --show compdir)
 # Add the build directory to PATH so that CMD(readout-config ...) in component
 # DEPENDENCY lines is resolved when mcstas-antlr processes the .instr file.
-export PATH="${PWD}/bin:${PWD}/bin/Debug:${PWD}/bin/Release:${PATH}"
-compdir=$("${readout_config}" --show compdir)
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if command -v cygpath >/dev/null 2>&1; then
+      export PATH="$(cygpath -w "${PWD}/bin");$(cygpath -w "${PWD}/bin/Debug");$(cygpath -w "${PWD}/bin/Release");${PATH}"
+    else
+      export PATH="${PWD}/bin:${PWD}/bin/Debug:${PWD}/bin/Release:${PATH}"
+    fi
+    # SEARCH "D:\path\to\components" is parsed as escape sequences; normalize to forward slashes.
+    compdir=${compdir//\\//}
+    ;;
+  *)
+    export PATH="${PWD}/bin:${PWD}/bin/Debug:${PWD}/bin/Release:${PATH}"
+    ;;
+esac
 compileflags="-Wl,-rpath,lib -Llib -lreadout -Iinclude"
 
 # Switch to a temporary directory

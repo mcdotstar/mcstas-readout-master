@@ -8,8 +8,7 @@
 
 #include "Readout.h"
 #include "TypeDescriptionParser.h"
-
-enum class ReadoutType;
+#include "enums.h"
 
 #ifdef WIN32
 // Export symbols if compile flags "READOUT_SHARED" and "READOUT_EXPORT" are set on Windows.
@@ -146,21 +145,147 @@ public:
 };
 
 
+inline HighFive::CompoundType create_compound_caen_readout(){
+  return {
+    {"ring",    HighFive::create_datatype<uint8_t>()},
+    {"FEN",     HighFive::create_datatype<uint8_t>()},
+    {"time",    HighFive::create_datatype<double>()},
+    {"weight",  HighFive::create_datatype<double>()},
+    {"channel", HighFive::create_datatype<uint8_t>()},
+    {"a",       HighFive::create_datatype<uint16_t>()},
+    {"b",       HighFive::create_datatype<uint16_t>()},
+    {"c",       HighFive::create_datatype<uint16_t>()},
+    {"d",       HighFive::create_datatype<uint16_t>()},
+  };
+}
+
+inline HighFive::CompoundType create_compound_ttlmonitor_readout(){
+  return {
+    {"ring",    HighFive::create_datatype<uint8_t>()},
+    {"FEN",     HighFive::create_datatype<uint8_t>()},
+    {"time",    HighFive::create_datatype<double>()},
+    {"weight",  HighFive::create_datatype<double>()},
+    {"channel", HighFive::create_datatype<uint8_t>()},
+    {"pos",     HighFive::create_datatype<uint8_t>()},
+    {"adc",     HighFive::create_datatype<uint16_t>()},
+  };
+}
+
+inline HighFive::CompoundType create_compound_dream_readout(){
+  return {
+    {"ring",    HighFive::create_datatype<uint8_t>()},
+    {"FEN",     HighFive::create_datatype<uint8_t>()},
+    {"time",    HighFive::create_datatype<double>()},
+    {"weight",  HighFive::create_datatype<double>()},
+    {"om",      HighFive::create_datatype<uint8_t>()},
+    {"cathode", HighFive::create_datatype<uint8_t>()},
+    {"anode",   HighFive::create_datatype<uint8_t>()},
+  };
+}
+
+inline HighFive::CompoundType create_compound_vmm3_readout(){
+  return {
+    {"ring",    HighFive::create_datatype<uint8_t>()},
+    {"FEN",     HighFive::create_datatype<uint8_t>()},
+    {"time",    HighFive::create_datatype<double>()},
+    {"weight",  HighFive::create_datatype<double>()},
+    {"bc",      HighFive::create_datatype<uint16_t>()},
+    {"otadc",   HighFive::create_datatype<uint16_t>()},
+    {"geo",     HighFive::create_datatype<uint8_t>()},
+    {"tdc",     HighFive::create_datatype<uint8_t>()},
+    {"vmm",     HighFive::create_datatype<uint8_t>()},
+    {"channel", HighFive::create_datatype<uint8_t>()},
+  };
+}
+
+inline HighFive::CompoundType create_compound_bm0_readout(){
+  return {
+    {"ring",    HighFive::create_datatype<uint8_t>()},
+    {"FEN",     HighFive::create_datatype<uint8_t>()},
+    {"time",    HighFive::create_datatype<double>()},
+    {"weight",  HighFive::create_datatype<double>()},
+    {"channel", HighFive::create_datatype<uint8_t>()},
+  };
+}
+
+inline HighFive::CompoundType create_compound_bm2_readout(){
+  return {
+    {"ring",    HighFive::create_datatype<uint8_t>()},
+    {"FEN",     HighFive::create_datatype<uint8_t>()},
+    {"time",    HighFive::create_datatype<double>()},
+    {"weight",  HighFive::create_datatype<double>()},
+    {"channel", HighFive::create_datatype<uint8_t>()},
+    {"pos_x",   HighFive::create_datatype<uint16_t>()},
+    {"pos_y",   HighFive::create_datatype<uint16_t>()},
+  };
+}
+
+inline HighFive::CompoundType create_compound_bmi_readout(){
+  return {
+    {"ring",    HighFive::create_datatype<uint8_t>()},
+    {"FEN",     HighFive::create_datatype<uint8_t>()},
+    {"time",    HighFive::create_datatype<double>()},
+    {"weight",  HighFive::create_datatype<double>()},
+    {"channel", HighFive::create_datatype<uint8_t>()},
+    {"sum",     HighFive::create_datatype<uint8_t>()},
+    {"adc",     HighFive::create_datatype<uint32_t>()},
+  };
+}
+
 namespace HighFive {
-  template<> RL_API DataType create_datatype<CAEN_event>();
-  template<> RL_API DataType create_datatype<TTLMonitor_event>();
-  template<> RL_API DataType create_datatype<CDT_event>();
-  template<> RL_API DataType create_datatype<VMM3_event>();
-  template<> RL_API DataType create_datatype<BM0_event>();
-  template<> RL_API DataType create_datatype<BM2_event>();
-  template<> RL_API DataType create_datatype<BMI_event>();
+  template<> inline DataType create_datatype<CAEN_event>(){return create_compound_caen_readout();}
+  template<> inline DataType create_datatype<TTLMonitor_event>(){return create_compound_ttlmonitor_readout();}
+  template<> inline DataType create_datatype<CDT_event>(){return create_compound_dream_readout();}
+  template<> inline DataType create_datatype<VMM3_event>(){return create_compound_vmm3_readout();}
+  template<> inline DataType create_datatype<BM0_event>(){return create_compound_bm0_readout();}
+  template<> inline DataType create_datatype<BM2_event>(){return create_compound_bm2_readout();}
+  template<> inline DataType create_datatype<BMI_event>(){return create_compound_bmi_readout();}
 }
 
 /// \brief Build the canonical HDF5 compound type for a known readout type.
-RL_API HighFive::CompoundType hdf_compound_type(ReadoutType readout);
+inline HighFive::CompoundType hdf_compound_type(const ReadoutType readout) {
+  switch (readout) {
+    case ReadoutType::CAEN: return create_compound_caen_readout();
+    case ReadoutType::TTLMonitor: return create_compound_ttlmonitor_readout();
+    case ReadoutType::CDT: return create_compound_dream_readout();
+    case ReadoutType::VMM3: return create_compound_vmm3_readout();
+    case ReadoutType::BM0: return create_compound_bm0_readout();
+    case ReadoutType::BM2: return create_compound_bm2_readout();
+    case ReadoutType::BMI: return create_compound_bmi_readout();
+    default: throw std::runtime_error("Saving this readout type is not implemented yet!");
+  }
+}
+
+inline HighFive::DataType hdf5_type_for(const std::string& canonical_type) {
+  if (canonical_type == "int8_t") return HighFive::create_datatype<int8_t>();
+  if (canonical_type == "int16_t") return HighFive::create_datatype<int16_t>();
+  if (canonical_type == "int32_t") return HighFive::create_datatype<int32_t>();
+  if (canonical_type == "int64_t") return HighFive::create_datatype<int64_t>();
+  if (canonical_type == "uint8_t") return HighFive::create_datatype<uint8_t>();
+  if (canonical_type == "uint16_t") return HighFive::create_datatype<uint16_t>();
+  if (canonical_type == "uint32_t") return HighFive::create_datatype<uint32_t>();
+  if (canonical_type == "uint64_t") return HighFive::create_datatype<uint64_t>();
+  if (canonical_type == "float") return HighFive::create_datatype<float>();
+  if (canonical_type == "double") return HighFive::create_datatype<double>();
+  throw std::runtime_error("No HDF5 type mapping for: " + canonical_type);
+}
 
 /// \brief Build an HDF5 compound datatype from a parsed C-struct description
 ///
 /// Array fields are not supported: descriptions used with the collector engine
 /// must contain scalar fields only.
-RL_API HighFive::CompoundType build_hdf5_compound_type(const TypeSchema & schema);
+inline HighFive::CompoundType build_hdf5_compound_type(const TypeSchema & schema) {
+  std::vector<HighFive::CompoundType::member_def> members;
+  members.reserve(schema.fields.size());
+
+  for (const auto& field : schema.fields) {
+    if (field.array_count > 0) {
+      throw std::runtime_error(
+        "build_hdf5_compound_type: array fields are not supported (field: " + field.name + ")"
+      );
+    }
+    members.push_back({field.name, hdf5_type_for(field.type), field.offset});
+  }
+
+  return HighFive::CompoundType(members, schema.total_size);
+}
