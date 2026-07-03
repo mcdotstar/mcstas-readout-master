@@ -15,7 +15,7 @@ jobs:
     name: Build source distribution
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - run: pipx run build --sdist
@@ -36,7 +36,7 @@ jobs:
           - { os: macos-15-intel, platform: 'macosx' }
           - { os: macos-15, platform: 'macosx' }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: pypa/cibuildwheel@v3.1.4
