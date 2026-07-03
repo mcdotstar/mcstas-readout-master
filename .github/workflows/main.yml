@@ -104,7 +104,7 @@ jobs:
 
       - name: Build with development mode
         run: |
-          cmake -S . -B build-dev -DREADOUT_DEVELOPMENT_MODE=ON
+          cmake -S . -B build-dev
           cmake --build build-dev -j
 
       - name: Run integration tests

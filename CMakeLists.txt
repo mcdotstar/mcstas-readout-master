@@ -8,7 +8,6 @@ list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_CURRENT_LIST_DIR}/cmake")
 set(READOUT_BUILD_ON_CONDA OFF CACHE BOOL "Set to ON to build for conda")
 set(READOUT_USE_CONAN ON CACHE BOOL "Use Conan to manage dependencies") # Set to OFF to use system libraries
 set(READOUT_BUILD_TESTS ON CACHE BOOL "Build test binary")
-set(READOUT_DEVELOPMENT_MODE OFF CACHE BOOL "Build with paths relative to build directory for local development")
 
 if (READOUT_USE_CONAN)
     set(CMAKE_PROJECT_TOP_LEVEL_INCLUDES "${CMAKE_CURRENT_LIST_DIR}/cmake/conan_provider.cmake")
@@ -26,6 +25,13 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(GNUInstallDirs)
+
+# The build tree mirrors the install layout (bin/, lib/, include/, share/Readout)
+# so that the self-locating readout-config resolves the same baked relative paths
+# whether it runs from the build tree or an installed prefix:
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_BINDIR}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}")
 
 add_definitions(-DUSE_HIGHFIVE)
 if (MSVC)

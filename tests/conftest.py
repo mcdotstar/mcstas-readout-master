@@ -35,7 +35,7 @@ def _find_build_dir() -> Path | None:
             return p
     for name in _BUILD_DIR_CANDIDATES:
         p = REPO_ROOT / name
-        if (p / "readout-config").is_file() or (p / "readout-config.exe").is_file():
+        if (p / "bin" / "readout-config").is_file() or (p / "bin" / "readout-config.exe").is_file():
             return p
     return None
 
@@ -63,7 +63,7 @@ def _has_c_compiler() -> bool:
 
 def _has_readout_config() -> bool:
     if BUILD_DIR is not None:
-        rc = BUILD_DIR / "readout-config"
+        rc = BUILD_DIR / "bin" / "readout-config"
         if rc.is_file():
             return True
     return shutil.which("readout-config") is not None
@@ -75,10 +75,10 @@ def _has_readout_config() -> bool:
 def _build_env() -> dict[str, str]:
     env = os.environ.copy()
     if BUILD_DIR is not None:
-        env["PATH"] = str(BUILD_DIR) + os.pathsep + env.get("PATH", "")
+        env["PATH"] = str(BUILD_DIR / "bin") + os.pathsep + env.get("PATH", "")
         # Ensure the dynamic linker can find libreadout
         ld_key = "DYLD_LIBRARY_PATH" if os.uname().sysname == "Darwin" else "LD_LIBRARY_PATH"
-        env[ld_key] = str(BUILD_DIR) + os.pathsep + env.get(ld_key, "")
+        env[ld_key] = str(BUILD_DIR / "lib") + os.pathsep + env.get(ld_key, "")
     return env
 
 

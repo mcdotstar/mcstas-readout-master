@@ -14,7 +14,7 @@ namespace libreadout::config {
     //! \brief Configuration information for the binary directory location
     auto constexpr bindir = ".";
     //! \brief Configuration information for the linker flags <LIBDIR> expanded at runtime
-    auto constexpr ldflags = "-Wl,-rpath,<LIBDIR> -L<LIBDIR> -l@Readout_LIBNAME@";
+    auto constexpr ldflags = "-Wl,-rpath,<LIBDIR> -L<LIBDIR> -l@READOUT_LIBRARY_TARGET@";
     //! \brief Configuration information for the compiler flags <INCLUDEDIR> expanded at runtime
     auto constexpr cflags = "-I<INCLUDEDIR>";
 }

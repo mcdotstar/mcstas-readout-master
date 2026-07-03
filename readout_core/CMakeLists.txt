@@ -6,21 +6,13 @@ set(READOUT_REPLAY_BINARY readout-replay)
 set(READOUT_CONFIG_BINARY readout-config)
 set(READOUT_COMBINE_BINARY readout-combine)
 
-if (READOUT_DEVELOPMENT_MODE)
-    # In development mode, use fixed relative paths from build directory
-    # This allows the local build to work without system installation
-    set(Readout_BINDIR ".")
-    set(Readout_LIBDIR "")
-    set(Readout_INCDIR "include")
-    set(Readout_DATADIR "share/Readout")
-    message(STATUS "READOUT_DEVELOPMENT_MODE=ON: Using relative paths from build directory")
-else()
-    # In installation mode, use standard directory structure
-    set(Readout_BINDIR "${CMAKE_INSTALL_BINDIR}")  # e.g. <prefix>/bin
-    set(Readout_LIBDIR "${CMAKE_INSTALL_LIBDIR}")  # e.g. <prefix>/lib
-    set(Readout_INCDIR "${CMAKE_INSTALL_INCLUDEDIR}")  # e.g. <prefix>/include
-    set(Readout_DATADIR "${CMAKE_INSTALL_DATADIR}/${PROJECT_NAME}") # e.g. <prefix>/share/Readout
-endif()
+# One layout everywhere: these are install-relative directories, and the build
+# tree mirrors them (output dirs set at the root, header/component copies below),
+# so a single set of baked relative paths serves both trees.
+set(Readout_BINDIR "${CMAKE_INSTALL_BINDIR}")  # e.g. <prefix>/bin
+set(Readout_LIBDIR "${CMAKE_INSTALL_LIBDIR}")  # e.g. <prefix>/lib
+set(Readout_INCDIR "${CMAKE_INSTALL_INCLUDEDIR}")  # e.g. <prefix>/include
+set(Readout_DATADIR "${CMAKE_INSTALL_DATADIR}/${PROJECT_NAME}") # e.g. <prefix>/share/Readout
 
 if (NOT Readout_CMAKEDIR)
     set(Readout_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}") #e.g. <prefix>/lib/cmake/Readout
@@ -118,29 +110,23 @@ if (READOUT_BUILD_TESTS)
     set_tests_properties(combine_validate_missing_test PROPERTIES WILL_FAIL TRUE)
 endif()
 
-# ---- development mode build-tree layout ----------------------------------------
+# ---- build-tree layout ----------------------------------------------------------
 
-if (READOUT_DEVELOPMENT_MODE)
-    add_custom_command(TARGET ${READOUT_LIBRARY_TARGET} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E echo "Setting up development mode layout..."
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/lib"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/include"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/share/Readout"
-        COMMAND ${CMAKE_COMMAND} -E create_symlink
-            "$<TARGET_FILE:${READOUT_LIBRARY_TARGET}>"
-            "${CMAKE_BINARY_DIR}/lib/${Readout_LIBNAME}"
-        COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_CURRENT_SOURCE_DIR}/include/Readout.h"
-            "${CMAKE_CURRENT_SOURCE_DIR}/include/readout_orig.h"
-            "${CMAKE_CURRENT_SOURCE_DIR}/include/readout_collector.h"
-            "${CMAKE_CURRENT_SOURCE_DIR}/include/readout_structs.h"
-            "${CMAKE_CURRENT_SOURCE_DIR}/include/readout_discrete.h"
-            "${CMAKE_BINARY_DIR}/include/"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/components"
-            "${CMAKE_BINARY_DIR}/share/Readout"
-    )
-endif()
+# Headers and components are copied into the build tree's install-mirrored
+# locations; binaries and the library land there directly via the output
+# directories set at the root. The build tree is thereby directly usable by
+# mccode-antlr (readout-config on PATH) without an install step.
+add_custom_command(TARGET ${READOUT_LIBRARY_TARGET} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_BINARY_DIR}/${Readout_INCDIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "${CMAKE_BINARY_DIR}/gen/version.hpp"
+        "${CMAKE_BINARY_DIR}/${Readout_INCDIR}/version.hpp"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/components"
+        "${CMAKE_BINARY_DIR}/${Readout_DATADIR}"
+)
 
 # ---- install rules --------------------------------------------------------------
 

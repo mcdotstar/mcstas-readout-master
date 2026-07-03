@@ -13,15 +13,15 @@ if ! command -v mcstas-antlr &> /dev/null; then
     echo "mcstas-antlr not found, skipping integration tests."
     exit 100
 fi
-if ! [ -x ./readout-config ]; then
+if ! [ -x bin/readout-config ]; then
     echo "local readout-config not found."
     exit 1
 fi
 # Add the build directory to PATH so that CMD(readout-config ...) in component
 # DEPENDENCY lines is resolved when mcstas-antlr processes the .instr file.
-export PATH="${PWD}:${PATH}"
-compdir=$(./readout-config --show compdir)
-compileflags="-Wl,-rpath,. -L. -lreadout -I../lib"
+export PATH="${PWD}/bin:${PATH}"
+compdir=$(bin/readout-config --show compdir)
+compileflags="-Wl,-rpath,lib -Llib -lreadout -Iinclude"
 
 # Switch to a temporary directory
 #tmpdir=$(mktemp -d)
