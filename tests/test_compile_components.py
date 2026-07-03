@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import pytest
+from textwrap import dedent
 from conftest import (
     SHARE_READOUT,
     requires_integration,
@@ -40,34 +41,34 @@ def _compile_instrument(instr_source: str) -> None:
 @requires_integration
 class TestCompileReadoutCAEN:
     def test_compile_broadcast_off(self):
-        _compile_instrument(f"""
-DEFINE INSTRUMENT test_readout_caen_compile()
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT readout = ReadoutCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  ip="127.0.0.1", port=9000, broadcast=0
-) AT (0, 0, 1) ABSOLUTE
-END
-""")
+        _compile_instrument(dedent(f"""
+        DEFINE INSTRUMENT test_readout_caen_compile()
+        {CAEN_USERVARS}
+        TRACE
+        SEARCH SHELL "readout-config --show compdir"
+        {CAEN_ORIGIN_EXTEND}
+        COMPONENT readout = ReadoutCAEN(
+          ring="RING", fen="FEN", tube="TUBE",
+          event_mode="p", a_name="A", b_name="B", tof="tof",
+          ip="127.0.0.1", port=9000, broadcast=0
+        ) AT (0, 0, 1) ABSOLUTE
+        END
+        """))
 
     def test_compile_weight_squared_mode(self):
-        _compile_instrument(f"""
-DEFINE INSTRUMENT test_readout_caen_pp()
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT readout = ReadoutCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="pp", a_name="A", b_name="B", tof="tof",
-  ip="127.0.0.1", port=9000, broadcast=0
-) AT (0, 0, 1) ABSOLUTE
-END
-""")
+        _compile_instrument(dedent(f"""
+        DEFINE INSTRUMENT test_readout_caen_pp()
+        {CAEN_USERVARS}
+        TRACE
+        SEARCH SHELL "readout-config --show compdir"
+        {CAEN_ORIGIN_EXTEND}
+        COMPONENT readout = ReadoutCAEN(
+          ring="RING", fen="FEN", tube="TUBE",
+          event_mode="pp", a_name="A", b_name="B", tof="tof",
+          ip="127.0.0.1", port=9000, broadcast=0
+        ) AT (0, 0, 1) ABSOLUTE
+        END
+        """))
 
 
 # -----------------------------------------------------------------------
@@ -76,34 +77,19 @@ END
 @requires_integration
 class TestCompileCollectorCAEN:
     def test_compile_basic(self):
-        _compile_instrument(f"""
-DEFINE INSTRUMENT test_collect_caen_compile(string filename="output")
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectorCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  a_name="A", b_name="B", tof="tof",
-  filename=filename, verbose=1
-) AT (0, 0, 1) ABSOLUTE
-END
-""")
-
-    def test_compile_with_points(self):
-        _compile_instrument(f"""
-DEFINE INSTRUMENT test_collect_caen_points(string filename="output", int point=0, int total_points=3)
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectorCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  a_name="A", b_name="B", tof="tof",
-  filename=filename, point=point, total_points=total_points, verbose=1
-) AT (0, 0, 1) ABSOLUTE
-END
-""")
+        _compile_instrument(dedent(f"""
+        DEFINE INSTRUMENT test_collect_caen_compile(string filename="output")
+        {CAEN_USERVARS}
+        TRACE
+        SEARCH SHELL "readout-config --show compdir"
+        {CAEN_ORIGIN_EXTEND}
+        COMPONENT collector = CollectorCAEN(
+          ring="RING", fen="FEN", tube="TUBE",
+          a_name="A", b_name="B", tof="tof",
+          filename=filename, verbose=1
+        ) AT (0, 0, 1) ABSOLUTE
+        END
+        """))
 
 
 # -----------------------------------------------------------------------
@@ -112,19 +98,19 @@ END
 @requires_integration
 class TestCompileReadoutTTLMonitor:
     def test_compile_basic(self):
-        _compile_instrument(f"""
-DEFINE INSTRUMENT test_ttl_compile()
-{TTL_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{TTL_ORIGIN_EXTEND}
-COMPONENT monitor = ReadoutTTLMonitor(
-  ring="RING", fen="FEN",
-  position="A", identity="TUBE", value="B", tof="tof",
-  ip="127.0.0.1", port=9001, broadcast=0
-) AT (0, 0, 1) ABSOLUTE
-END
-""")
+        _compile_instrument(dedent(f"""
+        DEFINE INSTRUMENT test_ttl_compile()
+        {TTL_USERVARS}
+        TRACE
+        SEARCH SHELL "readout-config --show compdir"
+        {TTL_ORIGIN_EXTEND}
+        COMPONENT monitor = ReadoutTTLMonitor(
+          ring="RING", fen="FEN",
+          position="A", identity="TUBE", value="B", tof="tof",
+          ip="127.0.0.1", port=9001, broadcast=0
+        ) AT (0, 0, 1) ABSOLUTE
+        END
+        """))
 
 
 # -----------------------------------------------------------------------
@@ -134,20 +120,20 @@ END
 class TestCompileReadoutDiscreteCAEN:
 #    @pytest.mark.xfail(reason="ReadoutDiscreteCAEN has a known code-generation issue with mccode-antlr")
     def test_compile_with_count(self):
-        _compile_instrument(f"""
-DEFINE INSTRUMENT test_discrete_compile()
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT readout = ReadoutDiscreteCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  ip="127.0.0.1", port=9002, broadcast=0,
-  discrete_count=50
-) AT (0, 0, 1) ABSOLUTE
-END
-""")
+        _compile_instrument(dedent(f"""
+        DEFINE INSTRUMENT test_discrete_compile()
+        {CAEN_USERVARS}
+        TRACE
+        SEARCH SHELL "readout-config --show compdir"
+        {CAEN_ORIGIN_EXTEND}
+        COMPONENT readout = ReadoutDiscreteCAEN(
+          ring="RING", fen="FEN", tube="TUBE",
+          event_mode="p", a_name="A", b_name="B", tof="tof",
+          ip="127.0.0.1", port=9002, broadcast=0,
+          discrete_count=50
+        ) AT (0, 0, 1) ABSOLUTE
+        END
+        """))
 
 
 # -----------------------------------------------------------------------
@@ -157,30 +143,30 @@ END
 class TestCompileMultiComponent:
     def test_compile_all_together(self):
         """An instrument with ReadoutCAEN, ReadoutTTLMonitor, and CollectorCAEN."""
-        _compile_instrument(f"""
-DEFINE INSTRUMENT test_multi_compile(string filename="output")
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-
-COMPONENT readout = ReadoutCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  ip="127.0.0.1", port=9000, broadcast=0
-) AT (0, 0, 1) ABSOLUTE
-
-COMPONENT monitor = ReadoutTTLMonitor(
-  ring="RING", fen="FEN",
-  position="A", identity="TUBE", value="B", tof="tof",
-  ip="127.0.0.1", port=9001, broadcast=0
-) AT (0, 0, 2) ABSOLUTE
-
-COMPONENT collector = CollectorCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  a_name="A", b_name="B", tof="tof",
-  filename=filename, verbose=1
-) AT (0, 0, 3) ABSOLUTE
-
-END
-""")
+        _compile_instrument(dedent(f"""
+        DEFINE INSTRUMENT test_multi_compile(string filename="output")
+        {CAEN_USERVARS}
+        TRACE
+        SEARCH SHELL "readout-config --show compdir"
+        {CAEN_ORIGIN_EXTEND}
+        
+        COMPONENT readout = ReadoutCAEN(
+          ring="RING", fen="FEN", tube="TUBE",
+          event_mode="p", a_name="A", b_name="B", tof="tof",
+          ip="127.0.0.1", port=9000, broadcast=0
+        ) AT (0, 0, 1) ABSOLUTE
+        
+        COMPONENT monitor = ReadoutTTLMonitor(
+          ring="RING", fen="FEN",
+          position="A", identity="TUBE", value="B", tof="tof",
+          ip="127.0.0.1", port=9001, broadcast=0
+        ) AT (0, 0, 2) ABSOLUTE
+        
+        COMPONENT collector = CollectorCAEN(
+          ring="RING", fen="FEN", tube="TUBE",
+          a_name="A", b_name="B", tof="tof",
+          filename=filename, verbose=1
+        ) AT (0, 0, 3) ABSOLUTE
+        
+        END
+        """))

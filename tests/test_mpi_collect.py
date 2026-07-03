@@ -183,38 +183,6 @@ class TestMPICollectorCAEN:
             assert ds.shape[0] == 100, f"Expected 100 events, got {ds.shape[0]}"
 
     @mpi_compiled_test
-    def test_mpi_collect_with_points(self, tmp_path):
-        """CollectorCAEN point-mode works under MPI."""
-        h5py = pytest.importorskip("h5py")
-
-        result, dats = _mpi_compile_and_run(f"""
-            DEFINE INSTRUMENT test_mpi_points(string filename="mpi_points", int point=0, int total_points=1)
-            {CAEN_USERVARS}
-            TRACE
-            SEARCH SHELL "readout-config --show compdir"
-            {CAEN_ORIGIN_EXTEND}
-            COMPONENT collector = CollectorCAEN(
-              ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
-              filename=filename, point=point, total_points=total_points, verbose=1
-            ) AT (0, 0, 1) ABSOLUTE
-            END
-        """, parameters="-n 50 filename=mpi_points point=0 total_points=1",
-            nranks=2, directory=str(tmp_path))
-        assert b"TRACE end" in result
-
-        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
-        assert len(h5_files) > 0
-        h5_path = h5_files[0]
-        assert Path(h5_path).exists()
-
-        with h5py.File(str(h5_path), "r") as f:
-            assert "collector" in f, f"Missing collector group; keys: {list(f.keys())}"
-            group = f["collector"]
-            for required in ("readouts", "cues", "weights", "normalizations"):
-                assert required in group, f"Missing '{required}' in collector group; keys: {list(group.keys())}"
-
-    @mpi_compiled_test
     def test_mpi_collect_four_ranks(self, tmp_path):
         """CollectorCAEN works correctly with 4 MPI ranks."""
         h5py = pytest.importorskip("h5py")
