@@ -247,7 +247,7 @@ public:
   }
 
 
-  RL_API std::optional<HighFive::Group> getCollector(
+  std::optional<HighFive::Group> getCollector(
     const std::string& name,
     const DetectorType& detector,
     const ReadoutType& readout
@@ -261,7 +261,7 @@ public:
   /// overload accepts any compound type so user-described records get the same cue-based
   /// layout. The detector/readout attributes are only written when known, and the original
   /// type description string (when given) is stored as a dataset attribute.
-  RL_API std::optional<HighFive::Group> getCollector(
+  std::optional<HighFive::Group> getCollector(
     const std::string& name,
     const HighFive::DataType& datatype,
     const std::optional<DetectorType>& detector = std::nullopt,
@@ -308,12 +308,12 @@ public:
     return collector_->getGroup(name);
   }
 
-  RL_API [[nodiscard]] auto removeCollector(const std::string& name) {
+  [[nodiscard]] auto removeCollector(const std::string& name) {
     return users_.erase(name);
   }
 
   template<class T>
-  RL_API void addParameter(
+  void addParameter(
     const std::string& name,
     T value,
     const std::optional<std::string> & unit = std::nullopt,
@@ -379,7 +379,7 @@ class Collector {
 
 public:
 
-  RL_API explicit Collector(
+  explicit Collector(
     const std::string &filename,
     std::string name,
     const int Type=0x34,
@@ -401,7 +401,7 @@ public:
   /// cue-based group layout as the typed collectors. When the description matches one of
   /// the canonical readout_type_description() strings the resulting file is EFU-sendable;
   /// otherwise it is readable and combinable but skipped by replay.
-  RL_API explicit Collector(
+  explicit Collector(
     const std::string &filename,
     std::string name,
     const std::string &type_description,
@@ -418,13 +418,13 @@ public:
     dataset_ = group_->getDataSet(CollectorSink::readout_dataset_name());
   }
 
-  RL_API [[nodiscard]] size_t record_size() const { return record_size_; }
+  [[nodiscard]] size_t record_size() const { return record_size_; }
 
   /// \brief Store one record of the collector's compound type, accumulating its weight.
   ///
   /// \param weight the rate-weight of this record, accumulated into the point weight
   /// \param data pointer to record_size() bytes laid out per the collector's datatype
-  RL_API void addRecord(const double weight, const void * data) {
+  void addRecord(const double weight, const void * data) {
     if (!dataset_.has_value() || !datatype_.has_value()) {
       std::cerr << "Dataset not initialized, cannot save record!" << std::endl;
       return;
@@ -437,7 +437,7 @@ public:
   }
 
   // Add a readout with time and weight information to the writer's storage
-  RL_API void addReadout(const uint8_t Ring, const uint8_t FEN, const double tof, const double weight, const void * data) {
+  void addReadout(const uint8_t Ring, const uint8_t FEN, const double tof, const double weight, const void * data) {
     if (!readout_.has_value()) {
       throw std::runtime_error("addReadout requires a typed Collector; use addRecord with a description-based Collector");
     }
@@ -482,7 +482,7 @@ public:
 
   /// Write optional EFU destination attributes onto this collector group.
   /// Only writes if address is non-empty and port > 0; silently ignores already-set attributes.
-  RL_API void setEFU(const std::string & address, int port) {
+  void setEFU(const std::string & address, int port) {
     if (!group_.has_value() || address.empty() || port <= 0) return;
     if (!group_->hasAttribute(CollectorSink::efu_address_attribute_name())) {
       group_->createAttribute<std::string>(CollectorSink::efu_address_attribute_name(), address);

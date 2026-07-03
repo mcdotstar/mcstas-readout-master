@@ -12,15 +12,21 @@ else()
     message(FATAL_ERROR "Could not find a known HighFive CMake target")
 endif()
 
-# Make the HighFive headers available directly to the readout build on all
-# generators. This avoids relying on imported target propagation, which can be
-# fragile with MSVC's multi-config project generation.
-target_include_directories(${READOUT_LIBRARY_TARGET} PRIVATE
-        ${HighFive_INCLUDE_DIRS}
-)
-target_include_directories(${READOUT_LIBRARY_TARGET} PUBLIC
-        $<BUILD_INTERFACE:${HighFive_INCLUDE_DIRS}>
-)
+# Make the HighFive and HDF5 headers available directly to the readout build on
+# all generators. HighFive's own headers include HDF5 C headers (e.g.
+# H5Ppublic.h) so both include paths are required. Using the package variables
+# directly avoids relying on imported-target INTERFACE_INCLUDE_DIRECTORIES
+# propagation, which is fragile with MSVC multi-config project generation.
+#
+# Note: we iterate over each path individually so that $<BUILD_INTERFACE:...>
+# wraps a single path per call, avoiding issues with semicolons inside genexes.
+foreach(_hf_inc IN LISTS HighFive_INCLUDE_DIRS HDF5_INCLUDE_DIRS)
+    target_include_directories(${READOUT_LIBRARY_TARGET} PRIVATE ${_hf_inc})
+    target_include_directories(${READOUT_LIBRARY_TARGET} PUBLIC
+            $<BUILD_INTERFACE:${_hf_inc}>
+    )
+endforeach()
+unset(_hf_inc)
 
 # Link HighFive (and transitively HDF5) for the build tree only.
 # $<INSTALL_INTERFACE:> is empty so installed consumers of Readout::readout
