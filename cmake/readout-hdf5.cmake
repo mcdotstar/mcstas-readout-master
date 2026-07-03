@@ -12,12 +12,14 @@ else()
     message(FATAL_ERROR "Could not find a known HighFive CMake target")
 endif()
 
-# Explicitly propagate HighFive include dirs onto the readout library for
-# build-tree consumers. On MSVC multi-config generators the generator
-# expression $<BUILD_INTERFACE:HighFive> in target_link_libraries is not
-# always sufficient to carry include paths, so we set them explicitly here.
+# Make the HighFive headers available directly to the readout build on all
+# generators. This avoids relying on imported target propagation, which can be
+# fragile with MSVC's multi-config project generation.
+target_include_directories(${READOUT_LIBRARY_TARGET} PRIVATE
+        ${HighFive_INCLUDE_DIRS}
+)
 target_include_directories(${READOUT_LIBRARY_TARGET} PUBLIC
-        $<BUILD_INTERFACE:$<TARGET_PROPERTY:${READOUT_HIGHFIVE_TARGET},INTERFACE_INCLUDE_DIRECTORIES>>
+        $<BUILD_INTERFACE:${HighFive_INCLUDE_DIRS}>
 )
 
 # Link HighFive (and transitively HDF5) for the build tree only.
