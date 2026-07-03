@@ -27,10 +27,19 @@ include(GNUInstallDirs)
 
 # The build tree mirrors the install layout (bin/, lib/, include/, share/Readout)
 # so that the self-locating readout-config resolves the same baked relative paths
-# whether it runs from the build tree or an installed prefix:
+# whether it runs from the build tree or an installed prefix. Multi-config
+# generators (Visual Studio) would otherwise add per-config subdirectories
+# (bin/Debug/...), breaking those relative paths — collapse them: one
+# configuration per build tree.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_BINDIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}")
+foreach(READOUT_CFG IN ITEMS Debug Release RelWithDebInfo MinSizeRel)
+    string(TOUPPER "${READOUT_CFG}" READOUT_CFG_UP)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${READOUT_CFG_UP} "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_BINDIR}")
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${READOUT_CFG_UP} "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}")
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${READOUT_CFG_UP} "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}")
+endforeach()
 
 add_definitions(-DUSE_HIGHFIVE)
 if (MSVC)

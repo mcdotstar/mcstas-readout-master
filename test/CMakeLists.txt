@@ -19,6 +19,14 @@ target_include_directories(${READOUT_TESTER_TARGET} PRIVATE
 target_link_libraries(${READOUT_TESTER_TARGET} PRIVATE Catch2::Catch2WithMain Threads::Threads readout)
 addCheckDependency(${READOUT_TESTER_TARGET})
 
+if (WIN32)
+    # hdf5.dll (shared on Windows, see conanfile.py) next to the tester:
+    add_custom_command(TARGET ${READOUT_TESTER_TARGET} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_RUNTIME_DLLS:${READOUT_TESTER_TARGET}>" "$<TARGET_FILE_DIR:${READOUT_TESTER_TARGET}>"
+        COMMAND_EXPAND_LISTS)
+endif()
+
 include(Catch)
 catch_discover_tests(${READOUT_TESTER_TARGET})
 

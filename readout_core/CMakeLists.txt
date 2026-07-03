@@ -128,6 +128,18 @@ endif()
 set_target_properties(${READOUT_REPLAY_BINARY} ${READOUT_COMBINE_BINARY}
         PROPERTIES INSTALL_RPATH "${Readout_INSTALL_RPATH}")
 
+if (WIN32)
+    # Windows resolves DLLs from the executable directory: copy the runtime
+    # dependencies (hdf5.dll — shared on Windows, see conanfile.py) next to the
+    # binaries so build-tree tools and ctest work without PATH surgery.
+    foreach(READOUT_TOOL IN ITEMS ${READOUT_REPLAY_BINARY} ${READOUT_COMBINE_BINARY})
+        add_custom_command(TARGET ${READOUT_TOOL} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_RUNTIME_DLLS:${READOUT_TOOL}>" "$<TARGET_FILE_DIR:${READOUT_TOOL}>"
+            COMMAND_EXPAND_LISTS)
+    endforeach()
+endif()
+
 # ---- dependencies needing all targets ------------------------------------------
 
 set(CXX_TARGETS ${READOUT_LIBRARY_TARGET} ${READOUT_REPLAY_BINARY} ${READOUT_COMBINE_BINARY})

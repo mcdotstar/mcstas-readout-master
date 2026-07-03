@@ -13,6 +13,11 @@ if ! command -v mcstas-antlr &> /dev/null; then
     echo "mcstas-antlr not found, skipping integration tests."
     exit 100
 fi
+# ... or installed but not functional (e.g. incomplete Windows support):
+if ! mcstas-antlr --version &> /dev/null; then
+    echo "mcstas-antlr found but not functional, skipping integration tests."
+    exit 100
+fi
 readout_config=""
 if [ -x bin/readout-config ]; then
     readout_config="bin/readout-config"

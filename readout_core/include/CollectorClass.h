@@ -209,10 +209,11 @@ public:
 
   CollectorSink(CollectorSink &other) = delete;
   void operator=(const CollectorSink &) = delete;
-  static CollectorSink * instance() {
-    static CollectorSink singleton;
-    return &singleton;
-  }
+  // Defined in CollectorClass.cpp and exported: the singleton must live in
+  // libreadout so that every module of a process (the library itself, any C++
+  // consumer executing these header-inline methods) shares ONE sink. A
+  // header-inline definition would give each Windows module its own copy.
+  RL_API static CollectorSink * instance();
   static void destroy() {
     instance()->teardown();
   }

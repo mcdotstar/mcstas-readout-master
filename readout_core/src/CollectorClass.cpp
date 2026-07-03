@@ -4,6 +4,11 @@
 #include <ranges>
 #include <set>
 
+CollectorSink * CollectorSink::instance() {
+  static CollectorSink singleton;
+  return &singleton;
+}
+
 class CollectorShape {
   using readouts_t = std::map<std::string, std::vector<uint32_t>>;
   public:

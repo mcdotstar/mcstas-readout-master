@@ -50,6 +50,16 @@ class ReadoutRecipe(ConanFile):
         "LICENSE",
     )
 
+    def configure(self):
+        if self.settings.os == "Windows":
+            # Windows has no dynamic-symbol interposition: with a static HDF5
+            # inside readout.dll, any C++ consumer (our tester, mccode-plumber)
+            # that compiles the header-inline HighFive API gets a SECOND live
+            # HDF5 instance, and hid_t handles cannot cross the DLL boundary
+            # ("H5Aexists: invalid identifier"). One shared hdf5.dll gives every
+            # module the same instance — which is also what conda-forge ships.
+            self.options["hdf5/*"].shared = True
+
     def set_version(self):
         if self.version:
             return
