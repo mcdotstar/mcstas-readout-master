@@ -151,20 +151,6 @@ CollectorShape concatenate_shapes(const std::vector<const CollectorShape *> & sh
 }
 
 
-HighFive::CompoundType hdf_compound_type(const ReadoutType readout){
-  using namespace HighFive;
-  switch (readout){
-    case ReadoutType::CAEN: return create_datatype<CAEN_event>();
-    case ReadoutType::TTLMonitor: return create_datatype<TTLMonitor_event>();
-    case ReadoutType::CDT: return create_datatype<CDT_event>();
-    case ReadoutType::VMM3: return create_datatype<VMM3_event>();
-    case ReadoutType::BM0: return create_datatype<BM0_event>();
-    case ReadoutType::BM2: return create_datatype<BM2_event>();
-    case ReadoutType::BMI: return create_datatype<BMI_event>();
-    default: throw std::runtime_error("Saving this readout type is not implemented yet!");
-  }
-}
-
 // static void concat_dataset(const HighFive::DataSet & out, const size_t out_offset, const HighFive::DataSet & in, const std::optional<size_t> in_offset = std::nullopt, const std::optional<size_t> in_count = std::nullopt) {
 //   const size_t offset = in_offset.value_or(0u);
 //   const size_t count = in_count.value_or(in.getDimensions().front() - offset);

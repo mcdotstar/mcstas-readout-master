@@ -78,6 +78,8 @@ target_include_directories(${READOUT_LIBRARY_TARGET} PRIVATE
 # installed export so find_package(Readout) does not require it downstream
 find_package(nlohmann_json REQUIRED)
 target_link_libraries(${READOUT_LIBRARY_TARGET} PRIVATE nlohmann_json::nlohmann_json)
+# Ensure include availability across MSVC multi-config Conan generation.
+target_include_directories(${READOUT_LIBRARY_TARGET} PRIVATE ${nlohmann_json_INCLUDE_DIRS})
 
 # HDF5 is linked statically (see conanfile.py). For wheel builds its symbols
 # must not leak out of libreadout, or they can clash with another HDF5 loaded
