@@ -7,6 +7,14 @@ list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_CURRENT_LIST_DIR}/cmake")
 set(READOUT_BUILD_ON_CONDA OFF CACHE BOOL "Set to ON to build for conda")
 set(READOUT_USE_CONAN ON CACHE BOOL "Use Conan to manage dependencies") # Set to OFF to use system libraries
 set(READOUT_BUILD_TESTS ON CACHE BOOL "Build test binary")
+set(READOUT_DOCS_ONLY OFF CACHE BOOL "Configure only the documentation target (no dependencies, no compiled targets)")
+
+if (READOUT_DOCS_ONLY)
+    # Documentation needs only the version string and Doxygen: skip dependency
+    # resolution and every compiled target so a bare runner can configure.
+    set(READOUT_USE_CONAN OFF)
+    set(READOUT_BUILD_TESTS OFF)
+endif()
 
 if (READOUT_USE_CONAN)
     set(CMAKE_PROJECT_TOP_LEVEL_INCLUDES "${CMAKE_CURRENT_LIST_DIR}/cmake/conan_provider.cmake")
@@ -78,11 +86,34 @@ if (READOUT_BUILD_TESTS)
     include(CTest)
 endif()
 
-# The library, CLI tools, McStas components, and install rules:
-add_subdirectory(readout_core)
+if (NOT READOUT_DOCS_ONLY)
+    # The library, CLI tools, McStas components, and install rules:
+    add_subdirectory(readout_core)
 
-# The test suite lives at the repository root (mcpl-style): it exercises the
-# readout_core targets but is not part of any installed package.
-if (READOUT_BUILD_TESTS)
-    add_subdirectory(test)
+    # The test suite lives at the repository root (mcpl-style): it exercises the
+    # readout_core targets but is not part of any installed package.
+    if (READOUT_BUILD_TESTS)
+        add_subdirectory(test)
+    endif()
+endif()
+
+find_package(Doxygen QUIET)
+if (DOXYGEN_FOUND)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    configure_file(
+        "${CMAKE_CURRENT_LIST_DIR}/docs/Doxyfile.in"
+        "${CMAKE_BINARY_DIR}/Doxyfile"
+        @ONLY
+    )
+    add_custom_target(docs
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/docs/extract_comp_docs.py"
+                "${CMAKE_CURRENT_LIST_DIR}/readout_core/components"
+                "${CMAKE_BINARY_DIR}/docs/generated"
+        COMMAND "${DOXYGEN_EXECUTABLE}" "${CMAKE_BINARY_DIR}/Doxyfile"
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        COMMENT "Generating static HTML documentation with Doxygen"
+        VERBATIM
+    )
+else()
+    message(STATUS "Doxygen not found: docs target will not be available")
 endif()

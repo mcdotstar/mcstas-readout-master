@@ -43,6 +43,26 @@ cd build && ctest                     # C++ unit tests + CLI smoke + integration
 python3 -m pytest tests/             # mccode-antlr compile/run tests
 ```
 
+## Documentation
+
+Install Doxygen, then generate the static HTML site locally. Use a dedicated
+build directory with `READOUT_DOCS_ONLY=ON` — it skips conan and every
+compiled target, so it configures anywhere without touching your development
+build directories:
+
+```bash
+cmake -S . -B build-docs -DREADOUT_DOCS_ONLY=ON
+cmake --build build-docs --target docs
+```
+
+The generated site is written to `build-docs/docs/html/`. The `docs` target
+first runs `docs/extract_comp_docs.py`, which turns the McDoc headers
+(`%I`/`%D`/`%P` sections) of `readout_core/components/*.comp` into markdown
+pages — keep those headers up to date when changing component parameters.
+The same headers make the components readable with McStas's `mcdoc`. The site
+is published by `.github/workflows/docs.yml` on pushes to `main` (GitHub Pages
+must be set to deploy from GitHub Actions in the repository settings).
+
 The pytest suite discovers a build directory by looking for
 `<dir>/bin/readout-config` in `build-dev`, `build`, `cmake-build-debug`,
 `cmake-build-release` (in that order — rebuild every directory you keep, or

@@ -22,6 +22,14 @@
 #endif
 
 
+/** \brief Legacy flat-file HDF5 writer used by the runtime-streaming Readout components.
+ *
+ * Appends one row per event to a single unlimited `events` dataset whose
+ * compound datatype comes from the readout registry (hdf_compound_type).
+ * This is the pre-collector format: it has no cues, weights, or
+ * normalizations, and is not readable by the collector Reader/replay path —
+ * new code should use Collector (CollectorClass.h) instead.
+ */
 class Writer{
   std::string filename;
   std::optional<HighFive::File> file;
@@ -76,6 +84,7 @@ public:
     dataset->createAttribute("readout", readoutType_name(readout));
   }
 
+  /// Append one event; data must point to the readout struct matching the configured ReadoutType.
   RL_API void saveReadout(const uint8_t Ring, const uint8_t FEN, const double tof, const double weight, const void * data){
     if (!dataset.has_value()){
       if (verbosity > 1) std::cout << "No readout saved to file due to no dataset available" << std::endl;

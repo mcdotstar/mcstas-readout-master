@@ -1,3 +1,63 @@
+/*******************************************************************************
+*
+* McStas readout-master component for the ESS data pipeline
+*
+* %I
+* Written by: Gregory Tucker
+* Date: 2026
+* Origin: European Spallation Source ERIC
+*
+* Collect BM2 (position-resolving beam-monitor) readout records into an HDF5
+* file for post-run replay to an Event Formation Unit.
+*
+* %D
+* Stores one weighted-ray record per traced neutron into a named collector
+* group of a cue-based HDF5 file. The record layout matches the canonical
+* BM2 readout for beam monitors that resolve a transverse position: ring,
+* FEN, time-of-flight, weight, channel, and the x and y positions. Files are
+* merged with `readout-combine` and sent to an EFU with `readout-replay`.
+*
+* Identifying values are read *by name* from particle variables (typically
+* USER_VARS set in an EXTEND block). `ring` must name a resolvable variable;
+* `channel_name`, `pos_x_name`, `pos_y_name` and `fen` fall back to their
+* `*_value` counterparts when left unset.
+*
+* Example: COMPONENT collect = CollectorBM2(
+*     ring="ring_id", pos_x_name="mon_x", pos_y_name="mon_y",
+*     filename="run", dataset_name="bm2")
+*   AT (0, 0, 0) RELATIVE PREVIOUS
+*
+* %P
+* INPUT PARAMETERS:
+*
+* ring: [str]       name of the particle variable holding the Ring (fibre) ID; required
+* fen: [str]        name of the particle variable holding the Front End Node ID; empty uses fen_value
+* channel_name: [str] name of the particle variable holding the monitor channel; empty uses channel_value
+* pos_x_name: [str] name of the particle variable holding the digitized x position; empty uses pos_x_value
+* pos_y_name: [str] name of the particle variable holding the digitized y position; empty uses pos_y_value
+* tof: [str]        name of the particle variable holding the time-of-flight; "t" reads the ray time
+* ring_count: [1]   currently unused; reserved
+* fen_count: [1]    currently unused; reserved
+* fen_value: [1]    fixed FEN ID used when fen is not named
+* channel_value: [1] fixed channel used when channel_name is not named
+* pos_x_value: [1]  fixed x position used when pos_x_name is not named
+* pos_y_value: [1]  fixed y position used when pos_y_name is not named
+* pulse_rate: [Hz]  currently unused by the collector; reference times are reconstructed at replay
+* filename: [str]   HDF5 output file; empty stores to "collected_events"; several collectors may share one file
+* dataset_name: [str] collector group name inside the file; empty uses the component instance name
+* verbose: [1]      -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+* ess_type: [1]     ESS DetectorType byte stored with the group; 0x50 (BEER) maps to the BM2
+*                   readout layout, as do CBM1 (0xf1) and CBM2 (0xf2)
+* efu_address: [str] optional EFU address stored as a group attribute for replay routing
+* efu_port: [1]     optional EFU UDP port stored as a group attribute for replay routing
+*
+* %L
+* The <a href="https://github.com/ess-dmsc/event-formation-unit">Event Formation Unit</a>
+* and the ESS Detector Interface Control Documents describe the beam-monitor readout formats.
+*
+* %E
+*******************************************************************************/
+
 DEFINE COMPONENT CollectorBM2
 DEFINITION PARAMETERS()
 SETTING PARAMETERS (

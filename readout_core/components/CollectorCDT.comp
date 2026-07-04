@@ -1,3 +1,63 @@
+/*******************************************************************************
+*
+* McStas readout-master component for the ESS data pipeline
+*
+* %I
+* Written by: Gregory Tucker
+* Date: 2026
+* Origin: European Spallation Source ERIC
+*
+* Collect CDT (Cathode Strip / DREAM-family) readout records into an HDF5
+* file for post-run replay to an Event Formation Unit.
+*
+* %D
+* Stores one weighted-ray record per traced neutron into a named collector
+* group of a cue-based HDF5 file. The record layout matches the canonical
+* CDT readout used by the DREAM detector family: ring, FEN, time-of-flight,
+* weight, output module (OM), cathode, and anode. Files are merged with
+* `readout-combine` and sent to an EFU with `readout-replay`.
+*
+* Identifying values are read *by name* from particle variables (typically
+* USER_VARS set in an EXTEND block). `ring` must name a resolvable variable;
+* `om_name`, `cathode_name`, `anode_name` and `fen` fall back to their
+* `*_value` counterparts when left unset.
+*
+* Example: COMPONENT collect = CollectorCDT(
+*     ring="ring_id", om_name="om", cathode_name="cathode", anode_name="anode",
+*     filename="run", dataset_name="dream_bank0", ess_type=0x60)
+*   AT (0, 0, 0) RELATIVE PREVIOUS
+*
+* %P
+* INPUT PARAMETERS:
+*
+* ring: [str]       name of the particle variable holding the Ring (fibre) ID; required
+* fen: [str]        name of the particle variable holding the Front End Node ID; empty uses fen_value
+* om_name: [str]    name of the particle variable holding the output-module ID; empty uses om_value
+* cathode_name: [str] name of the particle variable holding the cathode ID; empty uses cathode_value
+* anode_name: [str] name of the particle variable holding the anode ID; empty uses anode_value
+* tof: [str]        name of the particle variable holding the time-of-flight; "t" reads the ray time
+* ring_count: [1]   currently unused; reserved
+* fen_count: [1]    currently unused; reserved
+* fen_value: [1]    fixed FEN ID used when fen is not named
+* om_value: [1]     fixed output module used when om_name is not named
+* cathode_value: [1] fixed cathode used when cathode_name is not named
+* anode_value: [1]  fixed anode used when anode_name is not named
+* pulse_rate: [Hz]  currently unused by the collector; reference times are reconstructed at replay
+* filename: [str]   HDF5 output file; empty stores to "collected_events"; several collectors may share one file
+* dataset_name: [str] collector group name inside the file; empty uses the component instance name
+* verbose: [1]      -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+* ess_type: [1]     ESS DetectorType byte stored with the group; 0x60 (DREAM) maps to the CDT
+*                   readout layout, as do MAGIC (0x64) and HEIMDAL (0x68)
+* efu_address: [str] optional EFU address stored as a group attribute for replay routing
+* efu_port: [1]     optional EFU UDP port stored as a group attribute for replay routing
+*
+* %L
+* The <a href="https://github.com/ess-dmsc/event-formation-unit">Event Formation Unit</a>
+* and the ESS Detector Interface Control Documents describe the CDT readout format.
+*
+* %E
+*******************************************************************************/
+
 DEFINE COMPONENT CollectorCDT
 DEFINITION PARAMETERS()
 SETTING PARAMETERS (

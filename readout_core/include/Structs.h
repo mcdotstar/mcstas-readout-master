@@ -22,9 +22,9 @@
 #endif
 
 
-// Header common to all ESS readout data
-// Reviewed ICD (version 2) packet header version 0
-// ownCloud: https://project.esss.dk/owncloud/index.php/s/DWNer23727TiI1x
+/// \brief Header common to all ESS readout data.
+/// Reviewed ICD (version 2) packet header version 0;
+/// ownCloud: https://project.esss.dk/owncloud/index.php/s/DWNer23727TiI1x
 PACK(struct PacketHeaderV0 {
        uint8_t Padding0;
        uint8_t Version;
@@ -39,8 +39,8 @@ PACK(struct PacketHeaderV0 {
        uint32_t SeqNum;
      });
 
-// Consistent with BIFROST ICD
-// unused uint32_t at end replaced by C & D to extend to LOKI?
+/// \brief CAEN digitizer readout, consistent with the BIFROST ICD.
+/// The unused trailing uint32_t is replaced by amplitudes C and D to extend to LOKI.
 PACK(struct CaenData {
        uint8_t Ring;
        uint8_t FEN;
@@ -56,8 +56,7 @@ PACK(struct CaenData {
        uint16_t AmplD;
      });
 
-// From TTLMon ICD
-// TBD
+/// \brief TTL beam-monitor readout, from the TTLMonitor ICD.
 PACK(struct TTLMonitorData {
        uint8_t Ring;
        uint8_t FEN;
@@ -69,8 +68,8 @@ PACK(struct TTLMonitorData {
        uint16_t ADC;
      });
 
-// From EFU src/modules/dream/readout/DataParser.h
-// Used by: DREAM, MAGIC, HEIMDAL
+/// \brief CDT readout, from EFU src/modules/dream/readout/DataParser.h.
+/// Used by: DREAM, MAGIC, HEIMDAL.
 PACK(struct CDTData {
        uint8_t Ring;
        uint8_t FEN;
@@ -83,8 +82,8 @@ PACK(struct CDTData {
        uint8_t Anode;
      });
 
-// from EFU src/common/readout/vmm3/VMM3Parser.h
-// Used by: FREIA, NMX, TREX
+/// \brief VMM3 readout, from EFU src/common/readout/vmm3/VMM3Parser.h.
+/// Used by: FREIA, NMX, TREX.
 PACK(struct VMM3Data {
        uint8_t Ring;
        uint8_t FEN;
@@ -99,9 +98,8 @@ PACK(struct VMM3Data {
        uint8_t Channel;
      });
 
-// Beam Monitor data structures
-// Used for point-monitors digitized via, e.g., NI14125, NI128D, R5560
-// these all have Type == 0x01
+/// \brief Minimal beam-monitor readout for point monitors digitized via, e.g.,
+/// NI14125, NI128D, R5560; these all have Type == 0x01.
 PACK(struct BM0Data {
   uint8_t Ring;
   uint8_t FEN;
@@ -114,8 +112,8 @@ PACK(struct BM0Data {
   uint32_t Debug32;
 });
 
-// used by BEER, CBM-2D-monitors (CASCADE and GEM-based for, e.g., BIFROST)
-// these have Type == 0x02
+/// \brief Position-resolving beam-monitor readout used by BEER and CBM 2-D
+/// monitors (CASCADE and GEM based, e.g., for BIFROST); these have Type == 0x02.
 PACK(struct BM2Data {
   uint8_t Ring;
   uint8_t FEN;
@@ -129,8 +127,8 @@ PACK(struct BM2Data {
   uint16_t Y;
 });
 
-// Used by CDT I-BM monitors (CASCADE-based for, e.g., DREAM, MAGIC, HEIMDAL)
-// these have Type == 0x03
+/// \brief Integrating beam-monitor readout used by CDT I-BM monitors (CASCADE
+/// based, e.g., for DREAM, MAGIC, HEIMDAL); these have Type == 0x03.
 PACK(struct BMIData {
   uint8_t Ring;
   uint8_t FEN;

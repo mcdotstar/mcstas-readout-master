@@ -10,6 +10,12 @@
 #include <stdexcept>
 #include <utility>
 
+/** \brief ESS EFU two-integer timestamp: whole seconds since the UNIX epoch
+ * plus ticks of the 88.052499 MHz readout clock within the second.
+ *
+ * Arithmetic keeps the tick field normalized (always less than one second's
+ * worth of ticks), matching how the EFU interprets the high/low pair.
+ */
 class efu_time {
 protected:
   uint32_t _h;

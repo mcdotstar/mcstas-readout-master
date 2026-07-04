@@ -18,14 +18,22 @@
 #define RL_API
 #endif
 
+/// Console output level shared by the library classes; each level includes the previous ones.
 enum class Verbosity {
-  silent,
-  errors,
-  warnings,
-  info,
-  details
+  silent,   ///< no output at all
+  errors,   ///< errors only
+  warnings, ///< errors and warnings
+  info,     ///< progress information
+  details   ///< per-event details
 };
 
+/** \brief ESS detector (instrument) identifiers.
+ *
+ * The value is the packet-type byte of the ESS readout header: EFUs filter
+ * incoming packets on it, and collector files store it as the group's
+ * detector identity. Each DetectorType maps to exactly one ReadoutType
+ * record layout via readoutType_from_detectorType().
+ */
 enum DetectorType {
   Reserved = 0x00,
   TTLMonitor = 0x10,
@@ -50,21 +58,34 @@ enum DetectorType {
   CBMI = 0xfa,
 };
 
+/** \brief Readout record layouts understood by the library.
+ *
+ * Each value names one canonical C-struct record layout (see
+ * readout_type_descriptions.h) shared by every DetectorType that uses the
+ * same front-end electronics.
+ */
 enum class ReadoutType {
-  TTLMonitor,
-  CAEN,
-  VMM3,
-  CDT,
-  BM0,
-  BM2,
-  BMI,
+  TTLMonitor, ///< TTL beam monitor: channel, position, ADC
+  CAEN,       ///< CAEN digitizer: group channel and amplitudes A-D
+  VMM3,       ///< VMM3 ASIC: BC, OTADC, GEO, TDC, VMM, channel
+  CDT,        ///< CDT (DREAM family): output module, cathode, anode
+  BM0,        ///< minimal beam monitor: channel only
+  BM2,        ///< position-resolving beam monitor: channel, x, y
+  BMI,        ///< integrating beam monitor: channel, sum, 32-bit ADC
 };
 
+/// Checked conversion from the ESS packet-type byte; throws for unknown values.
 RL_API DetectorType detectorType_from_int(int);
+/// The unique record layout used by a given detector.
 RL_API ReadoutType readoutType_from_detectorType(DetectorType type);
+/// Shorthand for readoutType_from_detectorType(detectorType_from_int(int_type)).
 RL_API ReadoutType readoutType_from_int(int int_type);
 
+/// Checked conversion from a detector name such as "DetectorType::BIFROST"; throws for unknown names.
 RL_API DetectorType detectorType_from_name(const std::string & name);
+/// Checked conversion from a readout name such as "ReadoutType::CAEN"; throws for unknown names.
 RL_API ReadoutType readoutType_from_name(const std::string & name);
+/// Qualified name of a detector, e.g. "DetectorType::BIFROST".
 RL_API std::string detectorType_name(DetectorType);
+/// Qualified name of a readout layout, e.g. "ReadoutType::CAEN".
 RL_API std::string readoutType_name(ReadoutType);

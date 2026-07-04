@@ -1,3 +1,74 @@
+/*******************************************************************************
+*
+* McStas readout-master component for the ESS data pipeline
+*
+* %I
+* Written by: Gregory Tucker
+* Date: 2023
+* Origin: European Spallation Source ERIC
+*
+* Stream CAEN-digitizer readout packets to a running Event Formation Unit
+* during the simulation (legacy in-simulation mode).
+*
+* %D
+* For every traced neutron this component makes a Poisson-distributed Monte
+* Carlo choice based on the ray weight (`event_mode="p"`) or its square
+* (`"pp"`); if the draw is non-zero the event-identifying values are read
+* from named particle variables (typically USER_VARS) and sent as ESS
+* readout UDP packets to a running EFU. If the draw is zero the neutron can
+* optionally be replaced by random noise (`noisy`). The record layout is the
+* CAEN readout used by position-sensitive He-3 tubes and B-10 straw bundles.
+*
+* This is the legacy runtime-streaming mode: the EFU must be reachable while
+* the simulation runs. For the decoupled workflow, store records with
+* CollectorCAEN.comp instead and send them later with `readout-replay`.
+*
+* Reference timestamps are derived from `pulse_rate` and the simulation
+* wall-clock; the event time is the most recent reference time plus the
+* neutron time-of-flight.
+*
+* Example: COMPONENT readout = ReadoutCAEN(
+*     ring="ring_id", tube="tube_id", a_name="left", b_name="right",
+*     ip="bifrost-efu.example.org", port=9000)
+*   AT (0, 0, 0) RELATIVE PREVIOUS
+*
+* %P
+* INPUT PARAMETERS:
+*
+* ring: [str]      name of the particle variable holding the Ring (fibre) ID; required
+* fen: [str]       name of the particle variable holding the Front End Node ID; empty uses fen_value
+* tube: [str]      name of the particle variable holding the CAEN group (tube) ID; required
+* a_name: [str]    name of the particle variable holding amplitude A; empty uses a_value
+* b_name: [str]    name of the particle variable holding amplitude B; empty uses b_value
+* c_name: [str]    name of the particle variable holding amplitude C; empty uses c_value
+* d_name: [str]    name of the particle variable holding amplitude D; empty uses d_value
+* tof: [str]       name of the particle variable holding the time-of-flight; "t" reads the ray time
+* ip: [str]        resolvable domain name or IP address of the EFU receiving the packets
+* fen_value: [1]   fixed FEN ID used when fen is not named
+* a_value: [1]     fixed amplitude A used when a_name is not named
+* b_value: [1]     fixed amplitude B used when b_name is not named
+* c_value: [1]     fixed amplitude C used when c_name is not named
+* d_value: [1]     fixed amplitude D used when d_name is not named
+* port: [1]        EFU event-packet UDP port
+* command_port: [1] EFU command TCP port
+* broadcast: [1]   flag controlling whether event packets are actually sent
+* pulse_rate: [Hz] reference-time pulse rate used to build EFU timestamps
+* noisy: [1]       flag: replace otherwise-dropped events with random noise
+* noise_level: [1] if noisy, fractional probability of noise
+* event_mode: [str] "p" draws n ~ Poisson(p); "pp" draws n ~ Poisson(p^2)
+* filename: [str]  if given, the ray data passed to the broadcaster is also stored to this HDF5 file
+* merge_mpi: [1]   flag: merge per-node HDF5 files after an MPI run
+* keep_mpi_unmerged: [1] flag: keep the per-node files after merging
+* verbose: [1]     -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+* ess_type: [1]    ESS DetectorType byte for the packet header, e.g. BIFROST 0x34, MIRACLES 0x41
+*
+* %L
+* The <a href="https://github.com/ess-dmsc/event-formation-unit">Event Formation Unit</a>
+* and the ESS Detector Interface Control Documents describe the CAEN readout format.
+*
+* %E
+*******************************************************************************/
+
 DEFINE COMPONENT ReadoutCAEN
 DEFINITION PARAMETERS()
 SETTING PARAMETERS (
