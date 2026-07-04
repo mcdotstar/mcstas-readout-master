@@ -70,6 +70,11 @@ next grid tick — every reference time of a point's events is therefore a
 wall-clock instant *after* its parameters were published, preserving the causal
 order the downstream file writer relies on.
 
+The same replay (and the combine operations) can be driven in-process from
+Python — with a Python-implemented parameter publisher and cooperative
+cancellation — through the `mcstas_readout` package; see the
+[Python API](python.md).
+
 ### Sender configuration JSON
 
 ```json

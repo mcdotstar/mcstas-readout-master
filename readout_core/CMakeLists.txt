@@ -57,6 +57,7 @@ target_sources(${READOUT_LIBRARY_TARGET} PRIVATE
         src/enums.cpp
         src/hdf_interface.cpp
         src/replay.cpp
+        src/readout_capi.cpp
         src/Sender.cpp
         src/SenderConfigs.cpp
         src/CollectorClass.cpp

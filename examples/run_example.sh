@@ -7,6 +7,9 @@
 # Replay sends UDP packets; without a listening EFU they are simply dropped,
 # so the walkthrough is safe to run anywhere. Point --addr/--port at a real
 # EFU to feed the full ESS pipeline.
+#
+# replay_publisher.py in this directory is the Python twin of step 3, driving
+# the same replay through the mcstas_readout package instead of the CLI.
 set -euo pipefail
 cd "$(dirname "$0")"
 
