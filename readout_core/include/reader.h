@@ -33,6 +33,7 @@
 #define RL_API
 #endif
 
+/// Metadata describing one dataset in the optional root "parameters" group.
 struct ParameterDatasetView {
   std::string name;
   HighFive::DataType datatype;
@@ -40,6 +41,12 @@ struct ParameterDatasetView {
   std::optional<std::string> description;
 };
 
+/** \brief Typed accessor for one collector group inside a validated collector file.
+ *
+ * Reader exposes point-aware access to stored records (`readouts`) and cue-based
+ * slicing through the `cues` dataset. EFU sendability is inferred from exact
+ * HDF5 compound datatype comparison against the canonical readout registry.
+ */
 class Reader {
   std::shared_ptr<HighFive::File> file_;
   std::string group_name_;
@@ -270,6 +277,11 @@ public:
   }
 };
 
+/** \brief Opens one collector file and discovers all collector groups and parameters.
+ *
+ * ReaderSource validates root metadata, constructs one Reader per collector
+ * group, and exposes point-aligned access to optional root `parameters`.
+ */
 class ReaderSource {
   std::string filename_;
   std::shared_ptr<HighFive::File> file_;

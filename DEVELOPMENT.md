@@ -43,6 +43,17 @@ cd build && ctest                     # C++ unit tests + CLI smoke + integration
 python3 -m pytest tests/             # mccode-antlr compile/run tests
 ```
 
+## Documentation
+
+Install Doxygen, then generate the static HTML site locally:
+
+```bash
+cmake -S . -B build
+cmake --build build --target docs
+```
+
+The generated site is written to `build/docs/html/`.
+
 The pytest suite discovers a build directory by looking for
 `<dir>/bin/readout-config` in `build-dev`, `build`, `cmake-build-debug`,
 `cmake-build-release` (in that order — rebuild every directory you keep, or

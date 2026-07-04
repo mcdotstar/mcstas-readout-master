@@ -8,6 +8,20 @@ since each detector type produces different information per neutron event.
 At present only detectors using CAEN digitizers and simple TTL-based signals are supported, but extending
 the system to support other detector types is straightforward.
 
+## Documentation
+Static HTML documentation (guides + API reference from in-code comments) is
+published at:
+
+https://g5t.github.io/mcstas-readout-master/
+
+To build locally:
+
+```bash
+# Requires Doxygen in PATH
+cmake -S . -B build
+cmake --build build --target docs
+```
+
 Each component makes a Poisson distributed Monte Carlo choice for every neutron
 that it is passed based on the weight, `_particle->p`, or the weight squared (user configurable).
 If the random choice is finite event-identifying parameters are read from the `_particle` struct's `USER_VARS`

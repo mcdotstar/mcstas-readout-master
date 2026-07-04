@@ -1,0 +1,49 @@
+PROJECT_NAME           = "McStas Readout Master"
+PROJECT_NUMBER         = "@READOUT_VERSION@"
+OUTPUT_DIRECTORY       = "@CMAKE_BINARY_DIR@/docs"
+
+CREATE_SUBDIRS         = NO
+ALLOW_UNICODE_NAMES    = NO
+OUTPUT_LANGUAGE        = English
+
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+USE_MDFILE_AS_MAINPAGE = "@CMAKE_SOURCE_DIR@/docs/index.md"
+TOC_INCLUDE_HEADINGS   = 3
+
+INPUT                  = \
+  "@CMAKE_SOURCE_DIR@/docs" \
+  "@CMAKE_SOURCE_DIR@/README.md" \
+  "@CMAKE_SOURCE_DIR@/ParameterPublisher.md" \
+  "@CMAKE_SOURCE_DIR@/readout_core/include" \
+  "@CMAKE_SOURCE_DIR@/readout_core/app_replay" \
+  "@CMAKE_SOURCE_DIR@/readout_core/app_combine" \
+  "@CMAKE_SOURCE_DIR@/readout_core/components"
+FILE_PATTERNS          = *.md *.h *.hpp *.hh *.c *.cpp *.comp
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */build/* */build-dev/* */.git/* */test/*
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+JAVADOC_AUTOBRIEF      = YES
+MULTILINE_CPP_IS_BRIEF = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_AS_ERROR          = NO
+QUIET                  = YES
+
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+STRIP_FROM_PATH        = "@CMAKE_SOURCE_DIR@"
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_FILE_EXTENSION    = .html
+GENERATE_TREEVIEW      = YES
+FULL_SIDEBAR           = NO
+
+GENERATE_LATEX         = NO
+GENERATE_MAN           = NO
+GENERATE_XML           = NO

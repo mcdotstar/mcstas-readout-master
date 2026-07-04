@@ -86,3 +86,20 @@ add_subdirectory(readout_core)
 if (READOUT_BUILD_TESTS)
     add_subdirectory(test)
 endif()
+
+find_package(Doxygen QUIET)
+if (DOXYGEN_FOUND)
+    configure_file(
+        "${CMAKE_CURRENT_LIST_DIR}/docs/Doxyfile.in"
+        "${CMAKE_BINARY_DIR}/Doxyfile"
+        @ONLY
+    )
+    add_custom_target(docs
+        COMMAND "${DOXYGEN_EXECUTABLE}" "${CMAKE_BINARY_DIR}/Doxyfile"
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        COMMENT "Generating static HTML documentation with Doxygen"
+        VERBATIM
+    )
+else()
+    message(STATUS "Doxygen not found: docs target will not be available")
+endif()
