@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -58,6 +59,8 @@ struct RL_API ReplaySubset {
   size_t every{1};
 };
 
+// New fields need a matching setter in readout_capi.h and a field in the
+// mcstas_readout.ReplayConfig Python dataclass (bump READOUT_CAPI_ABI_VERSION on change).
 struct RL_API ReplayConfig {
   /// Counting time in seconds. When set, a stored readout with rate-weight w is sent
   /// n ~ Poisson(w * counting_time) times; when unset every stored readout is sent exactly once.
@@ -79,6 +82,9 @@ struct RL_API ReplayConfig {
   /// Stamp each event at pulse + (tof % period) instead of pulse + tof, so
   /// long-time-of-flight events wrap into the frame they would be detected in
   bool fold_tof{false};
+  /// When non-null, replay polls this flag at point and chunk boundaries and
+  /// returns early (cleanly) once it is set. Caller-owned; must outlive replay().
+  const std::atomic<bool> * stop{nullptr};
 };
 
 /** \brief Replay a Collector file to one or more EFUs
@@ -91,9 +97,13 @@ struct RL_API ReplayConfig {
  * (detector, readout)-matched EFU endpoint. Within a point, packet pulse times march
  * forward on the pulse grid as the wall clock passes each tick, mimicking a continuously
  * pulsed source.
+ *
+ * @return true when the file was replayed to completion, false when stopped early via
+ *         config.stop. A stop observed between point_ready and the pulse start suppresses
+ *         all of that point's events.
  */
-RL_API void replay(const std::string & filename, const ReplayConfig & config, ParameterPublisher & publisher);
-RL_API void replay(const std::string & filename, const ReplayConfig & config);
+RL_API bool replay(const std::string & filename, const ReplayConfig & config, ParameterPublisher & publisher);
+RL_API bool replay(const std::string & filename, const ReplayConfig & config);
 
 /** \brief Replay all stored readouts from a file, each exactly once
  *

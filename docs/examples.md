@@ -92,3 +92,25 @@ TRACE
   ) AT (0,0,0) RELATIVE PREVIOUS
   ...
 ```
+
+## Example D: driving replay from Python
+
+The same replay as Example A, controlled in-process through the
+[Python API](python.md) with a custom parameter publisher:
+
+```python
+import mcstas_readout as ro
+
+class Printer(ro.ParameterPublisher):
+    def publish(self, point, name, value, unit):
+        print(f"point {point}: {name} = {value}" + (f" [{unit}]" if unit else ""))
+
+config = ro.ReplayConfig(counting_time=2.0, seed=42,
+                         default_address="127.0.0.1", default_port=9000)
+ro.replay("scan_all.h5", config, Printer())
+```
+
+`examples/replay_publisher.py` is the runnable version, including timed
+cancellation from a second thread:
+
+\include replay_publisher.py

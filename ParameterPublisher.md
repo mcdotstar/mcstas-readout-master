@@ -53,17 +53,39 @@ Guarantees and properties an implementation may rely on:
    the crude-but-effective baseline. Blocking here is exactly what preserves causal
    ordering end-to-end: replay only picks the point's first pulse time — and hence the
    earliest possible event timestamp — after `point_ready` returns.
-4. **The integration shape: link against libreadout.** The recommended structure is an
-   external tool (mccode-plumber) that links libreadout, constructs its EPICS-backed
+4. **The integration shape: drive libreadout, in C++ or Python.** The recommended
+   structure is an external tool (mccode-plumber) that constructs its EPICS-backed
    `ParameterPublisher`, builds a `ReplayConfig`, and calls
-   `replay(filename, config, publisher)`. Building an EPICS backend *into* libreadout
-   behind a build flag was considered and rejected: it drags EPICS client libraries
-   into every consumer.
+   `replay(filename, config, publisher)` — either by linking libreadout from C++, or
+   through the `mcstas_readout` Python package (see below), which lets the EPICS
+   transport be a Python implementation (e.g. p4p) with no compiled code. Building an
+   EPICS backend *into* libreadout behind a build flag was considered and rejected: it
+   drags EPICS client libraries into every consumer.
 5. **Run bracketing (outside the interface).** DAQ runs are started/stopped by run
    control (NICOS / file-writer commands). Replay has no run-control hooks; the
    implementing tool should bracket the whole `replay()` call (or individual points,
    using `point_ready` and its knowledge of `ReaderSource::points()`) with its own
    start/stop commands.
+
+## Implementing the publisher in Python
+
+The `mcstas_readout` package (shipped in the same distribution as libreadout) exposes
+the identical contract through the C API in `readout_capi.h`: subclass
+`mcstas_readout.ParameterPublisher`, implement `publish(point, name, value, unit)` and
+optionally `point_ready(point)`, and call `mcstas_readout.replay(filename, config,
+publisher)`. The callbacks run synchronously on the replaying thread with the same
+guarantees as the C++ interface — blocking in `point_ready` still gates the point's
+pulse start, and an exception raised in a callback stops the replay and re-raises from
+`replay()`.
+
+Python additionally gets cooperative cancellation: `Replay.cancel()` (thread-safe,
+callable while `run()` blocks) stops the replay at the next point or chunk boundary and
+makes `run()` return `False`. A stop that lands between a point's parameter publication
+and its pulse start suppresses *all* of that point's events, so a publisher that
+cancels on a failed parameter write never lets mistimed events reach the EFUs. The same
+mechanism is available to C++ callers through `ReplayConfig::stop` (a caller-owned
+`std::atomic<bool>`; `replay()` returns `false` when stopped) and to C callers through
+`readout_replay_request_stop()`.
 
 ## Known limitations to plan around
 

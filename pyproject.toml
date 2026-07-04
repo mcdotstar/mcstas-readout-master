@@ -33,7 +33,7 @@ readout-combine = "_readout_core:readout_combine"
 
 [tool.scikit-build]
 minimum-version = "0.10"
-wheel.packages = ["python/_readout_core"]
+wheel.packages = ["python/_readout_core", "python/mcstas_readout"]
 # The CMake install prefix lands inside the shim package: the binaries
 # self-locate their resources within it, and the entry points exec them.
 wheel.install-dir = "_readout_core/data"
@@ -60,4 +60,4 @@ archs = ["auto64"]
 build = ["cp312-*"]
 skip = ["*-musllinux*"]
 build-verbosity = 1
-test-command = "readout-config --version && readout-config --show compdir && readout-replay --help && readout-combine --help"
+test-command = "readout-config --version && readout-config --show compdir && readout-replay --help && readout-combine --help && python -c \"import mcstas_readout; print(mcstas_readout.lib_version())\""

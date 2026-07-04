@@ -23,6 +23,10 @@ void StreamParameterPublisher::publish(const size_t point, const std::string & n
 
 namespace {
 
+inline bool stop_requested(const ReplayConfig & config) {
+  return config.stop != nullptr && config.stop->load(std::memory_order_relaxed);
+}
+
 // Runtime state for a ReplaySubset: a global index over (point, group, readout) in replay order
 struct SubsetState {
   ReplaySubset spec;
@@ -116,6 +120,9 @@ void stream_point(const Reader & reader, Sender & sender, const size_t point, co
   };
   const auto chunk = std::max<size_t>(config.chunk_size, 1);
   for (size_t done = 0; done < count; done += chunk) {
+    if (stop_requested(config)) {
+      return;
+    }
     if (subset.has_value() && subset->done()) {
       break;
     }
@@ -142,7 +149,7 @@ void stream_point(const Reader & reader, Sender & sender, const size_t point, co
       }
     }
   }
-  if (config.random_order) {
+  if (config.random_order && !stop_requested(config)) {
     std::ranges::shuffle(buffered, rng);
     for (const auto & event : buffered) {
       event.add(sender);
@@ -167,7 +174,7 @@ void stream_reader_point(const Reader & reader, Sender & sender, const size_t po
 
 } // namespace
 
-void replay(const std::string & filename, const ReplayConfig & config, ParameterPublisher & publisher) {
+bool replay(const std::string & filename, const ReplayConfig & config, ParameterPublisher & publisher) {
   if (!(config.pulse_rate > 0.)) {
     throw std::runtime_error("The pulse rate must be positive");
   }
@@ -201,7 +208,15 @@ void replay(const std::string & filename, const ReplayConfig & config, Parameter
   }
 
   for (size_t point = 0; point < source.points(); ++point) {
+    if (stop_requested(config)) {
+      return false;
+    }
     publish_point(source, point, publisher);
+    // a stop requested while the point's parameters were published suppresses
+    // every event of that point
+    if (stop_requested(config)) {
+      return false;
+    }
     // start a fresh pulse only after the point's parameters are published, so
     // the parameter timestamps precede the reference times of the point's events
     for (auto & [key, sender] : senders) {
@@ -217,14 +232,18 @@ void replay(const std::string & filename, const ReplayConfig & config, Parameter
     }
   }
 
+  if (stop_requested(config)) {
+    return false;
+  }
   if (subset.has_value() && subset->emitted < subset->spec.number) {
     throw std::runtime_error("Requested replay subset exceeds available events");
   }
+  return true;
 }
 
-void replay(const std::string & filename, const ReplayConfig & config) {
+bool replay(const std::string & filename, const ReplayConfig & config) {
   NullParameterPublisher publisher;
-  replay(filename, config, publisher);
+  return replay(filename, config, publisher);
 }
 
 void replay_all(const std::string & filename, const std::string & address, const int port, const int control) {
