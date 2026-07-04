@@ -1,6 +1,10 @@
 #define CATCH_CONFIG_MAIN
+#include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <mutex>
+#include <set>
+#include <thread>
 #include <tuple>
 #include <catch2/catch_test_macros.hpp>
 #include "cluon-complete.hpp"
@@ -8,8 +12,10 @@
 #include <Readout.h>
 #include <Structs.h>
 #include <CollectorClass.h>
+#include <efu_time.h>
 #include <reader.h>
 #include <replay.h>
+#include <Sender.h>
 #include <SenderConfigs.h>
 #include "test_utils.h"
 
@@ -510,4 +516,205 @@ TEST_CASE("Explicit SenderConfigs override file-embedded EFU routing", "[replay]
   CHECK(right_stats->readouts == 0);
 
   fs::remove(fs::path(filename));
+}
+
+namespace {
+
+struct PacketRecord {
+  uint32_t seq{0};
+  efu_time pulse;
+  efu_time prev;
+  std::vector<efu_time> events;
+};
+
+/// Thread-safe log of received CAEN packets: header pulse times plus per-readout event times
+class PacketLog {
+  mutable std::mutex mutex_;
+  std::vector<PacketRecord> records_;
+public:
+  void add(const std::string & data) {
+    const auto * header = reinterpret_cast<const PacketHeaderV0 *>(data.data());
+    PacketRecord record{header->SeqNum,
+                        efu_time(header->PulseHigh, header->PulseLow),
+                        efu_time(header->PrevPulseHigh, header->PrevPulseLow), {}};
+    const auto count = (header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData);
+    const auto * ptr = data.data() + sizeof(PacketHeaderV0);
+    for (size_t i = 0; i < count; ++i) {
+      const auto * r = reinterpret_cast<const CaenData *>(ptr + i * sizeof(struct CaenData));
+      record.events.emplace_back(r->TimeHigh, r->TimeLow);
+    }
+    const std::lock_guard lock(mutex_);
+    records_.push_back(std::move(record));
+  }
+  std::vector<PacketRecord> records() const {
+    const std::lock_guard lock(mutex_);
+    return records_;
+  }
+};
+
+/// Receiver counting readouts into stats and recording packet times into a PacketLog
+cluon::UDPReceiver make_logging_receiver(const int port, std::shared_ptr<UDPStats> stats, std::shared_ptr<PacketLog> log) {
+  return cluon::UDPReceiver("127.0.0.1", port,
+    [stats, log](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+      const auto * header = reinterpret_cast<const PacketHeaderV0 *>(data.data());
+      stats->packets++;
+      if (!ess_header_ok(header->CookieAndType, 0x34)) { stats->bad++; return; }
+      log->add(data);
+      stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
+    });
+}
+
+/// Records the wall-clock time at which each point's parameters finished publishing
+class TimedPublisher final : public ParameterPublisher {
+public:
+  std::vector<efu_time> ready_times;
+  void publish(size_t, const std::string &, const std::string &, const std::optional<std::string> &) override {}
+  void point_ready(size_t) override { ready_times.emplace_back(); }
+};
+
+} // namespace
+
+TEST_CASE("Sender pulse times march forward on the period grid", "[sender][pulse]") {
+  const int port = find_free_udp_port();
+  REQUIRE(port > 0);
+  auto stats = std::make_shared<UDPStats>();
+  auto log = std::make_shared<PacketLog>();
+  auto receiver = make_logging_receiver(port, stats, log);
+  REQUIRE(receiver.isRunning());
+
+  const efu_time period(0.02); // a 20 ms grid so the reference clock ticks during the test
+  const int bursts{4};
+  const int per_burst{500}; // more than one full packet of CaenData per burst
+  {
+    Sender sender("127.0.0.1", port, 0, DetectorType::BIFROST, ReadoutType::CAEN, period);
+    CAEN_readout_t data{};
+    data.channel = 1;
+    for (int burst = 0; burst < bursts; ++burst) {
+      for (int i = 0; i < per_burst; ++i) {
+        sender.addReadout(0, 0, 1e-4, 1.0, static_cast<const void *>(&data));
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+  } // destruction flushes the final partial packet
+
+  REQUIRE(settled_readouts(stats) == bursts * per_burst);
+  CHECK(stats->bad == 0);
+  const auto records = log->records();
+  REQUIRE(records.size() > 2);
+
+  // only transmitted packets consume sequence numbers, so the EFU sees no gaps
+  for (size_t i = 0; i < records.size(); ++i) {
+    CHECK(records[i].seq == i);
+  }
+  const auto first = records.front().pulse;
+  std::set<uint64_t> distinct;
+  for (const auto & record : records) {
+    // pulse times stay on the period grid anchored at the first pulse ...
+    CHECK(record.pulse >= first);
+    CHECK((record.pulse - first).total_ticks() % period.total_ticks() == 0);
+    // ... with the previous pulse always exactly one period earlier
+    CHECK(record.pulse - record.prev == period);
+    distinct.insert(record.pulse.total_ticks());
+  }
+  // ... never decreasing ...
+  for (size_t i = 1; i < records.size(); ++i) {
+    CHECK(records[i].pulse >= records[i - 1].pulse);
+  }
+  // ... and advancing at least once over the ~100 ms of bursts
+  CHECK(distinct.size() > 1);
+}
+
+TEST_CASE("Replay reference times follow each point's parameter publication", "[replay][pulse][causality]") {
+  namespace fs = std::filesystem;
+  const uint16_t rays{1000};
+  const auto file_a = write_caen_point_file("replay_causal_a", 100.0, rays, 1.0);
+  const auto file_b = write_caen_point_file("replay_causal_b", 200.0, rays, 1.0);
+  auto multi_path = fs::temp_directory_path() / fs::path(pid_filename("replay_causal", ".h5"));
+  fs::remove(multi_path);
+  const auto multi = multi_path.string();
+  concatenate_collector_files(multi, {file_a, file_b});
+
+  const int port = find_free_udp_port();
+  REQUIRE(port > 0);
+  auto stats = std::make_shared<UDPStats>();
+  auto log = std::make_shared<PacketLog>();
+  auto receiver = make_logging_receiver(port, stats, log);
+  REQUIRE(receiver.isRunning());
+
+  ReplayConfig config;
+  config.default_port = port;
+  config.pulse_rate = 50.0; // a 20 ms period keeps the per-point wait short
+  TimedPublisher publisher;
+  replay(multi, config, publisher);
+
+  REQUIRE(settled_readouts(stats) == 2 * rays);
+  CHECK(stats->bad == 0);
+  REQUIRE(publisher.ready_times.size() == 2);
+
+  // packets never span points, so cumulative readout counts attribute each packet to its point
+  const auto records = log->records();
+  size_t seen{0};
+  for (const auto & record : records) {
+    const size_t point = seen < rays ? 0 : 1;
+    // causality: the reference time is a wall-clock instant after the point's parameters
+    CHECK(record.pulse > publisher.ready_times[point]);
+    // and every event of the packet is at or after its pulse
+    for (const auto & event : record.events) {
+      CHECK(event >= record.pulse);
+    }
+    seen += record.events.size();
+  }
+  for (size_t i = 1; i < records.size(); ++i) {
+    CHECK(records[i].pulse >= records[i - 1].pulse);
+  }
+
+  fs::remove(fs::path(file_a));
+  fs::remove(fs::path(file_b));
+  fs::remove(multi_path);
+}
+
+TEST_CASE("Folding time-of-flight wraps events into the pulse frame", "[replay][pulse][fold]") {
+  namespace fs = std::filesystem;
+  // one stored readout with a time-of-flight much longer than the pulse period
+  const double tof{0.5};
+  auto filepath = fs::temp_directory_path() / fs::path(pid_filename("replay_fold", ".h5"));
+  fs::remove(filepath);
+  const auto filename = filepath.string();
+  {
+    Collector collector(filename, "events", 0x34, 1u);
+    CAEN_readout_t data{};
+    data.channel = 3;
+    collector.addReadout(1, 0, tof, 1.0, static_cast<const void *>(&data));
+  }
+
+  const double rate{14.0};
+  const auto period = efu_time(1.0 / rate);
+
+  auto replay_and_get_packet = [&](const bool fold) {
+    const int port = find_free_udp_port();
+    REQUIRE(port > 0);
+    auto stats = std::make_shared<UDPStats>();
+    auto log = std::make_shared<PacketLog>();
+    auto receiver = make_logging_receiver(port, stats, log);
+    REQUIRE(receiver.isRunning());
+    ReplayConfig config;
+    config.default_port = port;
+    config.pulse_rate = rate;
+    config.fold_tof = fold;
+    replay(filename, config);
+    REQUIRE(settled_readouts(stats) == 1);
+    const auto records = log->records();
+    REQUIRE(records.size() == 1);
+    REQUIRE(records.front().events.size() == 1);
+    return records.front();
+  };
+
+  const auto plain = replay_and_get_packet(false);
+  CHECK(plain.events.front() - plain.pulse == efu_time(tof));
+
+  const auto folded = replay_and_get_packet(true);
+  CHECK(folded.events.front() - folded.pulse == efu_time(tof) % period);
+  CHECK(folded.events.front() - folded.pulse < period);
+
+  fs::remove(filepath);
 }

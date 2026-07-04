@@ -74,8 +74,12 @@ public:
     return _l > other._l;
   }
 
+  bool operator>=(const efu_time & other) const {
+    return !(*this < other);
+  }
+
   bool operator>=(const efu_time * other) const {
-    return (*this > *other || *this == *other);
+    return *this >= *other;
   }
 
   efu_time operator+(const efu_time & other) const {
@@ -105,6 +109,11 @@ public:
 
   uint64_t total_ticks() const {
     return static_cast<uint64_t>(_h) * ticks + static_cast<uint64_t>(_l);
+  }
+
+  uint64_t total_nanoseconds() const {
+    constexpr uint64_t nps = 1000000000u;
+    return static_cast<uint64_t>(_h) * nps + (static_cast<uint64_t>(_l) * nps) / ticks;
   }
 
   uint32_t operator/(const efu_time & other) const {

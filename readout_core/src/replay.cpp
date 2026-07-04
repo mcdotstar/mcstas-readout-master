@@ -85,6 +85,7 @@ SenderConfig resolve_sender_config(const Reader & reader, const ReplayConfig & c
 /// Readers that resolve to the same SenderConfig share one Sender (e.g. two groups
 /// aimed at the same EFU, or an explicit config override that collapses multiple groups).
 std::map<SenderConfig, Sender> make_senders(const ReaderSource & source, const ReplayConfig & config) {
+  const efu_time period(1.0 / config.pulse_rate);
   std::map<SenderConfig, Sender> senders;
   for (const auto & reader : source.readers()) {
     if (!reader.sendable_readout_type().has_value()) {
@@ -92,7 +93,8 @@ std::map<SenderConfig, Sender> make_senders(const ReaderSource & source, const R
     }
     const auto cfg = resolve_sender_config(reader, config);
     if (!senders.contains(cfg)) {
-      senders.emplace(std::piecewise_construct, std::forward_as_tuple(cfg), std::forward_as_tuple(cfg));
+      auto [it, inserted] = senders.emplace(std::piecewise_construct, std::forward_as_tuple(cfg), std::forward_as_tuple(cfg, period));
+      it->second.fold_tof(config.fold_tof);
     }
   }
   return senders;
@@ -166,6 +168,9 @@ void stream_reader_point(const Reader & reader, Sender & sender, const size_t po
 } // namespace
 
 void replay(const std::string & filename, const ReplayConfig & config, ParameterPublisher & publisher) {
+  if (!(config.pulse_rate > 0.)) {
+    throw std::runtime_error("The pulse rate must be positive");
+  }
   const ReaderSource source(filename);
   auto senders = make_senders(source, config);
   const auto seed = config.seed ? config.seed : std::random_device{}();
@@ -197,6 +202,11 @@ void replay(const std::string & filename, const ReplayConfig & config, Parameter
 
   for (size_t point = 0; point < source.points(); ++point) {
     publish_point(source, point, publisher);
+    // start a fresh pulse only after the point's parameters are published, so
+    // the parameter timestamps precede the reference times of the point's events
+    for (auto & [key, sender] : senders) {
+      sender.begin_pulse();
+    }
     for (const auto & reader : source.readers()) {
       if (!reader.sendable_readout_type().has_value()) {
         continue;
@@ -204,10 +214,6 @@ void replay(const std::string & filename, const ReplayConfig & config, Parameter
       const auto cfg = resolve_sender_config(reader, config);
       auto & sender = senders.at(cfg);
       stream_reader_point(reader, sender, point, config, rng, subset);
-    }
-    // a point boundary acts like a pulse: flush buffered packets and advance the pulse times
-    for (auto & [key, sender] : senders) {
-      sender.update_time();
     }
   }
 

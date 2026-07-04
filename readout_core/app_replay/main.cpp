@@ -23,6 +23,10 @@ int main(int argc, char * argv[]){
   args::ValueFlag<size_t> first_flag(number_group, "FIRST", "First stored readout to replay", {'f', "first"});
   args::ValueFlag<size_t> every_flag(number_group, "EVERY", "Replay every EVERYth stored readout", {'e', "every"});
 
+  args::Group timing_group(parser, "Reference time behavior", args::Group::Validators::DontCare);
+  args::ValueFlag<double> rate_flag(timing_group, "RATE", "Pulse (reference time) repetition rate in Hz; packet pulse times march forward on this grid (default 14, the ESS source frequency)", {"pulse-rate"});
+  args::Flag fold_flag(timing_group, "fold-tof", "Stamp each event at pulse + (tof mod pulse period) instead of pulse + tof, wrapping long-time-of-flight events into the frame they would be detected in", {"fold-tof"});
+
   args::Group efu_group(parser, "Event Formation Unit connection", args::Group::Validators::DontCare);
   args::ValueFlag<std::string> address_flag(efu_group, "ADDR", "Default EFU IP address", {'a', "addr"});
   args::ValueFlag<int> port_flag(efu_group, "PORT", "Default EFU UDP port for accepting data", {'p', "port"});
@@ -52,6 +56,8 @@ int main(int argc, char * argv[]){
   if (time_flag) config.counting_time = args::get(time_flag);
   if (seed_flag) config.seed = args::get(seed_flag);
   config.random_order = static_cast<bool>(random_flag);
+  if (rate_flag) config.pulse_rate = args::get(rate_flag);
+  config.fold_tof = static_cast<bool>(fold_flag);
   if (address_flag) config.default_address = args::get(address_flag);
   if (port_flag) config.default_port = args::get(port_flag);
   if (config_flag) {
@@ -72,6 +78,7 @@ int main(int argc, char * argv[]){
     std::cout << "Replaying " << (count_flag ? "a subset of" : "all") << " events from " << filename;
     std::cout << " to " << config.default_address << ":" << config.default_port;
     if (time_flag) std::cout << " with counting time " << config.counting_time.value() << " s";
+    std::cout << " at pulse rate " << config.pulse_rate << " Hz";
     std::cout << std::endl;
   }
 
