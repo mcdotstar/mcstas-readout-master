@@ -22,6 +22,14 @@
 #include "efu_time.h"
 #include "writer.h"
 
+/** \brief Runtime-streaming readout generator used by the legacy Readout components.
+ *
+ * Buffers ESS readout packets and sends them over UDP to one EFU while the
+ * simulation runs. The weighted addReadout() draws n ~ Poisson(weight) and
+ * sends the event that many times (weight <= 0 marks a noise event, sent
+ * exactly once); it can also mirror every stored record to a legacy flat
+ * HDF5 file via dump_to(). The replay path uses Sender instead.
+ */
 class Readout {
 public:
   Readout(
@@ -51,10 +59,11 @@ public:
     send();
   }
 
-  // Adds a readout to the transmission buffer.
-  // If there is no room left, transmit and initialize a new packet
+  /// Add a weighted readout: draws n ~ Poisson(weight) and buffers the event n
+  /// times (weight <= 0 is a noise event, sent once); a full buffer is
+  /// transmitted and a new packet started automatically.
   void addReadout(uint8_t Ring, uint8_t FEN, double tof, double weight, const void * data);
-  // Add a single readout
+  /// Add a single readout with an explicit event time.
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const void * data);
   // Specializations for handled data types
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const CAEN_readout_t * data);
@@ -65,12 +74,15 @@ public:
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const BM2_readout_t * data);
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const BMI_readout_t * data);
 
-  // send the current data buffer
+  /// Transmit the current data buffer.
   int send();
 
-  // Update the pulse and previous pulse times
+  /// Update the pulse and previous pulse times (high/low pairs).
   void setPulseTime(uint32_t PHI, uint32_t PLO, uint32_t PPHI, uint32_t PPLO);
 
+  /// Advance the reference (pulse) time to now, flushing the buffer and
+  /// starting a new packet; keeps (now - prev) within the 5-period window
+  /// required by the ESS CAEN EFUs.
   void update_time(){
     auto now = efu_time();
     if ((now - time) >= &period){
@@ -91,13 +103,13 @@ public:
   [[nodiscard]] std::pair<uint32_t, uint32_t> prevPulseTime() const;
   [[nodiscard]] std::pair<uint32_t, uint32_t> lastEventTime() const;
 
-  // Initialize a new packet with no readouts
+  /// Initialize a new packet with no readouts.
   void newPacket();
 
-  // Tell the (remote) device to shut down
+  /// Tell the remote EFU to shut down via its TCP command port.
   int command_shutdown() const;
 
-  // Set verbosity via enum
+  /// Set verbosity via enum.
   int verbose(const Verbosity v){
     switch (v) {
       case Verbosity::details: verbosity=3; break;
@@ -111,6 +123,7 @@ public:
   }
   int verbose(const int v){verbosity = v; return verbosity;}
 
+  /// Also store every added readout to a legacy flat HDF5 file (see Writer).
   void dump_to(const std::string & filename, const std::string & dataset_name = "events");
 
   void enable_network() {network = true;}

@@ -1,0 +1,76 @@
+/*******************************************************************************
+* Complete collect -> combine -> replay example for mcstas-readout-master.
+*
+* A small continuous source illuminates a TTL beam monitor and a bank of ten
+* position-sensitive tubes read out by CAEN digitizers. Both detectors store
+* weighted-ray records into one HDF5 file through Collector components; no
+* Event Formation Unit is needed while this instrument runs.
+*
+* Run repeatedly (or scan `lambda`), then combine the per-run files with
+* `readout-combine` and send the events to EFUs with `readout-replay` — see
+* run_example.sh next to this file.
+*******************************************************************************/
+DEFINE INSTRUMENT readout_example(lambda=4.0, string filename="example")
+
+USERVARS
+%{
+  int ring_id;
+  int fen_id;
+  int tube_id;
+  int amp_a;
+  int amp_b;
+  int monitor_signal;
+  int detected;
+%}
+
+TRACE
+
+SEARCH SHELL "readout-config --show compdir"
+
+COMPONENT origin = Progress_bar() AT (0, 0, 0) ABSOLUTE
+
+COMPONENT source = Source_simple(
+  radius = 0.02, dist = 2, focus_xw = 0.10, focus_yh = 0.10,
+  lambda0 = lambda, dlambda = 0.1 * lambda)
+AT (0, 0, 0) RELATIVE origin
+
+/* A 0-D beam monitor: every transmitted neutron leaves a digitized signal. */
+COMPONENT beam_monitor = Monitor(xwidth = 0.10, yheight = 0.10, restore_neutron = 1)
+AT (0, 0, 2) RELATIVE origin
+EXTEND %{
+  ring_id = 0;
+  fen_id = 0;
+  monitor_signal = SCATTERED ? 500 + (int)(rand01() * 1024) : 0;
+%}
+
+COMPONENT collect_monitor = CollectorTTLMonitor(
+  ring = "ring_id", fen = "fen_id", value = "monitor_signal",
+  identity_value = 0, filename = filename, dataset_name = "monitor")
+WHEN (monitor_signal > 0)
+AT (0, 0, 2) RELATIVE origin
+
+/* A plane standing in for ten position-sensitive tubes, 0.10 m wide: the
+ * tube index follows from x, and charge division along the tube (y) gives
+ * the two CAEN amplitudes. */
+COMPONENT detector_plane = Monitor(xwidth = 0.10, yheight = 0.10, restore_neutron = 1)
+AT (0, 0, 4) RELATIVE origin
+EXTEND %{
+  detected = SCATTERED ? 1 : 0;
+  if (detected) {
+    double frac = (y / 0.10) + 0.5;              /* 0 at bottom, 1 at top */
+    ring_id = 1;
+    fen_id  = 0;
+    tube_id = (int)(((x / 0.10) + 0.5) * 10);    /* 0 .. 9 across the bank */
+    amp_a = (int)(2048 * frac);
+    amp_b = (int)(2048 * (1.0 - frac));
+  }
+%}
+
+COMPONENT collect_detector = CollectorCAEN(
+  ring = "ring_id", fen = "fen_id", tube = "tube_id",
+  a_name = "amp_a", b_name = "amp_b",
+  filename = filename, dataset_name = "detector")
+WHEN (detected)
+AT (0, 0, 4) RELATIVE origin
+
+END

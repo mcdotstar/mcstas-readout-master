@@ -27,7 +27,9 @@
 #define RL_API
 #endif
 
-//template<class T>
+/** \brief Common fields of every stored readout event: routing (ring, FEN),
+ * time-of-flight, and the statistical rate-weight.
+ */
 class RL_API Event{
 public:
   uint8_t ring;
@@ -39,6 +41,7 @@ public:
   : ring(ring), fen(fen), time(time), weight(weight) {}
 };
 
+/// \brief CAEN readout event: group channel and amplitudes A-D.
 class RL_API CAEN_event: public Event {
 public:
   uint8_t channel;
@@ -56,6 +59,7 @@ public:
   }
 };
 
+/// \brief TTL beam-monitor readout event: channel, position, ADC.
 class RL_API TTLMonitor_event: public Event {
 public:
   uint8_t channel;
@@ -71,6 +75,7 @@ public:
   }
 };
 
+/// \brief CDT (DREAM-family) readout event: output module, cathode, anode.
 class RL_API CDT_event: public Event {
 public:
   uint8_t om;
@@ -86,6 +91,7 @@ public:
   }
 };
 
+/// \brief VMM3 readout event: BC, OTADC, GEO, TDC, VMM, channel.
 class RL_API VMM3_event: public Event {
 public:
   uint16_t bc;
@@ -104,6 +110,7 @@ public:
   }
 };
 
+/// \brief Minimal beam-monitor readout event: channel only.
 class RL_API BM0_event: public Event {
 public:
   uint8_t channel;
@@ -116,6 +123,7 @@ public:
   }
 };
 
+/// \brief Position-resolving beam-monitor readout event: channel, x, y.
 class RL_API BM2_event: public Event {
 public:
   uint8_t channel;
@@ -130,6 +138,7 @@ public:
   }
 };
 
+/// \brief Integrating beam-monitor readout event: channel, sum, 24-bit ADC.
 class RL_API BMI_event: public Event {
 public:
   uint8_t channel;
@@ -256,6 +265,7 @@ inline HighFive::CompoundType hdf_compound_type(const ReadoutType readout) {
   }
 }
 
+/// \brief Map a canonical scalar type name (e.g. "uint16_t") to its HDF5 datatype.
 inline HighFive::DataType hdf5_type_for(const std::string& canonical_type) {
   if (canonical_type == "int8_t") return HighFive::create_datatype<int8_t>();
   if (canonical_type == "int16_t") return HighFive::create_datatype<int16_t>();

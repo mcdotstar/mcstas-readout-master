@@ -13,15 +13,13 @@ TOC_INCLUDE_HEADINGS   = 3
 
 INPUT                  = \
   "@CMAKE_SOURCE_DIR@/docs" \
-  "@CMAKE_SOURCE_DIR@/README.md" \
   "@CMAKE_SOURCE_DIR@/ParameterPublisher.md" \
   "@CMAKE_SOURCE_DIR@/readout_core/include" \
-  "@CMAKE_SOURCE_DIR@/readout_core/app_replay" \
-  "@CMAKE_SOURCE_DIR@/readout_core/app_combine" \
-  "@CMAKE_SOURCE_DIR@/readout_core/components"
-FILE_PATTERNS          = *.md *.h *.hpp *.hh *.c *.cpp *.comp
+  "@CMAKE_BINARY_DIR@/docs/generated"
+FILE_PATTERNS          = *.md *.h *.hpp *.hh
+EXAMPLE_PATH           = "@CMAKE_SOURCE_DIR@/examples"
 RECURSIVE              = YES
-EXCLUDE_PATTERNS       = */build/* */build-dev/* */.git/* */test/*
+EXCLUDE_PATTERNS       = */build/* */build-dev/* */.git/* */test/* */docs/theme/* */cluon-complete.hpp
 EXTRACT_ALL            = NO
 EXTRACT_PRIVATE        = NO
 EXTRACT_STATIC         = NO
@@ -42,7 +40,12 @@ GENERATE_HTML          = YES
 HTML_OUTPUT            = html
 HTML_FILE_EXTENSION    = .html
 GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
 FULL_SIDEBAR           = NO
+HTML_COLORSTYLE        = LIGHT
+HTML_EXTRA_STYLESHEET  = \
+  "@CMAKE_SOURCE_DIR@/docs/theme/doxygen-awesome.css" \
+  "@CMAKE_SOURCE_DIR@/docs/theme/doxygen-awesome-sidebar-only.css"
 
 GENERATE_LATEX         = NO
 GENERATE_MAN           = NO

@@ -1,5 +1,25 @@
 # Examples
 
+## Complete runnable example
+
+The repository ships a full collect → combine → replay walkthrough in
+`examples/`:
+
+- `examples/readout_example.instr` — a small instrument with a TTL beam
+  monitor and a bank of CAEN-read tubes, both storing records into one
+  collector file,
+- `examples/run_example.sh` — runs two simulation points, validates and
+  concatenates the per-point files, and replays the combined file.
+
+\include readout_example.instr
+
+The walkthrough:
+
+\include run_example.sh
+
+Replay sends UDP packets; without a listening EFU they are simply dropped, so
+the walkthrough is safe to run anywhere.
+
 ## Example A: scan points, combine, replay
 
 Run your instrument repeatedly (or as a scan), producing one collector file per
@@ -25,22 +45,34 @@ readout-replay --time 2.0 --seed 42 --config senders.json scan_all.h5
 
 ## Example B: explicit sender routing
 
-`senders.json`:
+`senders.json` (see the [CLI reference](cli.md) for the full schema):
 
 ```json
 {
-  "default": { "address": "efu-default.example.org", "port": 9000 },
-  "routes": [
-    { "detector": "BIFROST", "readout": "CAEN", "address": "efu-caen.example.org", "port": 9001 },
-    { "detector": "CSPEC", "readout": "TTLMonitor", "address": "efu-ttl.example.org", "port": 9002 }
+  "senders": [
+    {
+      "detector_type": "BIFROST",
+      "readout_type": "CAEN",
+      "ip_address": "efu-caen.example.org",
+      "udp_port": 9001,
+      "tcp_port": 10800
+    },
+    {
+      "detector_type": "TTLMonitor",
+      "readout_type": "TTLMonitor",
+      "ip_address": "efu-ttl.example.org",
+      "udp_port": 9002,
+      "tcp_port": 10800
+    }
   ]
 }
 ```
 
-Run:
+Run, with command-line defaults for any group not matched by the configuration
+or by file-embedded attributes:
 
 ```bash
-readout-replay --config senders.json scan_all.h5
+readout-replay --config senders.json --addr efu-default.example.org --port 9000 scan_all.h5
 ```
 
 ## Example C: instrument TRACE fragment for a collector
@@ -52,11 +84,11 @@ TRACE
   COMPONENT collect = CollectorTTLMonitor(
     filename="monitor_run",
     dataset_name="beam_monitor",
-    fen="fen",
+    ring="ring_id",
+    fen="fen_id",
     identity="channel",
-    output="adc",
-    tof="t",
-    ess_type=64
+    value="adc",
+    tof="t"
   ) AT (0,0,0) RELATIVE PREVIOUS
   ...
 ```

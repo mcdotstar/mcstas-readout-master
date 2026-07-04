@@ -26,7 +26,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y doxygen
 
       - name: Configure
-        run: cmake -S . -B build -DREADOUT_BUILD_TESTS=OFF
+        run: cmake -S . -B build -DREADOUT_DOCS_ONLY=ON
 
       - name: Generate docs
         run: cmake --build build --target docs -j2
