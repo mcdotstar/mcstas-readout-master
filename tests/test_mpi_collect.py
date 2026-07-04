@@ -1,6 +1,6 @@
-"""MPI tests for CollectCAEN.
+"""MPI tests for CollectorCAEN.
 
-These tests compile and run CollectCAEN instruments with MPI enabled,
+These tests compile and run CollectorCAEN instruments with MPI enabled,
 verifying that event data from multiple ranks is correctly merged into a
 single HDF5 output file.
 
@@ -106,21 +106,21 @@ def _mpi_compile_and_run(
 # Tests
 # ---------------------------------------------------------------------------
 @_skip_no_readout
-class TestMPICollectCAEN:
-    """CollectCAEN tests compiled and run under MPI."""
+class TestMPICollectorCAEN:
+    """CollectorCAEN tests compiled and run under MPI."""
 
     @mpi_compiled_test
     def test_mpi_collect_runs(self):
-        """CollectCAEN compiles with mpicc and runs under mpirun without error."""
+        """CollectorCAEN compiles with mpicc and runs under mpirun without error."""
         result, dats = _mpi_compile_and_run(f"""
             DEFINE INSTRUMENT test_mpi_collect(string filename="mpi_output")
             {CAEN_USERVARS}
             TRACE
             SEARCH SHELL "readout-config --show compdir"
             {CAEN_ORIGIN_EXTEND}
-            COMPONENT collector = CollectCAEN(
+            COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
             ) AT (0, 0, 1) ABSOLUTE
             END
@@ -136,9 +136,9 @@ class TestMPICollectCAEN:
             TRACE
             SEARCH SHELL "readout-config --show compdir"
             {CAEN_ORIGIN_EXTEND}
-            COMPONENT collector = CollectCAEN(
+            COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
             ) AT (0, 0, 1) ABSOLUTE
             END
@@ -146,7 +146,7 @@ class TestMPICollectCAEN:
         assert b"TRACE end" in result
 
         h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
-        assert len(h5_files) > 0, "Expected HDF5 output from CollectCAEN"
+        assert len(h5_files) > 0, "Expected HDF5 output from CollectorCAEN"
         assert Path(h5_files[0]).exists()
 
     @mpi_compiled_test
@@ -160,9 +160,9 @@ class TestMPICollectCAEN:
             TRACE
             SEARCH SHELL "readout-config --show compdir"
             {CAEN_ORIGIN_EXTEND}
-            COMPONENT collector = CollectCAEN(
+            COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
             ) AT (0, 0, 1) ABSOLUTE
             END
@@ -175,45 +175,16 @@ class TestMPICollectCAEN:
         assert Path(h5_path).exists()
 
         with h5py.File(str(h5_path), "r") as f:
-            assert "collector" in f, f"Missing 'collector' dataset; keys: {list(f.keys())}"
-            ds = f["collector"]
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            assert "readouts" in group, f"Missing 'readouts' dataset; keys: {list(group.keys())}"
+            ds = group["readouts"]
             # -n 100 is split across 2 ranks (50 each), all events collected
             assert ds.shape[0] == 100, f"Expected 100 events, got {ds.shape[0]}"
 
     @mpi_compiled_test
-    def test_mpi_collect_with_points(self, tmp_path):
-        """CollectCAEN point-mode works under MPI."""
-        h5py = pytest.importorskip("h5py")
-
-        result, dats = _mpi_compile_and_run(f"""
-            DEFINE INSTRUMENT test_mpi_points(string filename="mpi_points", int point=0, int total_points=1)
-            {CAEN_USERVARS}
-            TRACE
-            SEARCH SHELL "readout-config --show compdir"
-            {CAEN_ORIGIN_EXTEND}
-            COMPONENT collector = CollectCAEN(
-              ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
-              filename=filename, point=point, total_points=total_points, verbose=1
-            ) AT (0, 0, 1) ABSOLUTE
-            END
-        """, parameters="-n 50 filename=mpi_points point=0 total_points=1",
-            nranks=2, directory=str(tmp_path))
-        assert b"TRACE end" in result
-
-        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
-        assert len(h5_files) > 0
-        h5_path = h5_files[0]
-        assert Path(h5_path).exists()
-
-        with h5py.File(str(h5_path), "r") as f:
-            assert "point_0" in f, f"Missing point_0 group; keys: {list(f.keys())}"
-            assert "collector" in f["point_0"], \
-                f"Missing 'collector' dataset in point_0; keys: {list(f['point_0'].keys())}"
-
-    @mpi_compiled_test
     def test_mpi_collect_four_ranks(self, tmp_path):
-        """CollectCAEN works correctly with 4 MPI ranks."""
+        """CollectorCAEN works correctly with 4 MPI ranks."""
         h5py = pytest.importorskip("h5py")
 
         result, dats = _mpi_compile_and_run(f"""
@@ -222,9 +193,9 @@ class TestMPICollectCAEN:
             TRACE
             SEARCH SHELL "readout-config --show compdir"
             {CAEN_ORIGIN_EXTEND}
-            COMPONENT collector = CollectCAEN(
+            COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
             ) AT (0, 0, 1) ABSOLUTE
             END
@@ -238,7 +209,7 @@ class TestMPICollectCAEN:
 
         with h5py.File(str(h5_path), "r") as f:
             assert "collector" in f
-            ds = f["collector"]
+            ds = f["collector"]["readouts"]
             # 100 neutrons split across 4 ranks, all collected
             assert ds.shape[0] == 100, f"Expected 100 events, got {ds.shape[0]}"
             names = ds.dtype.names
@@ -247,7 +218,7 @@ class TestMPICollectCAEN:
 
     @mpi_compiled_test
     def test_mpi_collect_with_readout(self, tmp_path):
-        """Multi-component instrument: ReadoutCAEN + CollectCAEN under MPI."""
+        """Multi-component instrument: ReadoutCAEN + CollectorCAEN under MPI."""
         h5py = pytest.importorskip("h5py")
 
         result, dats = _mpi_compile_and_run(f"""
@@ -263,9 +234,9 @@ class TestMPICollectCAEN:
               ip="127.0.0.1", port=9000, broadcast=0
             ) AT (0, 0, 1) ABSOLUTE
             
-            COMPONENT collector = CollectCAEN(
+            COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1
             ) AT (0, 0, 2) ABSOLUTE
             END
@@ -279,12 +250,12 @@ class TestMPICollectCAEN:
 
         with h5py.File(str(h5_path), "r") as f:
             assert "collector" in f
-            assert f["collector"].shape[0] == 100
+            assert f["collector"]["readouts"].shape[0] == 100
 
 
     @mpi_compiled_test
     def test_multi_collectors(self, tmp_path):
-        """Multi-component instrument: 4x CollectCAEN under MPI."""
+        """Multi-component instrument: 4x CollectorCAEN under MPI."""
         h5py = pytest.importorskip("h5py")
 
         total_rays = 1000
@@ -309,24 +280,24 @@ class TestMPICollectCAEN:
               yheight = 2.) 
              AT (0, 0, 1) ABSOLUTE
             
-            COMPONENT collector_mm = CollectCAEN(
+            COMPONENT collector_mm = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1, dataset_name="collector--"
             ) WHEN (x < 0 && y < 0) AT (0, 0, 2) ABSOLUTE 
-            COMPONENT collector_mp = CollectCAEN(
+            COMPONENT collector_mp = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1, dataset_name="collector-+"
             ) WHEN (x < 0 && y >= 0) AT (0, 0, 2) ABSOLUTE 
-            COMPONENT collector_pm = CollectCAEN(
+            COMPONENT collector_pm = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1, dataset_name="collector+-"
             ) WHEN (x >= 0 && y < 0) AT (0, 0, 2) ABSOLUTE 
-            COMPONENT collector_pp = CollectCAEN(
+            COMPONENT collector_pp = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",
-              event_mode="p", a_name="A", b_name="B", tof="tof",
+              a_name="A", b_name="B", tof="tof",
               filename=filename, verbose=1, dataset_name="collector++"
             ) WHEN (x >= 0 && y >= 0) AT (0, 0, 2) ABSOLUTE 
             
@@ -341,7 +312,8 @@ class TestMPICollectCAEN:
 
         def is_present_count(name, container):
             assert name in container
-            return container[name].shape[0]
+            assert "readouts" in container[name]
+            return container[name]["readouts"].shape[0]
 
 
         with h5py.File(str(h5_path), "r") as f:

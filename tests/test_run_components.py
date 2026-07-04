@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import pytest
+from textwrap import dedent
 from conftest import (
     SHARE_READOUT,
     requires_run,
@@ -16,6 +17,16 @@ from conftest import (
     CAEN_ORIGIN_EXTEND,
     TTL_USERVARS,
     TTL_ORIGIN_EXTEND,
+    CDT_USERVARS,
+    CDT_ORIGIN_EXTEND,
+    VMM3_USERVARS,
+    VMM3_ORIGIN_EXTEND,
+    BM0_USERVARS,
+    BM0_ORIGIN_EXTEND,
+    BM2_USERVARS,
+    BM2_ORIGIN_EXTEND,
+    BMI_USERVARS,
+    BMI_ORIGIN_EXTEND,
 )
 
 
@@ -69,42 +80,42 @@ def _compile_and_run(instr_source: str, parameters: str = "-n 100", directory: s
 class TestRunReadoutCAEN:
     def test_run_broadcast_off(self):
         """ReadoutCAEN with broadcast=0 runs without error."""
-        result, dats = _compile_and_run(f"""
-DEFINE INSTRUMENT test_readout_caen_run()
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT readout = ReadoutCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  ip="127.0.0.1", port=9000, broadcast=0
-) AT (0, 0, 1) ABSOLUTE
-END
-""")
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_readout_caen_run()
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            COMPONENT readout = ReadoutCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              ip="127.0.0.1", port=9000, broadcast=0
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+            """))
         assert b"TRACE end" in result
 
 
 # -----------------------------------------------------------------------
-# CollectCAEN run — produces HDF5 output
+# CollectorCAEN run — produces HDF5 output
 # -----------------------------------------------------------------------
 @requires_run
-class TestRunCollectCAEN:
+class TestRunCollectorCAENOutput:
     def test_run_produces_hdf5(self):
-        """CollectCAEN writes an HDF5 file with event data."""
-        result, dats = _compile_and_run(f"""
-DEFINE INSTRUMENT test_collect_run(string filename="output")
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  filename=filename, verbose=1
-) AT (0, 0, 1) ABSOLUTE
-END
-""", parameters="-n 100 filename=output")
+        """CollectorCAEN writes an HDF5 file with event data."""
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_collect_run(string filename="output")
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            COMPONENT collector = CollectorCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+            """), parameters="-n 100 filename=output")
         assert b"TRACE end" in result
         # The output directory should contain an HDF5 file
         from pathlib import Path
@@ -115,19 +126,19 @@ END
         """The HDF5 file has the expected datasets with correct event count."""
         h5py = pytest.importorskip("h5py")
 
-        result, dats = _compile_and_run(f"""
-DEFINE INSTRUMENT test_collect_events(string filename="events_test")
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  filename=filename, verbose=1
-) AT (0, 0, 1) ABSOLUTE
-END
-""", parameters="-n 50 filename=events_test", directory=str(tmp_path))
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_collect_events(string filename="events_test")
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            COMPONENT collector = CollectorCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+            """), parameters="-n 50 filename=events_test", directory=str(tmp_path))
         assert b"TRACE end" in result
         from pathlib import Path
         h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
@@ -136,32 +147,41 @@ END
         h5_path = h5_files[0]
         assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
         with h5py.File(str(h5_path), "r") as f:
-            # CollectCAEN stores a compound dataset named after the component
-            assert "collector" in f, f"Missing 'collector' dataset; keys: {list(f.keys())}"
-            ds = f["collector"]
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            assert "readouts" in group, f"Missing 'readouts' dataset; keys: {list(group.keys())}"
+            ds = group["readouts"]
             assert ds.shape[0] == 50, f"Expected 50 events, got {ds.shape[0]}"
             # Verify expected columns exist in the compound dtype
             names = ds.dtype.names
             for col in ("ring", "FEN", "time", "weight", "channel", "a", "b"):
                 assert col in names, f"Missing column '{col}' in dataset"
 
-    def test_collect_with_points(self, tmp_path):
-        """CollectCAEN with total_points creates point-based groups."""
+
+# -----------------------------------------------------------------------
+# CollectorCAEN run — the description-based (star engine) component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorCAEN:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorCAEN stores records whose compound layout matches the canonical
+        CAEN description, the description recorded on the dataset, the detector
+        attributes (sendability is decided by the datatype)."""
         h5py = pytest.importorskip("h5py")
 
-        result, dats = _compile_and_run(f"""
-DEFINE INSTRUMENT test_collect_points(string filename="points_test", int point=0, int total_points=1)
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-COMPONENT collector = CollectCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  filename=filename, point=point, total_points=total_points, verbose=1
-) AT (0, 0, 1) ABSOLUTE
-END
-""", parameters="-n 50 filename=points_test point=0 total_points=1", directory=str(tmp_path))
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_collector_star(string filename="star_test")
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            COMPONENT collector = CollectorCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+            """), parameters="-n 50 filename=star_test", directory=str(tmp_path))
         assert b"TRACE end" in result
         from pathlib import Path
         h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
@@ -170,8 +190,24 @@ END
         h5_path = h5_files[0]
         assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
         with h5py.File(str(h5_path), "r") as f:
-            # Point-based storage puts data in "point_0" group
-            assert "point_0" in f, f"Missing point_0 group; keys: {list(f.keys())}"
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            # canonical CAEN layout: exact member names and C-struct size
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "channel", "a", "b", "c", "d")
+            assert ds.dtype.itemsize == 40, f"Expected itemsize 40, got {ds.dtype.itemsize}"
+            # the description is a dataset attribute; the record layout needs no attributes at all
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
+            # per-record weights were stored and accumulated into the point weight
+            total = group["weights"][()].sum()
+            assert total > 0.0
 
 
 # -----------------------------------------------------------------------
@@ -181,20 +217,306 @@ END
 class TestRunReadoutTTLMonitor:
     def test_run_broadcast_off(self):
         """ReadoutTTLMonitor with broadcast=0 runs without error."""
-        result, dats = _compile_and_run(f"""
-DEFINE INSTRUMENT test_ttl_run()
-{TTL_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{TTL_ORIGIN_EXTEND}
-COMPONENT monitor = ReadoutTTLMonitor(
-  ring="RING", fen="FEN",
-  position="A", identity="TUBE", value="B", tof="tof",
-  ip="127.0.0.1", port=9001, broadcast=0
-) AT (0, 0, 1) ABSOLUTE
-END
-""")
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_ttl_run()
+            {TTL_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {TTL_ORIGIN_EXTEND}
+            COMPONENT monitor = ReadoutTTLMonitor(
+              ring="RING", fen="FEN",
+              position="A", identity="TUBE", value="B", tof="tof",
+              ip="127.0.0.1", port=9001, broadcast=0
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+            """))
         assert b"TRACE end" in result
+
+
+# -----------------------------------------------------------------------
+# Multi-component run
+# -----------------------------------------------------------------------
+# -----------------------------------------------------------------------
+# CollectorTTLMonitor run — description-based TTLMonitor component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorTTLMonitor:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorTTLMonitor stores records with canonical TTLMonitor layout."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_collector_ttl(string filename="ttl_test")
+            {TTL_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {TTL_ORIGIN_EXTEND}
+            COMPONENT collector = CollectorTTLMonitor(
+              ring="RING", fen="FEN",
+              position="A", identity="TUBE", value="B", tof="tof",
+              filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+            """), parameters="-n 50 filename=ttl_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "channel", "pos", "adc")
+            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
+            total = group["weights"][()].sum()
+            assert total > 0.0
+
+
+# -----------------------------------------------------------------------
+# CollectorCDT run — description-based CDT component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorCDT:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorCDT stores records with canonical CDT layout."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_collector_cdt(string filename="cdt_test")
+            {CDT_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CDT_ORIGIN_EXTEND}
+            COMPONENT collector = CollectorCDT(
+              ring="RING", fen="FEN",
+              om_name="OM", cathode_name="CATHODE", anode_name="ANODE", tof="tof",
+              filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+            """), parameters="-n 50 filename=cdt_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "om", "cathode", "anode")
+            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
+            total = group["weights"][()].sum()
+            assert total > 0.0
+
+
+# -----------------------------------------------------------------------
+# CollectorVMM3 run — description-based VMM3 component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorVMM3:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorVMM3 stores records with canonical VMM3 layout."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_collector_vmm3(string filename="vmm3_test")
+            {VMM3_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {VMM3_ORIGIN_EXTEND}
+            COMPONENT collector = CollectorVMM3(
+              ring="RING", fen="FEN",
+              bc_name="BC", otadc_name="OTADC", geo_name="GEO",
+              tdc_name="TDC", vmm_name="VMM", channel_name="CHANNEL",
+              tof="tof", filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+            """), parameters="-n 50 filename=vmm3_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "bc", "otadc", "geo", "tdc", "vmm", "channel")
+            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
+            total = group["weights"][()].sum()
+            assert total > 0.0
+
+
+# -----------------------------------------------------------------------
+# CollectorBM0 run — description-based BM0 component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorBM0:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorBM0 stores records with canonical BM0 layout."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_collector_bm0(string filename="bm0_test")
+            {BM0_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {BM0_ORIGIN_EXTEND}
+            COMPONENT collector = CollectorBM0(
+              ring="RING", fen="FEN",
+              channel_name="CHANNEL", tof="tof",
+              filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+            """), parameters="-n 50 filename=bm0_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "channel")
+            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
+            total = group["weights"][()].sum()
+            assert total > 0.0
+
+
+# -----------------------------------------------------------------------
+# CollectorBM2 run — description-based BM2 component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorBM2:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorBM2 stores records with canonical BM2 layout."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_collector_bm2(string filename="bm2_test")
+            {BM2_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {BM2_ORIGIN_EXTEND}
+            COMPONENT collector = CollectorBM2(
+              ring="RING", fen="FEN",
+              channel_name="CHANNEL", pos_x_name="POSX", pos_y_name="POSY",
+              tof="tof", filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+            """), parameters="-n 50 filename=bm2_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "channel", "pos_x", "pos_y")
+            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
+            total = group["weights"][()].sum()
+            assert total > 0.0
+
+
+# -----------------------------------------------------------------------
+# CollectorBMI run — description-based BMI component
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunCollectorBMI:
+    def test_star_component_writes_sendable_layout(self, tmp_path):
+        """CollectorBMI stores records with canonical BMI layout."""
+        h5py = pytest.importorskip("h5py")
+
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_collector_bmi(string filename="bmi_test")
+            {BMI_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {BMI_ORIGIN_EXTEND}
+            COMPONENT collector = CollectorBMI(
+              ring="RING", fen="FEN",
+              channel_name="CHANNEL", sum_name="SUM", adc_name="ADC",
+              tof="tof", filename=filename, verbose=1
+            ) AT (0, 0, 1) ABSOLUTE
+            END
+            """), parameters="-n 50 filename=bmi_test", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert len(h5_files) > 0
+
+        h5_path = h5_files[0]
+        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
+        with h5py.File(str(h5_path), "r") as f:
+            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
+            group = f["collector"]
+            for required in ("readouts", "cues", "weights", "normalizations"):
+                assert required in group, f"Missing '{required}' in collector group"
+            ds = group["readouts"]
+            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
+            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "channel", "sum", "adc")
+            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
+            assert "description" in ds.attrs
+            assert "detector" not in ds.attrs
+            assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
+            total = group["weights"][()].sum()
+            assert total > 0.0
 
 
 # -----------------------------------------------------------------------
@@ -203,35 +525,35 @@ END
 @requires_run
 class TestRunMultiComponent:
     def test_readout_and_collect_together(self):
-        """An instrument with ReadoutCAEN + CollectCAEN produces correct output."""
-        result, dats = _compile_and_run(f"""
-DEFINE INSTRUMENT test_multi_run(string filename="multi_output")
-{CAEN_USERVARS}
-TRACE
-SEARCH SHELL "readout-config --show compdir"
-{CAEN_ORIGIN_EXTEND}
-
-COMPONENT readout = ReadoutCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  ip="127.0.0.1", port=9000, broadcast=0
-) AT (0, 0, 1) ABSOLUTE
-
-COMPONENT monitor = ReadoutTTLMonitor(
-  ring="RING", fen="FEN",
-  position="A", identity="TUBE", value="B", tof="tof",
-  ip="127.0.0.1", port=9001, broadcast=0
-) AT (0, 0, 2) ABSOLUTE
-
-COMPONENT collector = CollectCAEN(
-  ring="RING", fen="FEN", tube="TUBE",
-  event_mode="p", a_name="A", b_name="B", tof="tof",
-  filename=filename, verbose=1
-) AT (0, 0, 3) ABSOLUTE
-
-END
-""", parameters="-n 100 filename=multi_output")
+        """An instrument with ReadoutCAEN + CollectorCAEN produces correct output."""
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_multi_run(string filename="multi_output")
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            
+            COMPONENT readout = ReadoutCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              ip="127.0.0.1", port=9000, broadcast=0
+            ) AT (0, 0, 1) ABSOLUTE
+            
+            COMPONENT monitor = ReadoutTTLMonitor(
+              ring="RING", fen="FEN",
+              position="A", identity="TUBE", value="B", tof="tof",
+              ip="127.0.0.1", port=9001, broadcast=0
+            ) AT (0, 0, 2) ABSOLUTE
+            
+            COMPONENT collector = CollectorCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              a_name="A", b_name="B", tof="tof",
+              filename=filename, verbose=1
+            ) AT (0, 0, 3) ABSOLUTE
+            
+            END
+            """), parameters="-n 100 filename=multi_output")
         assert b"TRACE end" in result
         from pathlib import Path
         h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
-        assert len(h5_files) > 0, "Expected HDF5 output from CollectCAEN"
+        assert len(h5_files) > 0, "Expected HDF5 output from CollectorCAEN"

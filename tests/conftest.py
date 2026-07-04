@@ -21,7 +21,7 @@ import pytest
 # Locate key paths relative to the repository root
 # ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SHARE_READOUT = REPO_ROOT / "share" / "Readout"
+SHARE_READOUT = REPO_ROOT / "readout_core" / "components"
 
 # Build directory: honour READOUT_BUILD_DIR env var, else fall back to common names
 _BUILD_DIR_CANDIDATES = ["build-dev", "build", "cmake-build-debug", "cmake-build-release"]
@@ -35,7 +35,7 @@ def _find_build_dir() -> Path | None:
             return p
     for name in _BUILD_DIR_CANDIDATES:
         p = REPO_ROOT / name
-        if (p / "readout-config").is_file() or (p / "readout-config.exe").is_file():
+        if (p / "bin" / "readout-config").is_file() or (p / "bin" / "readout-config.exe").is_file():
             return p
     return None
 
@@ -63,7 +63,7 @@ def _has_c_compiler() -> bool:
 
 def _has_readout_config() -> bool:
     if BUILD_DIR is not None:
-        rc = BUILD_DIR / "readout-config"
+        rc = BUILD_DIR / "bin" / "readout-config"
         if rc.is_file():
             return True
     return shutil.which("readout-config") is not None
@@ -75,10 +75,10 @@ def _has_readout_config() -> bool:
 def _build_env() -> dict[str, str]:
     env = os.environ.copy()
     if BUILD_DIR is not None:
-        env["PATH"] = str(BUILD_DIR) + os.pathsep + env.get("PATH", "")
+        env["PATH"] = str(BUILD_DIR / "bin") + os.pathsep + env.get("PATH", "")
         # Ensure the dynamic linker can find libreadout
         ld_key = "DYLD_LIBRARY_PATH" if os.uname().sysname == "Darwin" else "LD_LIBRARY_PATH"
-        env[ld_key] = str(BUILD_DIR) + os.pathsep + env.get(ld_key, "")
+        env[ld_key] = str(BUILD_DIR / "lib") + os.pathsep + env.get(ld_key, "")
     return env
 
 
@@ -168,6 +168,138 @@ FEN = 2;
 TUBE = 3;
 A = 10;
 B = 1;
+tof = 0.001;
+x = 0; y = 0; z = 0;
+vx = 0; vy = 0; vz = 1000;
+p = 1;
+%}
+"""
+
+CDT_USERVARS = """\
+USERVARS %{
+int RING;
+int FEN;
+int OM;
+int CATHODE;
+int ANODE;
+double tof;
+%}
+"""
+
+CDT_ORIGIN_EXTEND = """\
+COMPONENT origin = Arm() AT (0, 0, 0) ABSOLUTE
+EXTEND %{
+RING = 1;
+FEN = 0;
+OM = 2;
+CATHODE = 3;
+ANODE = 4;
+tof = 0.001;
+x = 0; y = 0; z = 0;
+vx = 0; vy = 0; vz = 1000;
+p = 1;
+%}
+"""
+
+VMM3_USERVARS = """\
+USERVARS %{
+int RING;
+int FEN;
+int BC;
+int OTADC;
+int GEO;
+int TDC;
+int VMM;
+int CHANNEL;
+double tof;
+%}
+"""
+
+VMM3_ORIGIN_EXTEND = """\
+COMPONENT origin = Arm() AT (0, 0, 0) ABSOLUTE
+EXTEND %{
+RING = 1;
+FEN = 0;
+BC = 100;
+OTADC = 200;
+GEO = 1;
+TDC = 2;
+VMM = 3;
+CHANNEL = 4;
+tof = 0.001;
+x = 0; y = 0; z = 0;
+vx = 0; vy = 0; vz = 1000;
+p = 1;
+%}
+"""
+
+BM0_USERVARS = """\
+USERVARS %{
+int RING;
+int FEN;
+int CHANNEL;
+double tof;
+%}
+"""
+
+BM0_ORIGIN_EXTEND = """\
+COMPONENT origin = Arm() AT (0, 0, 0) ABSOLUTE
+EXTEND %{
+RING = 1;
+FEN = 0;
+CHANNEL = 5;
+tof = 0.001;
+x = 0; y = 0; z = 0;
+vx = 0; vy = 0; vz = 1000;
+p = 1;
+%}
+"""
+
+BM2_USERVARS = """\
+USERVARS %{
+int RING;
+int FEN;
+int CHANNEL;
+int POSX;
+int POSY;
+double tof;
+%}
+"""
+
+BM2_ORIGIN_EXTEND = """\
+COMPONENT origin = Arm() AT (0, 0, 0) ABSOLUTE
+EXTEND %{
+RING = 1;
+FEN = 0;
+CHANNEL = 5;
+POSX = 100;
+POSY = 200;
+tof = 0.001;
+x = 0; y = 0; z = 0;
+vx = 0; vy = 0; vz = 1000;
+p = 1;
+%}
+"""
+
+BMI_USERVARS = """\
+USERVARS %{
+int RING;
+int FEN;
+int CHANNEL;
+int SUM;
+int ADC;
+double tof;
+%}
+"""
+
+BMI_ORIGIN_EXTEND = """\
+COMPONENT origin = Arm() AT (0, 0, 0) ABSOLUTE
+EXTEND %{
+RING = 1;
+FEN = 0;
+CHANNEL = 5;
+SUM = 7;
+ADC = 1000;
 tof = 0.001;
 x = 0; y = 0; z = 0;
 vx = 0; vy = 0; vz = 1000;

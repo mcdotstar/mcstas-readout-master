@@ -13,12 +13,59 @@ if ! command -v mcstas-antlr &> /dev/null; then
     echo "mcstas-antlr not found, skipping integration tests."
     exit 100
 fi
-if ! [ -x ./readout-config ]; then
+# ... or installed but not functional (e.g. incomplete Windows support).
+# NB: exit codes cannot discriminate here — a functional mcstas-antlr exits 1
+# from --version, and a crashing one also exits 1 from its traceback — so look
+# for the version banner on stdout instead. Capture rather than pipe: with
+# pipefail set, mcstas-antlr's quirky nonzero exit would fail any pipeline.
+antlr_banner="$(mcstas-antlr --version 2> /dev/null || true)"
+case "${antlr_banner}" in
+    *version*) ;; # functional
+    *)
+        echo "mcstas-antlr found but not functional, skipping integration tests."
+        exit 100
+        ;;
+esac
+# mccode-antlr <= 0.21.0 has a bug preventing Windows use (upstream fix pending):
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+        antlr_version="$(printf '%s' "${antlr_banner}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+        antlr_version="${antlr_version:-0.0.0}"
+        if [ "$(printf '%s\n%s\n' '0.21.0' "${antlr_version}" | sort -V | tail -1)" = "0.21.0" ]; then
+            echo "mccode-antlr ${antlr_version} <= 0.21.0 does not work on Windows, skipping integration tests."
+            exit 100
+        fi
+        ;;
+esac
+readout_config=""
+if [ -x bin/readout-config ]; then
+    readout_config="bin/readout-config"
+elif [ -x bin/Debug/readout-config.exe ]; then
+    readout_config="bin/Debug/readout-config.exe"
+elif [ -x bin/Release/readout-config.exe ]; then
+    readout_config="bin/Release/readout-config.exe"
+else
     echo "local readout-config not found."
     exit 1
 fi
-compdir=$(./readout-config --show compdir)
-compileflags="-Wl,-rpath,. -L. -lreadout -I../lib"
+compdir=$("${readout_config}" --show compdir)
+# Add the build directory to PATH so that CMD(readout-config ...) in component
+# DEPENDENCY lines is resolved when mcstas-antlr processes the .instr file.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if command -v cygpath >/dev/null 2>&1; then
+      export PATH="$(cygpath -w "${PWD}/bin");$(cygpath -w "${PWD}/bin/Debug");$(cygpath -w "${PWD}/bin/Release");${PATH}"
+    else
+      export PATH="${PWD}/bin:${PWD}/bin/Debug:${PWD}/bin/Release:${PATH}"
+    fi
+    # SEARCH "D:\path\to\components" is parsed as escape sequences; normalize to forward slashes.
+    compdir=${compdir//\\//}
+    ;;
+  *)
+    export PATH="${PWD}/bin:${PWD}/bin/Debug:${PWD}/bin/Release:${PATH}"
+    ;;
+esac
+compileflags="-Wl,-rpath,lib -Llib -lreadout -Iinclude"
 
 # Switch to a temporary directory
 #tmpdir=$(mktemp -d)
@@ -72,9 +119,9 @@ COMPONENT monitor_readout = ReadoutTTLMonitor(
 )
   AT (0, 0, 2) ABSOLUTE
 
-COMPONENT caen_collector = CollectCAEN(
-ring="RING", fen="FEN", tube="TUBE", event_mode="p", a_name="A", b_name="B", tof="tof",
-filename=filename, point=point, total_points=total_points, verbose=1
+COMPONENT caen_collector = CollectorCAEN(
+ring="RING", fen="FEN", tube="TUBE", a_name="A", b_name="B", tof="tof",
+filename=filename, verbose=1
 ) AT (0, 0, 3) ABSOLUTE
 
 COMPONENT discrete_monitor = ReadoutDiscreteCAEN(
@@ -84,8 +131,11 @@ COMPONENT discrete_monitor = ReadoutDiscreteCAEN(
 END
 EOF
 
+echo "setup done, now convert"
+
 # Convert the test file into a C file
 mcstas-antlr ${temp_file} || exit 1
+echo "conversion done, now run it"
 # Compile the C file and run it
 mcrun-antlr ${temp_file} -n 100 dummy=1 || exit 1
 

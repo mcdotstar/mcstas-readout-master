@@ -58,3 +58,7 @@ Pipfile.lock
 devtools/conan
 devtools/wheelhouse
 *.comp.json
+*build-dev
+*tmp
+test_*.c
+references/

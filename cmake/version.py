@@ -28,7 +28,7 @@ def git_run(args, default=None, cwd=None):
 
 
 def get_version(root: Path):
-    file = Path(__file__).parent.joinpath('VERSION')
+    file = Path(root).joinpath('VERSION')
     fallback = file.read_text()
     version = git_run(['git', 'describe', '--long'], cwd=root, default=fallback).split('v', maxsplit=1)[-1]
     d = semver_groups(version)
