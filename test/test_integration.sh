@@ -13,12 +13,19 @@ if ! command -v mcstas-antlr &> /dev/null; then
     echo "mcstas-antlr not found, skipping integration tests."
     exit 100
 fi
-# ... or installed but not functional (e.g. incomplete Windows support):
-mcstas-antlr --version &> /dev/null
-if [ $? -ne 1 ]; then
-    echo "mcstas-antlr found but not functional, skipping integration tests."
-    exit 100
-fi
+# ... or installed but not functional (e.g. incomplete Windows support).
+# NB: exit codes cannot discriminate here — a functional mcstas-antlr exits 1
+# from --version, and a crashing one also exits 1 from its traceback — so look
+# for the version banner on stdout instead. Capture rather than pipe: with
+# pipefail set, mcstas-antlr's quirky nonzero exit would fail any pipeline.
+antlr_banner="$(mcstas-antlr --version 2> /dev/null || true)"
+case "${antlr_banner}" in
+    *version*) ;; # functional
+    *)
+        echo "mcstas-antlr found but not functional, skipping integration tests."
+        exit 100
+        ;;
+esac
 readout_config=""
 if [ -x bin/readout-config ]; then
     readout_config="bin/readout-config"
