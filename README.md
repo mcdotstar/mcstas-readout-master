@@ -14,7 +14,7 @@ reachable) during the simulation.
 Guides, per-component parameter references, CLI documentation, and the C/C++ API
 reference are published at
 
-**https://g5t.github.io/mcstas-readout-master/**
+**https://mcdotstar.github.io/mcstas-readout-master/**
 
 To build the site locally (requires Doxygen):
 
@@ -29,7 +29,7 @@ cmake --build build-docs --target docs
 ### 1. Install
 
 ```bash
-git clone https://github.com/g5t/mcstas-readout-master.git
+git clone https://github.com/mcdotstar/mcstas-readout-master.git
 cmake -S mcstas-readout-master -B mcstas-readout-master-build -DCMAKE_INSTALL_PREFIX=~/.local
 cmake --build mcstas-readout-master-build --target install
 ```
@@ -75,7 +75,7 @@ Replay steps through the stored points, publishes each point's parameters, draws
 `n ~ Poisson(w * counting_time)` events per stored readout, and sends them to EFUs
 resolved from explicit configuration, file-embedded attributes, or the command-line
 defaults — in that order. See the
-[CLI reference](https://g5t.github.io/mcstas-readout-master/) for all options.
+[CLI reference](https://mcdotstar.github.io/mcstas-readout-master/) for all options.
 
 ## Legacy runtime streaming
 

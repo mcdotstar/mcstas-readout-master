@@ -23,8 +23,8 @@ classifiers = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/g5t/mcstas-readout-master"
-"Bug Tracker" = "https://github.com/g5t/mcstas-readout-master/issues"
+"Homepage" = "https://github.com/mcdotstar/mcstas-readout-master"
+"Bug Tracker" = "https://github.com/mcdotstar/mcstas-readout-master/issues"
 
 [project.scripts]
 readout-config = "_readout_core:readout_config"

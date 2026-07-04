@@ -3,7 +3,7 @@
 ## Build and install from source
 
 ```bash
-git clone https://github.com/g5t/mcstas-readout-master.git
+git clone https://github.com/mcdotstar/mcstas-readout-master.git
 cmake -S mcstas-readout-master -B mcstas-readout-master-build -DCMAKE_INSTALL_PREFIX="$HOME/.local"
 cmake --build mcstas-readout-master-build --target install -j
 ```

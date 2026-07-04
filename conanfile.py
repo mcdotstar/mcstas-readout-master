@@ -18,8 +18,8 @@ class ReadoutRecipe(ConanFile):
 
     name = "mcstas-readout-master"
     license = "BSD-3-Clause"
-    url = "https://github.com/g5t/mcstas-readout-master"
-    homepage = "https://github.com/g5t/mcstas-readout-master"
+    url = "https://github.com/mcdotstar/mcstas-readout-master"
+    homepage = "https://github.com/mcdotstar/mcstas-readout-master"
     description = (
         "McStas components and tools mimicking ESS Readout Master detector readouts: "
         "collect simulated events to HDF5, combine files, and replay them to Event Formation Units"
