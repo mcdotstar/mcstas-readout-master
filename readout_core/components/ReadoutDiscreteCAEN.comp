@@ -1,0 +1,271 @@
+/*******************************************************************************
+*
+* McStas readout-master component for the ESS data pipeline
+*
+* %I
+* Written by: Gregory Tucker
+* Date: 2024
+* Origin: European Spallation Source ERIC
+*
+* Accumulate weighted CAEN readout records during the simulation, then send a
+* fixed number of sampled events to an Event Formation Unit at the end.
+*
+* %D
+* Unlike ReadoutCAEN.comp, which makes an independent Poisson draw per
+* neutron as it is traced, this component stores every weighted record and
+* only broadcasts at the end of the run: a weighted-random reservoir sampler
+* draws the requested number of events (with replacement proportional to
+* weight) and streams them to the EFU. Use it when a definite event count is
+* wanted, e.g. `discrete_count=10000` sends exactly ten thousand events.
+* Without `discrete_count`, the sample size is `discrete_fraction` times the
+* total accumulated weight, capped at `discrete_maximum`.
+*
+* The EFU must be reachable when the simulation finishes. For the fully
+* decoupled workflow, store records with CollectorCAEN.comp and send them
+* later with `readout-replay`.
+*
+* Example: COMPONENT readout = ReadoutDiscreteCAEN(
+*     ring="ring_id", tube="tube_id", a_name="left", b_name="right",
+*     discrete_count=10000, ip="bifrost-efu.example.org", port=9000)
+*   AT (0, 0, 0) RELATIVE PREVIOUS
+*
+* %P
+* INPUT PARAMETERS:
+*
+* discrete_count: [1] exact number of events to sample and send; 0 derives the count
+*                  from discrete_fraction and discrete_maximum instead
+* discrete_fraction: [1] fraction of the total accumulated weight to sample when
+*                  discrete_count is 0
+* discrete_maximum: [1] upper bound on the derived sample count (memory guard)
+* oversample: [1]  how many extra passes over the stored records are allowed to fill
+*                  the sampler when the first pass leaves it incomplete
+* clear_on_save: [1] flag: clear the accumulated records after each SAVE (useful with
+*                  intermediate saves)
+* ring: [str]      name of the particle variable holding the Ring (fibre) ID; required
+* fen: [str]       name of the particle variable holding the Front End Node ID; empty uses fen_value
+* tube: [str]      name of the particle variable holding the CAEN group (tube) ID; required
+* a_name: [str]    name of the particle variable holding amplitude A; empty uses a_value
+* b_name: [str]    name of the particle variable holding amplitude B; empty uses b_value
+* c_name: [str]    name of the particle variable holding amplitude C; empty uses c_value
+* d_name: [str]    name of the particle variable holding amplitude D; empty uses d_value
+* tof: [str]       name of the particle variable holding the time-of-flight; "t" reads the ray time
+* ip: [str]        resolvable domain name or IP address of the EFU receiving the packets
+* fen_value: [1]   fixed FEN ID used when fen is not named
+* a_value: [1]     fixed amplitude A used when a_name is not named
+* b_value: [1]     fixed amplitude B used when b_name is not named
+* c_value: [1]     fixed amplitude C used when c_name is not named
+* d_value: [1]     fixed amplitude D used when d_name is not named
+* port: [1]        EFU event-packet UDP port
+* command_port: [1] EFU command TCP port
+* broadcast: [1]   flag controlling whether event packets are actually sent
+* pulse_rate: [Hz] reference-time pulse rate used to build EFU timestamps
+* event_mode: [str] "p" accumulates the ray weight p; "pp" accumulates p^2
+* verbose: [1]     -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+* ess_type: [1]    ESS DetectorType byte for the packet header, e.g. BIFROST 0x34, MIRACLES 0x41
+*
+* %L
+* The <a href="https://github.com/ess-dmsc/event-formation-unit">Event Formation Unit</a>
+* and the ESS Detector Interface Control Documents describe the CAEN readout format.
+*
+* %E
+*******************************************************************************/
+
+DEFINE COMPONENT ReadoutDiscreteCAEN
+DEFINITION PARAMETERS()
+SETTING PARAMETERS (
+int discrete_count = 0,
+double discrete_fraction = 1.,
+double discrete_maximum = 1e7,
+int oversample = 0,
+int clear_on_save = 0,
+string ring = 0,
+string fen = 0,
+string tube = 0,
+string a_name = 0,
+string b_name = 0,
+string c_name = 0,
+string d_name = 0,
+string tof = "t",
+string ip = 0,
+int fen_value=0,
+int a_value=0,
+int b_value=0,
+int c_value=0,
+int d_value=0,
+int port = 9000,
+int command_port = 10800,
+int broadcast = 1,
+pulse_rate = 14,
+string event_mode = "p",
+int verbose=0, // -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+int ess_type=52 // 0x34 == 52, 0x41==65
+)
+OUTPUT PARAMETERS ()
+DEPENDENCY "-Wl,-rpath,CMD(readout-config --show libdir) -LCMD(readout-config --show libdir) -lreadout -ICMD(readout-config --show includedir)"
+SHARE
+%{
+%include "lib-readout"
+
+struct collect_caen_readout {
+    uint8_t ring_;
+    uint8_t fen_;
+    uint8_t channel_;
+    double time_;
+    double weight_;
+    uint16_t a_;
+    uint16_t b_;
+    uint16_t c_;
+    uint16_t d_;
+};
+
+%}
+
+DECLARE
+%{
+readout_t* readout_ptr;
+array_t * array_ptr;
+double total_weight;
+
+int p_or_pp;
+int fen_present;
+int a_present;
+int b_present;
+int c_present;
+int d_present;
+%}
+
+INITIALIZE
+%{
+total_weight = 0;
+
+fen_present = ((fen != NULL) && (fen[0] != '\0')) ? 1 : 0;
+a_present = ((a_name != NULL) && (a_name[0] != '\0')) ? 1 : 0;
+b_present = ((b_name != NULL) && (b_name[0] != '\0')) ? 1 : 0;
+c_present = ((c_name != NULL) && (c_name[0] != '\0')) ? 1 : 0;
+d_present = ((d_name != NULL) && (d_name[0] != '\0')) ? 1 : 0;
+// Make sure the provided property names are accessible -- no error checking later
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, 1, ring);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, fen_present, fen);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, 1, tube);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, a_present, a_name);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, b_present, b_name);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, c_present, c_name);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, d_present, d_name);
+readout_particle_check("ReadoutDiscreteCAEN", NAME_CURRENT_COMP, _particle, 1, tof);
+
+p_or_pp = (strcmp(event_mode, "p") == 0) ? 0 : 1;
+if (p_or_pp && !strcmp(event_mode, "pp")) readout_caen_error(NAME_CURRENT_COMP, "Undefined event mode");
+
+array_ptr = new_array(sizeof(struct collect_caen_readout)); // new_array(27u)?
+
+// Construct the temporary broadcaster interface to send out data during the SAVE block
+// Include the header file and run any initialization for the real broadcaster
+if (ip == 0 || ip[0] == '\0'){
+	readout_ptr = readout_create("127.0.0.1", port, command_port, pulse_rate, ess_type);
+} else {
+	readout_ptr = readout_create(ip, port, command_port, pulse_rate, ess_type);
+}
+%}
+
+TRACE
+%{
+double pp = particle_getvar(_particle, "p", 0); // * sqrt((double)(mcget_ncount()));
+if (p_or_pp) pp *= pp;
+
+int int_ring, int_fen, int_tube, int_A, int_B, int_C, int_D;
+double double_tof;
+
+if (pp) {
+  struct collect_caen_readout collect_readout_data = {
+      (uint8_t) readout_particle_getvar_int(_particle, ring),
+      (uint8_t) fen_present ? readout_particle_getvar_int(_particle, fen) : fen_value,
+      (uint8_t) readout_particle_getvar_int(_particle, tube),
+      (double) particle_getvar(_particle, tof, 0),
+      (double) pp,
+      (uint16_t) a_present ? readout_particle_getvar_int(_particle, a_name) : a_value,
+      (uint16_t) b_present ? readout_particle_getvar_int(_particle, b_name) : b_value,
+      (uint16_t) c_present ? readout_particle_getvar_int(_particle, c_name) : c_value,
+      (uint16_t) d_present ? readout_particle_getvar_int(_particle, d_name) : d_value
+  };
+  array_add(array_ptr, (const void *) & collect_readout_data);
+  // keep track of the total submitted weight
+  total_weight += pp;
+}
+%}
+
+SAVE
+%{
+readout_newPacket(readout_ptr);
+readout_verbose(readout_ptr, verbose);
+if (!broadcast) readout_disable_network(readout_ptr);
+
+// Get the samples and send them (on individual MPI nodes is fine)
+
+// estimate how many samples we should take:
+size_t samples;
+if (discrete_count) {
+  samples = (size_t) discrete_count;
+} else {
+  // Allow to sample any fraction of the expected counts per second
+  total_weight *= discrete_fraction;
+  // But ensure we don't go crazy with memory requirements
+  samples = (size_t) (total_weight > discrete_maximum ? discrete_maximum : total_weight);
+}
+
+if (verbose > 1)
+  printf("ReadoutDiscreteCAEN(%s): Total weight %e, sampling %zu events\n", NAME_CURRENT_COMP, total_weight, samples);
+
+// Now we can sample and broadcast
+// McStas' random() might return a double or a 64-bit integer, but we only need 32 bits of randomness
+index_sampler_t * sampler_ptr = new_index_sampler(samples, (uint32_t)(0xFF & random()));
+
+struct collect_caen_readout ccr;
+size_t count = array_size(array_ptr);
+int oversample_ok = oversample > 0 ? 1 : 0;
+do {
+  // First time through is always needed
+  for (size_t i=0; i<count; i++){
+    array_get(array_ptr, i, (void *) &ccr);
+    index_sampler_fit(sampler_ptr, i+1, ccr.weight_); // offset so we can detect oversampling
+  }
+  // If the user allows oversampling, and we haven't filled the sampler just replay what we have until full
+  // up to 'oversample' times.
+} while (oversample_ok && oversample-->0 && index_sampler_filling(sampler_ptr));
+
+// Do the broadcasting:
+CAEN_readout_t readout_data;
+for (size_t i=0; i<samples; i++){
+  size_t index = index_sampler_value(sampler_ptr, i);
+  if (index == 0) continue; // we did not fill completely, so all further samples are invalid
+  array_get(array_ptr, index - 1, (void *) &ccr); // remove offset from above
+  readout_data.channel = ccr.channel_;
+  readout_data.a = ccr.a_;
+  readout_data.b = ccr.b_;
+  readout_data.c = ccr.c_;
+  readout_data.d = ccr.d_;
+  // This needs to not require a weight... 0 is a hack to bypass the Poisson sampling, since we already sampled
+  readout_add(readout_ptr, ccr.ring_, ccr.fen_, ccr.time_, 0., (const void *)(&readout_data));
+}
+
+// Ensure any partial packet gets sent
+if (broadcast) readout_send(readout_ptr);
+// We should use a new seed the next time around, so we anyway need a new sampler
+delete_index_sampler(sampler_ptr);
+
+// Optionally clear-out the rays stored up to the is point to
+if (clear_on_save){
+  array_clear(array_ptr);
+}
+%}
+
+FINALLY
+%{
+readout_destroy(readout_ptr);
+delete_array(array_ptr);
+%}
+
+MCDISPLAY
+%{
+%}
+
+END

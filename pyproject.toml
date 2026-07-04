@@ -1,0 +1,63 @@
+[build-system]
+requires = ["scikit-build-core>=0.11", "scikit-build-core-conan>=0.6"]
+build-backend = "scikit_build_core_conan.build"
+
+[project]
+name = "mcstas-readout-master"
+dynamic = ["version"]
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "BSD-3-Clause" }
+authors = [
+  { name = "Gregory Tucker", email = "gregory.tucker@ess.eu" },
+]
+description = "McStas components and tools mimicking ESS Readout Master detector readouts: collect simulated events to HDF5, combine files, and replay them to Event Formation Units"
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS :: MacOS X",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/mcdotstar/mcstas-readout-master"
+"Bug Tracker" = "https://github.com/mcdotstar/mcstas-readout-master/issues"
+
+[project.scripts]
+readout-config = "_readout_core:readout_config"
+readout-replay = "_readout_core:readout_replay"
+readout-combine = "_readout_core:readout_combine"
+
+[tool.scikit-build]
+minimum-version = "0.10"
+wheel.packages = ["python/_readout_core"]
+# The CMake install prefix lands inside the shim package: the binaries
+# self-locate their resources within it, and the entry points exec them.
+wheel.install-dir = "_readout_core/data"
+# No Python C-API anywhere: one wheel per platform, any CPython 3.x
+wheel.py-api = "py3"
+build.verbose = true
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "VERSION"
+regex = "^(?P<value>.+?)\\s*$"
+
+[tool.scikit-build.cmake.define]
+READOUT_BUILD_TESTS = "OFF"
+# conan is driven by the scikit-build-core-conan backend, not the in-tree provider:
+READOUT_USE_CONAN = "OFF"
+# consumers of the wheel exec the bundled binaries or link the C API only,
+# so the statically linked HDF5 must not export clash-prone symbols:
+READOUT_HIDE_BUNDLED_SYMBOLS = "ON"
+
+[tool.cibuildwheel]
+archs = ["auto64"]
+# py3-none wheels: build against a single CPython per platform
+build = ["cp312-*"]
+skip = ["*-musllinux*"]
+build-verbosity = 1
+test-command = "readout-config --version && readout-config --show compdir && readout-replay --help && readout-combine --help"

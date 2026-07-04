@@ -1,0 +1,336 @@
+/*******************************************************************************
+*
+* McStas readout-master component for the ESS data pipeline
+*
+* %I
+* Written by: Gregory Tucker
+* Date: 2026
+* Origin: European Spallation Source ERIC
+*
+* Collect VMM3 (Micromegas/strip-detector ASIC) readout records into an HDF5
+* file for post-run replay to an Event Formation Unit.
+*
+* %D
+* Stores one weighted-ray record per traced neutron into a named collector
+* group of a cue-based HDF5 file. The record layout matches the canonical
+* VMM3 readout used by strip- and Micromegas-based instruments: ring, FEN,
+* time-of-flight, weight, bunch-crossing counter (BC), over-threshold flag
+* and ADC (OTADC), geometry ID (GEO), time-to-digital value (TDC), VMM ASIC
+* ID, and channel. Files are merged with `readout-combine` and sent to an
+* EFU with `readout-replay`.
+*
+* Identifying values are read *by name* from particle variables (typically
+* USER_VARS set in an EXTEND block). `ring` must name a resolvable variable;
+* all other identifying fields fall back to their `*_value` counterparts
+* when left unset.
+*
+* Example: COMPONENT collect = CollectorVMM3(
+*     ring="ring_id", vmm_name="vmm", channel_name="strip",
+*     otadc_name="amplitude", filename="run", dataset_name="nmx_plane0",
+*     ess_type=0x44)
+*   AT (0, 0, 0) RELATIVE PREVIOUS
+*
+* %P
+* INPUT PARAMETERS:
+*
+* ring: [str]       name of the particle variable holding the Ring (fibre) ID; required
+* fen: [str]        name of the particle variable holding the Front End Node ID; empty uses fen_value
+* bc_name: [str]    name of the particle variable holding the bunch-crossing counter; empty uses bc_value
+* otadc_name: [str] name of the particle variable holding the over-threshold ADC; empty uses otadc_value
+* geo_name: [str]   name of the particle variable holding the geometry ID; empty uses geo_value
+* tdc_name: [str]   name of the particle variable holding the TDC value; empty uses tdc_value
+* vmm_name: [str]   name of the particle variable holding the VMM ASIC ID; empty uses vmm_value
+* channel_name: [str] name of the particle variable holding the channel; empty uses channel_value
+* tof: [str]        name of the particle variable holding the time-of-flight; "t" reads the ray time
+* ring_count: [1]   currently unused; reserved
+* fen_count: [1]    currently unused; reserved
+* fen_value: [1]    fixed FEN ID used when fen is not named
+* bc_value: [1]     fixed bunch-crossing counter used when bc_name is not named
+* otadc_value: [1]  fixed over-threshold ADC used when otadc_name is not named
+* geo_value: [1]    fixed geometry ID used when geo_name is not named
+* tdc_value: [1]    fixed TDC value used when tdc_name is not named
+* vmm_value: [1]    fixed VMM ASIC ID used when vmm_name is not named
+* channel_value: [1] fixed channel used when channel_name is not named
+* pulse_rate: [Hz]  currently unused by the collector; reference times are reconstructed at replay
+* filename: [str]   HDF5 output file; empty stores to "collected_events"; several collectors may share one file
+* dataset_name: [str] collector group name inside the file; empty uses the component instance name
+* verbose: [1]      -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+* ess_type: [1]     ESS DetectorType byte stored with the group; 0x40 (TREX) maps to the VMM3
+*                   readout layout, as do NMX (0x44), FREIA (0x48), TBLVMM (0x49), and ESTIA (0x4c)
+* efu_address: [str] optional EFU address stored as a group attribute for replay routing
+* efu_port: [1]     optional EFU UDP port stored as a group attribute for replay routing
+*
+* %L
+* The <a href="https://github.com/ess-dmsc/event-formation-unit">Event Formation Unit</a>
+* and the ESS Detector Interface Control Documents describe the VMM3 readout format.
+*
+* %E
+*******************************************************************************/
+
+DEFINE COMPONENT CollectorVMM3
+DEFINITION PARAMETERS()
+SETTING PARAMETERS (
+string ring = 0,
+string fen = 0,
+string bc_name = 0,
+string otadc_name = 0,
+string geo_name = 0,
+string tdc_name = 0,
+string vmm_name = 0,
+string channel_name = 0,
+string tof = "t",
+int ring_count=1,
+int fen_count=1,
+int fen_value=0,
+int bc_value=0,
+int otadc_value=0,
+int geo_value=0,
+int tdc_value=0,
+int vmm_value=0,
+int channel_value=0,
+pulse_rate = 14,
+string filename = 0,
+string dataset_name = 0,
+int verbose=0, // -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+int ess_type=64, // 0x40 == 64: TREX, which maps to ReadoutType::VMM3 (also NMX=0x44, FREIA=0x48, TBLVMM=0x49, ESTIA=0x4c)
+string efu_address = 0, // Optional EFU IP address for replay routing; leave 0/empty to omit from file
+int efu_port = 0         // Optional EFU UDP port for replay routing; leave 0 to omit from file
+)
+OUTPUT PARAMETERS ()
+DEPENDENCY "-Wl,-rpath,CMD(readout-config --show libdir) -LCMD(readout-config --show libdir) -lreadout -ICMD(readout-config --show includedir)"
+SHARE
+%{
+%include "lib-readout"
+
+/* One stored record, laid out to match the canonical VMM3 description from
+ * readout_description_for(ess_type): uint8 ring, uint8 FEN, double time, double weight,
+ * uint16 bc, uint16 otadc, uint8 geo, uint8 tdc, uint8 vmm, uint8 channel.
+ * Member names are prefixed to avoid clashing with particle, component, or instrument
+ * parameter names. */
+struct collector_vmm3_record {
+    uint8_t  rec_ring;
+    uint8_t  rec_fen;
+    double   rec_time;
+    double   rec_weight;
+    uint16_t rec_bc;
+    uint16_t rec_otadc;
+    uint8_t  rec_geo;
+    uint8_t  rec_tdc;
+    uint8_t  rec_vmm;
+    uint8_t  rec_channel;
+};
+%}
+
+DECLARE
+%{
+array_t * array_ptr;
+collector_t * collector_ptr;
+
+int fen_present;
+int bc_present;
+int otadc_present;
+int geo_present;
+int tdc_present;
+int vmm_present;
+int channel_present;
+
+char * this_filename;
+char * this_dataset_name;
+%}
+
+INITIALIZE
+%{
+char * basepath = mcfull_file("", NULL);
+
+this_filename = NULL;
+char * safe_filename = NULL;
+if (filename == NULL || filename[0] == '\0') {
+  safe_filename = (char *) calloc(17, sizeof(char));
+  strcpy(safe_filename, "collected_events");
+} else {
+  safe_filename = (char *) calloc(strlen(filename)+1, sizeof(char));
+  strcpy(safe_filename, filename);
+}
+this_filename = (char *) calloc(collector_construct_filename_size(basepath, safe_filename), sizeof(char));
+collector_construct_filename(basepath, safe_filename, this_filename);
+free(safe_filename);
+if (basepath) free(basepath);
+
+int have_dataset_name = (dataset_name != NULL) && (dataset_name[0] != '\0');
+this_dataset_name = (char *) calloc(strlen(have_dataset_name ? dataset_name : NAME_CURRENT_COMP)+1, sizeof(char));
+strcpy(this_dataset_name, have_dataset_name ? dataset_name : NAME_CURRENT_COMP);
+
+fen_present     = ((fen          != NULL) && (fen[0]          != '\0')) ? 1 : 0;
+bc_present      = ((bc_name      != NULL) && (bc_name[0]      != '\0')) ? 1 : 0;
+otadc_present   = ((otadc_name   != NULL) && (otadc_name[0]   != '\0')) ? 1 : 0;
+geo_present     = ((geo_name     != NULL) && (geo_name[0]     != '\0')) ? 1 : 0;
+tdc_present     = ((tdc_name     != NULL) && (tdc_name[0]     != '\0')) ? 1 : 0;
+vmm_present     = ((vmm_name     != NULL) && (vmm_name[0]     != '\0')) ? 1 : 0;
+channel_present = ((channel_name != NULL) && (channel_name[0] != '\0')) ? 1 : 0;
+
+int failure=0;
+particle_getvar(_particle, ring, &failure); if (failure) collector_error(NAME_CURRENT_COMP, ring);
+if (fen_present){
+    particle_getvar(_particle, fen, &failure); if (failure) collector_error(NAME_CURRENT_COMP, fen);
+}
+if (bc_present){
+    particle_getvar(_particle, bc_name, &failure); if (failure) collector_error(NAME_CURRENT_COMP, bc_name);
+}
+if (otadc_present){
+    particle_getvar(_particle, otadc_name, &failure); if (failure) collector_error(NAME_CURRENT_COMP, otadc_name);
+}
+if (geo_present){
+    particle_getvar(_particle, geo_name, &failure); if (failure) collector_error(NAME_CURRENT_COMP, geo_name);
+}
+if (tdc_present){
+    particle_getvar(_particle, tdc_name, &failure); if (failure) collector_error(NAME_CURRENT_COMP, tdc_name);
+}
+if (vmm_present){
+    particle_getvar(_particle, vmm_name, &failure); if (failure) collector_error(NAME_CURRENT_COMP, vmm_name);
+}
+if (channel_present){
+    particle_getvar(_particle, channel_name, &failure); if (failure) collector_error(NAME_CURRENT_COMP, channel_name);
+}
+particle_getvar(_particle, tof, &failure); if (failure) collector_error(NAME_CURRENT_COMP, tof);
+
+if (this_filename == NULL || this_filename[0] == '\0') {
+  collector_error(NAME_CURRENT_COMP, "Filename is empty after processing, cannot create Collector instance.");
+}
+
+const char * record_description = readout_description_for(ess_type);
+if (record_description == NULL) {
+  collector_error(NAME_CURRENT_COMP, "No canonical record description for the given ess_type.");
+}
+
+uint64_t normalization = (uint64_t)mcget_ncount();
+
+#ifdef USE_MPI
+collector_ptr = NULL;
+normalization *= (uint64_t) mpi_node_count;
+if (mpi_node_rank == mpi_node_root) {
+#endif
+  collector_ptr = collector_star_new(this_filename, this_dataset_name, record_description, ess_type, normalization);
+  if (collector_ptr == NULL) {
+    collector_error(NAME_CURRENT_COMP, "Could not create the description-based Collector instance.");
+  }
+  if (collector_record_size(collector_ptr) != sizeof(struct collector_vmm3_record)) {
+    collector_error(NAME_CURRENT_COMP, "Record layout mismatch between component struct and canonical description.");
+  }
+  if (efu_address != NULL && efu_address[0] != '\0' && efu_port > 0) {
+    collector_efu(collector_ptr, efu_address, efu_port);
+  }
+  if (collector_sink_users(this_filename) == 1){
+    collector_sink_parameters(NAME_CURRENT_COMP);
+  }
+#ifdef USE_MPI
+}
+#endif
+
+array_ptr = new_array(sizeof(struct collector_vmm3_record));
+
+%}
+
+TRACE
+%{
+double weight = p * (double)(mcget_ncount());
+
+if (weight) {
+    struct collector_vmm3_record data = {
+        .rec_ring    = (uint8_t) (readout_particle_getvar_int(_particle, ring)),
+        .rec_fen     = (uint8_t) (fen_present     ? readout_particle_getvar_int(_particle, fen)         : fen_value),
+        .rec_time    = particle_getvar(_particle, tof, 0),
+        .rec_weight  = weight,
+        .rec_bc      = (uint16_t)(bc_present      ? readout_particle_getvar_int(_particle, bc_name)     : bc_value),
+        .rec_otadc   = (uint16_t)(otadc_present   ? readout_particle_getvar_int(_particle, otadc_name)  : otadc_value),
+        .rec_geo     = (uint8_t) (geo_present     ? readout_particle_getvar_int(_particle, geo_name)    : geo_value),
+        .rec_tdc     = (uint8_t) (tdc_present     ? readout_particle_getvar_int(_particle, tdc_name)    : tdc_value),
+        .rec_vmm     = (uint8_t) (vmm_present     ? readout_particle_getvar_int(_particle, vmm_name)    : vmm_value),
+        .rec_channel = (uint8_t) (channel_present ? readout_particle_getvar_int(_particle, channel_name): channel_value)
+    };
+    if (verbose > 2)
+      printf("(%2u %2u) bc=%5u otadc=%5u geo=%2u tdc=%2u vmm=%2u ch=%2u %0.10f -- Collected\n",
+             data.rec_ring, data.rec_fen, data.rec_bc, data.rec_otadc,
+             data.rec_geo, data.rec_tdc, data.rec_vmm, data.rec_channel, data.rec_time);
+
+    array_add(array_ptr, (const void *)(&data));
+}
+
+%}
+
+SAVE
+%{
+#if defined USE_MPI
+  MPI_Datatype mpi_collect_record_type;
+  MPI_Type_contiguous(sizeof(struct collector_vmm3_record), MPI_BYTE, &mpi_collect_record_type);
+  MPI_Type_commit(&mpi_collect_record_type);
+
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+  int local_count = (int) array_size(array_ptr);
+  int global_count = 0;
+  int * recv_counts = NULL;
+  int * displacements = NULL;
+  struct collector_vmm3_record * recv_buffer = NULL;
+
+  if (mpi_node_rank == mpi_node_root) {
+    recv_counts = (int *) malloc(world_size * sizeof(int));
+    displacements = (int *) malloc(world_size * sizeof(int));
+  }
+
+  MPI_Gather(&local_count, 1, MPI_INT, recv_counts, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+  if (mpi_node_rank == mpi_node_root) {
+    for (int i=0; i < world_size; i++){
+      displacements[i] = (i == 0) ? 0 : displacements[i-1] + recv_counts[i-1];
+      global_count += recv_counts[i];
+    }
+    recv_buffer = (struct collector_vmm3_record *) malloc(global_count * sizeof(struct collector_vmm3_record));
+  }
+
+  const uint8_t * local_data = array_data(array_ptr);
+  MPI_Gatherv((void *)local_data, local_count, mpi_collect_record_type, recv_buffer, recv_counts, displacements, mpi_collect_record_type, 0, MPI_COMM_WORLD);
+
+  if (mpi_node_rank == mpi_node_root) {
+    for (int i=0; i < global_count; i++){
+      struct collector_vmm3_record * data = &recv_buffer[i];
+      collector_star_add(collector_ptr, data->rec_weight, (const void *)data);
+    }
+    free(recv_buffer);
+    free(recv_counts);
+    free(displacements);
+  }
+  MPI_Type_free(&mpi_collect_record_type);
+#else
+  size_t count = array_size(array_ptr);
+  struct collector_vmm3_record data;
+  for (size_t i=0; i < count; i++){
+    array_get(array_ptr, i, (void *) &data);
+    collector_star_add(collector_ptr, data.rec_weight, (const void *)(&data));
+  }
+#endif
+array_clear(array_ptr);
+%}
+
+
+FINALLY
+%{
+if (array_size(array_ptr) != 0) {
+  fprintf(stderr, "Warning: array still has %zu elements at FINALLY block of %s\n", array_size(array_ptr), NAME_CURRENT_COMP);
+}
+
+if (collector_ptr != NULL) {
+  collector_free(collector_ptr);
+  collector_ptr = NULL;
+}
+
+delete_array(array_ptr);
+array_ptr = NULL;
+free(this_filename);
+free(this_dataset_name);
+%}
+
+MCDISPLAY
+%{
+%}
+
+END

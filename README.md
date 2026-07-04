@@ -1,190 +1,105 @@
 # McStas Readout Master for ESS detectors
-The Readout [McStas 3.3+](https://mcstas.org) component is the link between ray-tracing neutron simulations
-and the ESS data pipeline via the [Event Formation Unit](https://github.com/ess-dmsc/event-formation-unit) (EFU).
 
-## Overview
-Different McStas components are provided to support different types of detectors used with the EFU;
-since each detector type produces different information per neutron event.
-At present only detectors using CAEN digitizers and simple TTL-based signals are supported, but extending
-the system to support other detector types is straightforward.
+Components and tools linking [McStas 3.3+](https://mcstas.org) ray-tracing neutron
+simulations to the ESS data pipeline via the
+[Event Formation Unit](https://github.com/ess-dmsc/event-formation-unit) (EFU).
 
-Each component makes a Poisson distributed Monte Carlo choice for every neutron
-that it is passed based on the weight, `_particle->p`, or the weight squared (user configurable).
-If the random choice is finite event-identifying parameters are read from the `_particle` struct's `USER_VARS`
-(detailed below) which must have been set earlier in the simulation.
-If the random choice is zero the component can, optionally, produce random noise values for all require parameters
-or alternatively discard the neutron.
-If not discarded, the information is added to a network packet through the C interface `Readout`
-and ultimately sent to the EFU by the C++ object `ReadoutClass`.
+Simulated readout records are **collected** to HDF5 files while the simulation runs,
+**combined** across repeated runs or scan points, and **replayed** to EFUs afterwards,
+statistically correctly — the data-acquisition stack does not need to be running (or
+reachable) during the simulation.
 
-The exact details of information required by the Event Formation Unit depend on the type of detector and
-are explained in a number of 'Detector Interface Control Documents', 
-produced by ECDC at the ESS.
+## Documentation
 
-## Common McStas component parameters
-| Parameter      | Type   | Description                                                                              |
-|----------------|--------|------------------------------------------------------------------------------------------|
-| `ring`         | named  | identifies the Readout Ring physical fibre                                               |
-| `fen`          | named  | identifies the Front End Node                                                            |
-| `tof`          | named  | time-of-flight of the neutron, default: `_particle->t`, any `USER_VARS` value is valid   |
-| `ip`           | string | the resolvable domain name or IP address of the EFU which will receive the packets       |
-| `port`         | int    | the EFU event-packet UDP port, 9000 by default to match the EFU default                  |
-| `command_port` | int    | the EFU command TCP port, 10800 by default to match the EFU default                      |
-| `broadcast`    | int    | flag to control if event packets are sent, on by default                                 |
-| `pulse_rate`   | double | the reference time pulse rate, used in calculating EFU-required time stamps              |
-| `noisy`        | int    | flag to control if otherwise-dropped events should be replaced by noise, off by default  |
-| `noise_level`  | double | if `noisy`, *how* noisy &mdash; fractional probability of noise: 0.1 by default          |
-| `event_mode`   | string | `"p"` for `rand_poisson(_particle->p)`, `"pp"` for p<sup>2</sup>                         |
-| `verbose`      | int    | controls `STDOUT` printing: -1=silent, 0=errors, 1=warnings, 2=info, 3=details           |
-| `ess_type`     | int    | identifies simulated ESS readout &mdash; BIFROST: 0x34 (dec 52), CSPEC: 0x40 (dec 64)    |
-| `filename`     | string | if present, neutron ray data provided to the broadcaster will be stored to HDF5 filename | 
+Guides, per-component parameter references, CLI documentation, and the C/C++ API
+reference are published at
 
+**https://mcdotstar.github.io/mcstas-readout-master/**
 
-## Common Event Formation Unit parameters
-The event formation unit requires a number of parameters to identify the detector element and time of flight which
-comprise the events it forwards to Kafka.
-These parameters must be stored in the `USER_VARS` contained in the `_particle` `struct` which *should* be set
-appropriately earlier in the McStas instrument.
-The component identifies the `struct` parameters *by name* and requires the names as input component parameters.
-The component parameter names common to all readout components are the Ring identifier, Front End Node identifier,
-and time of flight.
-Finally, the EFU requires the event time, the most-recent reference time, and the previous reference time to determine
-the *relative* event time which is ultimately stored in a NeXus file.
-These times must be encoded as two integers: the `high` time, which is the number of whole seconds since the UNIX epoch,
-`1970-01-01T00:00Z`, and the `low` time, which is the number of `88052499 Hz` clock ticks since the last whole second.
+To build the site locally (requires Doxygen):
 
-The reference times are determined automatically based on the component parameter `pulse_rate` and the running time of
-the McStas simulation.
-The event time is set to the most-recent reference time plus neutron time-of-flight, which is read from `_particle->t`
-by default but can be overridden by setting the component parameter `tof`.
-
-| Named parameter | EFU parameter         |
-|-----------------|-----------------------|
-| `ring`          | `FibreID`             |
-| `fen`           | `FENId`               |
-| `tof`           | `HighTime`, `LowTime` |
-
-
-# `ReadoutCAEN.comp`: instruments with CAEN electronics
-
-At least four ESS instruments will use CAEN digitizers to read out the detector signals.
-Of these, most will use position-sensitive <sup>3</sup>He tubes, which use two digitizers per tube; 
-and at least one will use bundles of position-sensitive <sup>10</sup>B straws, which use four digitizers per tube.
-To support these instruments, and the common data format they will produce, the `ReadoutCAEN.comp` component is provided.
-
-This component is intended to be used with the full ECDC readout stack,
-which makes use of an EFU, a Kafka broker and independent file writers; all managed externally. 
-
-## Component specific parameters
-| Parameter   | Type  | Description                                                 |
-|-------------|-------|-------------------------------------------------------------|
-| `tube`      | named | identifies the group of digitizers connected to the channel |
-| `a_name`    | named | is the integrated voltage output of the first digitizer     |
-| `b_name`    | named | is the integrated voltage output of the second digitizer    |
-| `c_name`    | named | is the integrated voltage output of the third digitizer     |
-| `d_name`    | named | is the integrated voltage output of the fourth digitizer    |
-| `fen_value` | int   | used for `FENId` if no named `fen` parameter                |
-| `a_value`   | int   | used when `a` is not named; default 0                       |
-| `b_value`   | int   | used when `b` is not named; default 0                       |
-| `c_value`   | int   | used when `c` is not named; default 0                       |
-| `d_value`   | int   | used when `d` is not named; default 0                       |
-
-
-To identify in which channel an event occurred, the CAEN variant of the EFU requires an additional integer `GreoupId`.
-This identifies the group of physical channels in the CAEN digitizer which produced an event.
-For <sup>3</sup>He tubes, this is the tube number, and the position between the two end of the detecting tube is 
-reconstructed using the integrated amplitudes output as part of the event message by the CAEN digitizer, 
-which are therefore required as input to the CAEN EFU  as `AmpA` and `AmpB`.
-
-| Named parameter | EFU parameter |
-|-----------------|---------------|
-| `tube`          | `GroupId`     |
-| `a_name`        | `AmpA`        |
-| `b_name`        | `AmpB`        |
-| `c_name`        | `AmpC`        |
-| `d_name`        | `AmpD`        |
-
-
-# `ReadoutTTLMonitor.comp`: simple TTL based beam monitors
-
-Like `ReadoutCAEN.comp` this component can not control the EFU it will communicate with.
-It is intended to work with _one_ simulated TTL beam monitor, since it can only handle a single time of flight.
-
-An instrument with multiple beam monitors would require multiple `ReadoutTTLMonitor.comp` instances
-in order to output all of their events.
-To support this operation for 0-D monitors, it is possible to define a static `Ring`, `FEN`, `Pos` and `Channel`,
-and then place this component *directly* after each `EXTEND`ed monitor which defines an appropriate `ADC` value.
-
-```instr
-...
-USER_VARS %{
-  ...
-  int monitor_signal;
-%}
-TRACE
-...
-monitor0 = Monitor(xwidth=x, yheight=y, restore_neutron=1) AT (...) EXTEND %{
-  monitor_signal = (SCATTER) ? 500 + (int)(rand01() * 1024) : 0;
-%}
-output0 = ReadoutTTLMonitor(channel_value=0, fen_value=100, adc="monitor_signal", ip="ttl_monitor_efu", port=9001);
-...
-monitor1 = Monitor(xwidth=x, yheight=y, restore_neutron=1) AT (...) EXTEND %{
-  monitor_signal = (SCATTER) ? 500 + (int)(rand01() * 1024) : 0;
-%}
-output1 = ReadoutTTLMonitor(channel_value=1, fen_value=100, adc="monitor_signal", ip="ttl_monitor_efu", port=9001);
-...
-monitor2 = Monitor(xwidth=x, yheight=y, restore_neutron=1) AT (...) EXTEND %{
-  monitor_signal = (SCATTER) ? 500 + (int)(rand01() * 1024) : 0;
-%}
-output2 = ReadoutTTLMonitor(channel_value=2, fen_value=100, adc="monitor_signal", ip="ttl_monitor_efu", port=9001);
-...
+```bash
+cmake -S . -B build-docs -DREADOUT_DOCS_ONLY=ON
+cmake --build build-docs --target docs
+# open build-docs/docs/html/index.html
 ```
 
-## Additional component parameters
-| Parameter        | Type  | Description                                         |
-|------------------|-------|-----------------------------------------------------|
-| `position`       | named | detection position in monitor                       |
-| `identity`       | named | identifies the monitor                              |
-| `output`         | named | the integrated voltage output of the digitizer      |
-| `ring_value`     | int   | used for `FibreId` if no named `ring` parameter     |
-| `fen_value`      | int   | used for `FENId` if no named `fen` parameter        |
-| `pos_value`      | int   | used for `Pos` if no named `position` parameter     |
-| `identity_value` | int   | used for `Channel` if no named `identity` parameter |
+## Quickstart
 
+### 1. Install
 
-# Installation
-
-After cloning this repository, use CMake to configure, build, and install the shared C library.
-
-To install the library and configuration-query tool within the current user's home directory, e.g., execute 
 ```bash
-git clone https://github.com/g5t/mcstas-readout-master.git
+git clone https://github.com/mcdotstar/mcstas-readout-master.git
 cmake -S mcstas-readout-master -B mcstas-readout-master-build -DCMAKE_INSTALL_PREFIX=~/.local
 cmake --build mcstas-readout-master-build --target install
 ```
 
-## MPI Support
-McStas can be run on any number of MPI workers. If any of the `Readout` components are run in MPI all nodes should have network
-access to the host running the EFU(s).
-Saving weighted ray data to HDF5 files is currently not supported in MPI mode.
+This installs `libreadout`, the `readout-config`, `readout-combine`, and
+`readout-replay` tools, and the McStas component files.
 
-# Use
-Once installed as above, you can include the readout component in an exising McStas instrument by placing something
-similar to the following in the TRACE section of an instrument file (likely at the end)
+### 2. Collect
+
+Add a `Collector*` component matching your detector electronics
+(CAEN, TTLMonitor, CDT, VMM3, BM0, BM2, BMI) to the end of your instrument's
+`TRACE` section. Identifying values are read *by name* from particle variables
+(typically `USER_VARS` set in an `EXTEND` block):
+
 ```instr
 TRACE
   ...
   SEARCH SHELL "readout-config --show compdir"
-  COMPONENT readout = Readout(ring="RING", fen="FEN", channel="TUBE", a="left", b="right", ...)
+  COMPONENT collect = CollectorCAEN(
+    ring="ring_id", tube="tube_id", a_name="left", b_name="right",
+    filename="run", dataset_name="caen_bank0")
   AT (0, 0, 0) ABSOLUTE
-  ...
 ```
 
-If multiple Readout components are included in an instrument, the `SEARCH SHELL` command is only needed once.
-Consult the McStas 3.3+ documentation for details of its use.
+Each run produces a cue-based HDF5 file; several collectors can share one file,
+each writing its own named group.
+
+### 3. Combine
+
+```bash
+readout-combine validate run_*.h5
+readout-combine append      --output merged.h5 run_a.h5 run_b.h5   # identical parameters
+readout-combine concatenate --output scan.h5   point_*.h5          # scan points
+```
+
+### 4. Replay
+
+```bash
+readout-replay --time 2.0 --seed 42 --addr my-efu.example.org --port 9000 scan.h5
+```
+
+Replay steps through the stored points, publishes each point's parameters, draws
+`n ~ Poisson(w * counting_time)` events per stored readout, and sends them to EFUs
+resolved from explicit configuration, file-embedded attributes, or the command-line
+defaults — in that order. See the
+[CLI reference](https://mcdotstar.github.io/mcstas-readout-master/) for all options.
+
+## Legacy runtime streaming
+
+The original per-ray streaming components remain available for use cases where the
+EFU runs alongside the simulation: `ReadoutCAEN` and `ReadoutTTLMonitor` make a
+Poisson-distributed Monte Carlo choice per traced neutron and send packets
+immediately, and `ReadoutDiscreteCAEN` sends an exact number of weighted-sampled
+events at the end of the run. Their parameters are documented on the site and in
+the component headers (`mcdoc`-compatible).
+
+## MPI support
+
+The `Collector*` components gather records to the master node, which writes one
+HDF5 file. For the streaming `Readout*` components, all nodes need network access
+to the EFU host.
+
+## Development
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the development-mode build
+(`-DREADOUT_DEVELOPMENT_MODE=ON`), test suites, and the reasoning behind the
+self-locating `readout-config`.
 
 ## Use with McStas 3.2
-The `SEARCH SHELL` automatic path modifications used above to find the included components do not work prior to the
-version 3.3 release of McStas.
-It is possible to use the components with McStas version 3.2 if you copy the component files to one of the McStas
-component search directories and then omit the `SEARCH SHELL` line(s) in the instrument file.
+
+The `SEARCH SHELL` automatic path modification used above requires McStas 3.3+.
+With McStas 3.2, copy the component files into one of the McStas component search
+directories and omit the `SEARCH SHELL` line.

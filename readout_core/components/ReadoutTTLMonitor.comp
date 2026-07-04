@@ -1,0 +1,274 @@
+/*******************************************************************************
+*
+* McStas readout-master component for the ESS data pipeline
+*
+* %I
+* Written by: Gregory Tucker
+* Date: 2023
+* Origin: European Spallation Source ERIC
+*
+* Stream TTL beam-monitor readout packets to a running Event Formation Unit
+* during the simulation (legacy in-simulation mode).
+*
+* %D
+* For every traced neutron this component makes a Poisson-distributed Monte
+* Carlo choice based on the ray weight (`event_mode="p"`) or its square
+* (`"pp"`); if the draw is non-zero the event-identifying values are read
+* from named particle variables (typically USER_VARS) and sent as ESS
+* TTLMonitor readout UDP packets to a running EFU. `position` maps to the
+* EFU `Pos` field, `identity` to `Channel`, and `value` to `ADC`.
+*
+* This is the legacy runtime-streaming mode: the EFU must be reachable while
+* the simulation runs. For the decoupled workflow, store records with
+* CollectorTTLMonitor.comp instead and send them later with `readout-replay`.
+*
+* One instance handles a single time-of-flight, i.e. one monitor. For
+* several 0-D monitors place one instance directly after each EXTENDed
+* monitor, giving each a distinct `identity_value`.
+*
+* Example: COMPONENT readout = ReadoutTTLMonitor(
+*     identity_value=0, fen_value=100, value="monitor_signal",
+*     ip="ttl-monitor-efu.example.org", port=9001)
+*   AT (0, 0, 0) RELATIVE PREVIOUS
+*
+* %P
+* INPUT PARAMETERS:
+*
+* ring: [str]      name of the particle variable holding the Ring (fibre) ID; empty uses ring_value
+* fen: [str]       name of the particle variable holding the Front End Node ID; empty uses fen_value
+* position: [str]  name of the particle variable holding the detection position (EFU Pos); empty uses position_value
+* identity: [str]  name of the particle variable identifying the monitor (EFU Channel); empty uses identity_value
+* value: [str]     name of the particle variable holding the digitized signal (EFU ADC); required
+* tof: [str]       name of the particle variable holding the time-of-flight; "t" reads the ray time
+* ip: [str]        resolvable domain name or IP address of the EFU receiving the packets
+* ring_value: [1]  fixed Ring ID used when ring is not named
+* fen_value: [1]   fixed FEN ID used when fen is not named
+* position_value: [1] fixed position used when position is not named
+* identity_value: [1] fixed channel used when identity is not named
+* port: [1]        EFU event-packet UDP port
+* command_port: [1] EFU command TCP port
+* broadcast: [1]   flag controlling whether event packets are actually sent
+* pulse_rate: [Hz] reference-time pulse rate used to build EFU timestamps
+* noisy: [1]       flag: replace otherwise-dropped events with random noise
+* noise_level: [1] if noisy, fractional probability of noise
+* event_mode: [str] "p" draws n ~ Poisson(p); "pp" draws n ~ Poisson(p^2)
+* filename: [str]  if given, the ray data passed to the broadcaster is also stored to this HDF5 file
+* merge_mpi: [1]   flag: merge per-node HDF5 files after an MPI run
+* keep_mpi_unmerged: [1] flag: keep the per-node files after merging
+* verbose: [1]     -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+* ess_type: [1]    ESS DetectorType byte for the packet header; TTLMonitor should always be 0x10
+* efficiency: [1]  detection probability applied to each ray before the Poisson draw
+*
+* %L
+* The <a href="https://github.com/ess-dmsc/event-formation-unit">Event Formation Unit</a>
+* and the ESS Detector Interface Control Documents describe the TTLMonitor readout format.
+*
+* %E
+*******************************************************************************/
+
+DEFINE COMPONENT ReadoutTTLMonitor
+DEFINITION PARAMETERS()
+SETTING PARAMETERS (
+string ring = 0,
+string fen = 0,
+string position = 0,
+string identity = 0,
+string value = 0,
+string tof = "t",
+string ip = 0,
+int ring_value=0,
+int fen_value=0,
+int position_value=0,
+int identity_value=0,
+int port = 9000,
+int command_port = 10800,
+int broadcast = 1,
+pulse_rate = 14,
+int noisy=0,
+noise_level=0.1,
+string event_mode = "p",
+string filename=0,
+int merge_mpi=1,
+int keep_mpi_unmerged=0,
+int verbose=0, // -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+int ess_type=16, // TTLMonitor should always be 0x10 == 16
+double efficiency=1
+)
+OUTPUT PARAMETERS ()
+DEPENDENCY "-Wl,-rpath,CMD(readout-config --show libdir) -LCMD(readout-config --show libdir) -lreadout -ICMD(readout-config --show includedir)"
+SHARE
+%{
+%include "lib-readout"
+%}
+
+DECLARE
+%{
+// pre-declare the stateful objects
+TTLMonitor_readout_t readout_data;
+readout_t* readout_ptr;
+int p_or_pp;
+int ring_present;
+int fen_present;
+int position_present;
+int identity_present;
+%}
+
+INITIALIZE
+%{
+char extension[128] = "\0";
+char * this_filename;
+
+// Include the header file and run any initialization for the real broadcaster
+if (ip == 0 || ip[0] == '\0'){
+	readout_ptr = readout_create("127.0.0.1", port, command_port, pulse_rate, ess_type);
+} else {
+	readout_ptr = readout_create(ip, port, command_port, pulse_rate, ess_type);
+}
+readout_newPacket(readout_ptr);
+readout_verbose(readout_ptr, verbose);
+if (!broadcast) readout_disable_network(readout_ptr);
+
+if ((filename != NULL) && (filename[0] != '\0')){
+#if defined USE_MPI
+// the filename, if present should be unique for each MPI process
+  MPI_MASTER(fprintf(stdout, "Message(%s): You are using HDF5 output with MPI, "
+                             "hence your will get %i filenames %s.node_#i.h5 as output.\n",
+                             NAME_CURRENT_COMP, mpi_node_count, filename);
+  );
+  sprintf(extension,"node_%i.h5",mpi_node_rank);
+#else
+  sprintf(extension,"h5");
+#endif
+  /*add output dir (if applicable) to the output filename and add extension if */
+  // Append the extension to the filename
+  //  -- do not use mcfull_file for this since it can not handle absolute filenames with a '.' in them
+  char * actual_filename = (char *) calloc(strlen(filename)+strlen(extension)+2, sizeof(char));
+  strcpy(actual_filename, filename);
+  strcat(actual_filename, ".");
+  strcat(actual_filename, extension);
+  // still use mcfull_file in case the filename does not include path information
+  this_filename = mcfull_file(actual_filename, NULL);
+  // release the memory now that we have the full filename
+  if (actual_filename) free(actual_filename);
+  readout_dump_to(readout_ptr, this_filename);
+}
+
+
+ring_present = ((ring != NULL) && (ring[0] != '\0')) ? 1 : 0;
+fen_present = ((fen != NULL) && (fen[0] != '\0')) ? 1 : 0;
+position_present = ((position != NULL) && (position[0] != '\0')) ? 1 : 0;
+identity_present = ((identity != NULL) && (identity[0] != '\0')) ? 1 : 0;
+// Make sure the provided property names are accessible -- no error checking later
+int failure=0;
+if (ring_present){
+    particle_getvar(_particle, ring, &failure); if (failure) readout_ttlmonitor_error(NAME_CURRENT_COMP, ring);
+}
+if (fen_present){
+    particle_getvar(_particle, fen, &failure); if (failure) readout_ttlmonitor_error(NAME_CURRENT_COMP, fen);
+}
+if (position_present){
+    particle_getvar(_particle, position, &failure); if (failure) readout_ttlmonitor_error(NAME_CURRENT_COMP, position);
+}
+if (identity_present){
+    particle_getvar(_particle, identity, &failure); if (failure) readout_ttlmonitor_error(NAME_CURRENT_COMP, identity);
+}
+particle_getvar(_particle, value, &failure); if (failure) readout_ttlmonitor_error(NAME_CURRENT_COMP, value);
+particle_getvar(_particle, tof, &failure); if (failure) readout_ttlmonitor_error(NAME_CURRENT_COMP, tof);
+
+p_or_pp = (strcmp(event_mode, "p") == 0) ? 0 : 1;
+if (p_or_pp && !strcmp(event_mode, "pp")) readout_ttlmonitor_error(NAME_CURRENT_COMP, "Undefined event mode");
+
+%}
+
+TRACE
+%{
+double pp = particle_getvar(_particle, "p", 0); // * sqrt((double)(mcget_ncount()));
+if (p_or_pp) pp *= pp;
+pp *= efficiency;
+
+int int_ring, int_fen, int_position, int_identity, int_value;
+double double_tof;
+
+if (pp) {
+  int_ring = ring_present ? readout_particle_getvar_int(_particle, ring) : ring_value;
+  int_fen = fen_present ? readout_particle_getvar_int(_particle, fen) : fen_value;
+  int_position = position_present ? readout_particle_getvar_int(_particle, position) : position_value;
+  int_identity = identity_present ? readout_particle_getvar_int(_particle, identity) : identity_value;
+  int_value = readout_particle_getvar_int(_particle, value);
+  double_tof = particle_getvar(_particle, tof, 0);
+} else {
+  int_ring = (int)(rand01());
+  int_fen = 0;
+  int_position = position_value;
+  int_identity = identity_value;
+  int_value = (int)(rand01() * 4096);
+  double_tof = rand01() / pulse_rate;
+}
+
+// add error checking of int -> uintN_t values?
+uint8_t RING = (uint8_t)int_ring;
+uint8_t FEN = (uint8_t)int_fen;
+readout_data.pos = (uint8_t)int_position;
+readout_data.channel = (uint8_t)int_identity;
+readout_data.adc = (uint16_t)int_value;
+if (verbose > 2)
+  printf("(%2u %2u) (%2u %2u) %5u %0.10f -- Accumulated\n", RING, FEN, readout_data.pos, readout_data.channel, readout_data.adc, double_tof);
+// Send the event to the broadcaster to be accumulated and broadcast and/or store the event to file
+readout_add(readout_ptr, RING, FEN, double_tof, pp, (const void *)(&readout_data));
+
+%}
+
+FINALLY
+%{
+// perform any teardown of the stateful broadcaster
+if (broadcast) readout_send(readout_ptr);
+// Remove the interface component
+readout_destroy(readout_ptr);
+// combine output files if necessary: should be in a SAVE block before FINALLY, but files are not closed until now.
+if ((filename != NULL) && (filename[0] != '\0') && merge_mpi){
+#if defined USE_MPI
+MPI_Barrier(MPI_COMM_WORLD);
+  MPI_MASTER(
+      if (mpi_node_count > 1){
+        char extension[128] = "h5";
+        char * output_filename;
+
+        char * real_filename = calloc(strlen(filename)+strlen(extension)+2, sizeof(char));
+        strcpy(real_filename, filename);
+        strcat(real_filename, ".");
+        strcat(real_filename, extension);
+        output_filename = mcfull_file(real_filename, NULL);
+
+        char ** merge_filenames = calloc(mpi_node_count, sizeof(char*));
+        for (int i=0; i<mpi_node_count; i++){
+          char * merge_filename = calloc(strlen(filename)+strlen(extension)+100, sizeof(char));
+          sprintf(merge_filename, "%s.node_%i.h5", filename, i);
+          merge_filenames[i] = mcfull_file(merge_filename, NULL);
+          free(merge_filename);
+        }
+        readout_merge_files((const char *) output_filename, (const char **) merge_filenames, mpi_node_count);
+
+        /*remove the original unmerged files if wanted*/
+        if(!keep_mpi_unmerged){
+          int status=0;
+          for (int j=0; j<mpi_node_count; j++)
+            status += remove(merge_filenames[j]);
+          if (status)
+            fprintf(stderr,"Warning (%s): Could not remove one or more unmerged files.\n", NAME_CURRENT_COMP);
+        }
+
+        free(output_filename);
+        for (int i=0; i<mpi_node_count; i++){
+          free(merge_filenames[i]);
+        }
+      }
+  );
+#endif
+}
+%}
+
+MCDISPLAY
+%{
+%}
+
+END

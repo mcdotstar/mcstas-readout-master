@@ -403,7 +403,11 @@ function(detect_host_profile output_file)
     endif()
 
     string(APPEND PROFILE "[conf]\n")
-    string(APPEND PROFILE "tools.cmake.cmaketoolchain:generator=${CMAKE_GENERATOR}\n")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+        string(APPEND PROFILE "tools.cmake.cmaketoolchain:generator=Ninja\n")
+    else()
+        string(APPEND PROFILE "tools.cmake.cmaketoolchain:generator=${CMAKE_GENERATOR}\n")
+    endif()
 
     # propagate compilers via profile
     append_compiler_executables_configuration()
@@ -578,8 +582,16 @@ macro(conan_provide_dependency method package_name)
             conan_install(${_host_profile_flags} ${_build_profile_flags} ${CONAN_INSTALL_ARGS} ${generator})
         else()
             message(STATUS "CMake-Conan: Installing both Debug and Release")
-            conan_install(${_host_profile_flags} ${_build_profile_flags} -s build_type=Release ${CONAN_INSTALL_ARGS} ${generator})
-            conan_install(${_host_profile_flags} ${_build_profile_flags} -s build_type=Debug ${CONAN_INSTALL_ARGS} ${generator})
+            # conan_install() stores CONAN_GENERATORS_FOLDER globally from the
+            # latest invocation. Keep the final call aligned with the requested
+            # build type so find_package() resolves the matching config first.
+            if(CMAKE_BUILD_TYPE STREQUAL "Release")
+                conan_install(${_host_profile_flags} ${_build_profile_flags} -s build_type=Debug ${CONAN_INSTALL_ARGS} ${generator})
+                conan_install(${_host_profile_flags} ${_build_profile_flags} -s build_type=Release ${CONAN_INSTALL_ARGS} ${generator})
+            else()
+                conan_install(${_host_profile_flags} ${_build_profile_flags} -s build_type=Release ${CONAN_INSTALL_ARGS} ${generator})
+                conan_install(${_host_profile_flags} ${_build_profile_flags} -s build_type=Debug ${CONAN_INSTALL_ARGS} ${generator})
+            endif()
         endif()
         unset(_host_profile_flags)
         unset(_build_profile_flags)

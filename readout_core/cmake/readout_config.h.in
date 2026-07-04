@@ -1,0 +1,20 @@
+#pragma once
+//! \file
+namespace libreadout::config {
+    //! \brief Configuration information for the library directory location
+    auto constexpr libdir = "@Readout_BIN2LIB@";
+    //! \brief Configuration information for the include directory location
+    auto constexpr includedir = "@Readout_BIN2INC@";
+    //! \brief Configuration information for the component directory location
+    auto constexpr compdir = "@Readout_BIN2DATA@";
+    //! \brief Configuration information for the library name
+    auto constexpr libname = "@Readout_LIBNAME@";
+    //! \brief Configuration information for the version
+    auto constexpr version = "@READOUT_VERSION@";
+    //! \brief Configuration information for the binary directory location
+    auto constexpr bindir = ".";
+    //! \brief Configuration information for the linker flags <LIBDIR> expanded at runtime
+    auto constexpr ldflags = "-Wl,-rpath,<LIBDIR> -L<LIBDIR> -l@READOUT_LIBRARY_TARGET@";
+    //! \brief Configuration information for the compiler flags <INCLUDEDIR> expanded at runtime
+    auto constexpr cflags = "-I<INCLUDEDIR>";
+}
