@@ -33,7 +33,7 @@ void collector_efu(collector_t* c_ptr, const char* address, const int port) {
   static_cast<Collector*>(c_ptr->obj)->setEFU(std::string(address), port);
 }
 
-collector_t* collector_star_new(const char* filename, const char * dataset, const char * description, const uint64_t normalization) {
+collector_t* collector_star_new(const char* filename, const char * dataset, const char * description, const int ess_type, const uint64_t normalization) {
   if (description == nullptr || description[0] == '\0') {
     std::cerr << "collector_star_new requires a non-empty type description" << std::endl;
     return nullptr;
@@ -42,7 +42,7 @@ collector_t* collector_star_new(const char* filename, const char * dataset, cons
   const std::string dataset_name = (dataset != nullptr && dataset[0] != '\0') ? std::string(dataset) : "events";
   try {
     const auto c_ptr = static_cast<collector_t *>(malloc(sizeof(collector_t)));
-    c_ptr->obj = new Collector(string_filename, dataset_name, std::string(description), normalization);
+    c_ptr->obj = new Collector(string_filename, dataset_name, std::string(description), normalization, ess_type);
     return c_ptr;
   } catch (const std::exception & ex) {
     std::cerr << "collector_star_new failed: " << ex.what() << std::endl;

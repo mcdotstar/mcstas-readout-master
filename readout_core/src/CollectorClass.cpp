@@ -430,15 +430,6 @@ void ensure_parameter_group_attributes(HighFive::Group & group) {
   }
 }
 
-void ensure_dataset_attributes(HighFive::DataSet & dataset, const DetectorType detector, const ReadoutType readout) {
-  using C=CollectorSink;
-  if (!dataset.hasAttribute(C::detector_attribute_name())) {
-    dataset.createAttribute<std::string>(C::detector_attribute_name(), detectorType_name(detector));
-  }
-  if (!dataset.hasAttribute(C::readout_attribute_name())) {
-    dataset.createAttribute<std::string>(C::readout_attribute_name(), readoutType_name(readout));
-  }
-}
 
 std::string validate_collector_group(const HighFive::Group & group) {
   using C=CollectorSink;
@@ -587,8 +578,10 @@ bool validate_collector_files_datasets(
       }
       auto collector = file.getGroup("/");
       bool all_datasets_valid{true};
-      const auto& dan = C::detector_attribute_name();
-      const auto& ran = C::readout_attribute_name();
+      // the LEGACY flat layout (Writer/readout_merge_files) marks its root
+      // datasets with these literal attributes; the collector layout does not
+      const std::string dan{"detector"};
+      const std::string ran{"readout"};
       for (size_t i=0; i<collector.getNumberObjects(); ++i) {
         if (const auto name = collector.getObjectName(i);
           collector.getObjectType(name) == ObjectType::Dataset

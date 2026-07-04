@@ -140,7 +140,7 @@ collector_ptr = NULL;
 normalization *= (uint64_t) mpi_node_count;
 if (mpi_node_rank == mpi_node_root) {
 #endif
-  collector_ptr = collector_star_new(this_filename, this_dataset_name, record_description, normalization);
+  collector_ptr = collector_star_new(this_filename, this_dataset_name, record_description, ess_type, normalization);
   if (collector_ptr == NULL) {
     collector_error(NAME_CURRENT_COMP, "Could not create the description-based Collector instance.");
   }

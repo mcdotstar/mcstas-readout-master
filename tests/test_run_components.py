@@ -165,7 +165,7 @@ class TestRunCollectorCAENOutput:
 class TestRunCollectorCAEN:
     def test_star_component_writes_sendable_layout(self, tmp_path):
         """CollectorCAEN stores records whose compound layout matches the canonical
-        CAEN description, with the description recorded and no detector/readout
+        CAEN description, the description recorded on the dataset, the detector
         attributes (sendability is decided by the datatype)."""
         h5py = pytest.importorskip("h5py")
 
@@ -199,10 +199,12 @@ class TestRunCollectorCAEN:
             # canonical CAEN layout: exact member names and C-struct size
             assert ds.dtype.names == ("ring", "FEN", "time", "weight", "channel", "a", "b", "c", "d")
             assert ds.dtype.itemsize == 40, f"Expected itemsize 40, got {ds.dtype.itemsize}"
-            # the description string is recorded; detector/readout attributes are not written
+            # the description is a dataset attribute; the record layout needs no attributes at all
             assert "description" in ds.attrs
             assert "detector" not in ds.attrs
             assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
             # per-record weights were stored and accumulated into the point weight
             total = group["weights"][()].sum()
             assert total > 0.0
@@ -275,6 +277,8 @@ class TestRunCollectorTTLMonitor:
             assert "description" in ds.attrs
             assert "detector" not in ds.attrs
             assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
             total = group["weights"][()].sum()
             assert total > 0.0
 
@@ -320,6 +324,8 @@ class TestRunCollectorCDT:
             assert "description" in ds.attrs
             assert "detector" not in ds.attrs
             assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
             total = group["weights"][()].sum()
             assert total > 0.0
 
@@ -366,6 +372,8 @@ class TestRunCollectorVMM3:
             assert "description" in ds.attrs
             assert "detector" not in ds.attrs
             assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
             total = group["weights"][()].sum()
             assert total > 0.0
 
@@ -411,6 +419,8 @@ class TestRunCollectorBM0:
             assert "description" in ds.attrs
             assert "detector" not in ds.attrs
             assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
             total = group["weights"][()].sum()
             assert total > 0.0
 
@@ -456,6 +466,8 @@ class TestRunCollectorBM2:
             assert "description" in ds.attrs
             assert "detector" not in ds.attrs
             assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
             total = group["weights"][()].sum()
             assert total > 0.0
 
@@ -501,6 +513,8 @@ class TestRunCollectorBMI:
             assert "description" in ds.attrs
             assert "detector" not in ds.attrs
             assert "readout" not in ds.attrs
+            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
+            assert "detector" in group.attrs
             total = group["weights"][()].sum()
             assert total > 0.0
 

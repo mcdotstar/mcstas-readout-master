@@ -10,8 +10,10 @@ description-based collector engine: the C-struct layout of one record is describ
 string (lib/readout_type_descriptions.h) parsed at runtime into an HDF5 compound datatype.
 Multiple components write independent named groups into one file, each with the cue-based layout
 `readouts`, `cues`, `weights`, `normalizations`, managed by the singleton CollectorSink
-(lib/CollectorClass.h), which also records instrument parameters and optional per-group EFU
-address/port attributes.
+(lib/CollectorClass.h), which also records instrument parameters. Routing information lives as
+group attributes: the detector identity (from the component's ess_type — it becomes the ESS
+packet-type byte that EFUs filter on at replay) and optional EFU address/port. The record layout
+itself carries no attributes: it is the dataset's own compound datatype.
 
 Users can collect arbitrary additional data by passing their own struct-description string to the
 same engine (`Collector(filename, name, description)` in C++, `collector_star_new` from C); such

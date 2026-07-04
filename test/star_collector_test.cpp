@@ -61,7 +61,7 @@ TEST_CASE("Description-based collector with canonical CAEN layout is sendable an
   const auto filename = star_temp_h5("star_caen_");
   const uint16_t rays{500};
   {
-    Collector collector(filename, "events", std::string(readout_type_description(ReadoutType::CAEN)), 1u);
+    Collector collector(filename, "events", std::string(readout_type_description(ReadoutType::CAEN)), 1u, 0x34);
     REQUIRE(collector.record_size() == sizeof(CAEN_event));
     CAEN_event event{};
     for (uint16_t i = 0; i < rays; ++i) {
@@ -82,7 +82,7 @@ TEST_CASE("Description-based collector with canonical CAEN layout is sendable an
     REQUIRE(reader.sendable_readout_type().has_value());
     CHECK(reader.sendable_readout_type().value() == ReadoutType::CAEN);
     CHECK(reader.readout_type() == ReadoutType::CAEN);
-    CHECK(reader.detector_type() == DetectorType::Reserved);
+    CHECK(reader.detector_type() == DetectorType::BIFROST);
     REQUIRE(reader.type_description().has_value());
     CHECK(reader.size() == rays);
     CHECK(reader.point_weight(0) == Catch::Approx(static_cast<double>(rays)));
@@ -99,6 +99,7 @@ TEST_CASE("Description-based collector with canonical CAEN layout is sendable an
     [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
       const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
       stats->packets++;
+      if (!ess_header_ok(header->CookieAndType, 0x34)) { stats->bad++; return; }
       stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
     });
   REQUIRE(receiver.isRunning());
@@ -111,6 +112,7 @@ TEST_CASE("Description-based collector with canonical CAEN layout is sendable an
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
   CHECK(stats->readouts == rays);
+  CHECK(stats->bad == 0);
   std::remove(filename.c_str());
 }
 
@@ -157,6 +159,7 @@ TEST_CASE("User-described records store, read back raw, and are skipped by repla
     [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
       const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
       stats->packets++;
+      if (!ess_header_ok(header->CookieAndType, 0x34)) { stats->bad++; return; }
       stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
     });
   REQUIRE(receiver.isRunning());
@@ -169,6 +172,7 @@ TEST_CASE("User-described records store, read back raw, and are skipped by repla
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
   CHECK(stats->readouts == records);
+  CHECK(stats->bad == 0);
   std::remove(filename.c_str());
 }
 

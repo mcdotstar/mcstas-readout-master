@@ -53,9 +53,12 @@ extern "C" {
    * \param dataset The name of the collector group. If nullptr or empty, defaults to "events".
    * \param description The C struct field list describing one record
    * \param normalization The normalization constant associated with the to-be-provided records
+   * \param ess_type the ESS detector type int (e.g. 0x34 == 52 for BIFROST), recorded as the
+   *                 group's detector attribute and used as the EFU packet-type byte at replay;
+   *                 pass 0 for records with no detector identity
    * \returns a new collector, or NULL if the description cannot be parsed
    */
-  RL_API collector_t* collector_star_new(const char* filename, const char * dataset, const char * description, uint64_t normalization);
+  RL_API collector_t* collector_star_new(const char* filename, const char * dataset, const char * description, int ess_type, uint64_t normalization);
 
   /** \brief Store one record in a description-based Collector.
    * \param c_ptr Pointer to the Collector object returned by collector_star_new()

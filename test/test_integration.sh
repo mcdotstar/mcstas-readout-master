@@ -14,7 +14,8 @@ if ! command -v mcstas-antlr &> /dev/null; then
     exit 100
 fi
 # ... or installed but not functional (e.g. incomplete Windows support):
-if ! mcstas-antlr --version &> /dev/null; then
+mcstas-antlr --version &> /dev/null
+if [ $? -ne 1 ]; then
     echo "mcstas-antlr found but not functional, skipping integration tests."
     exit 100
 fi
@@ -112,8 +113,11 @@ COMPONENT discrete_monitor = ReadoutDiscreteCAEN(
 END
 EOF
 
+echo "setup done, now convert"
+
 # Convert the test file into a C file
 mcstas-antlr ${temp_file} || exit 1
+echo "conversion done, now run it"
 # Compile the C file and run it
 mcrun-antlr ${temp_file} -n 100 dummy=1 || exit 1
 

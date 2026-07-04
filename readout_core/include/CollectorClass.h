@@ -50,7 +50,6 @@ RL_API int validate_collector_file_impl(const HighFive::File & file, const std::
 RL_API void ensure_file_attributes(HighFive::File & file);
 RL_API void ensure_collector_group_attributes(HighFive::Group & group);
 RL_API void ensure_parameter_group_attributes(HighFive::Group & group);
-RL_API void ensure_dataset_attributes(HighFive::DataSet & dataset, DetectorType detector, ReadoutType readout);
 
 RL_API std::string validate_file_attributes(const HighFive::File & file);
 RL_API std::string validate_collector_group(const HighFive::Group & group);
@@ -149,12 +148,12 @@ public:
     return name;
   }
 
+  /// The detector identity is a GROUP attribute, alongside the EFU routing
+  /// attributes: together they say where — and as what — a group replays.
+  /// The record layout needs no attribute at all: it is the dataset's own
+  /// compound datatype, compared against the registry for sendability.
   static const std::string & detector_attribute_name() {
     static const std::string name{"detector"};
-    return name;
-  }
-  static const std::string & readout_attribute_name() {
-    static const std::string name{"readout"};
     return name;
   }
   static const std::string & efu_address_attribute_name() {
@@ -253,20 +252,20 @@ public:
     const DetectorType& detector,
     const ReadoutType& readout
     ) {
-    return getCollector(name, hdf_compound_type(readout), detector, readout);
+    return getCollector(name, hdf_compound_type(readout), detector);
   }
 
   /// \brief Get (or create) a collector group for records of an arbitrary compound datatype.
   ///
   /// The typed overload above resolves the registry datatype for its ReadoutType; this
   /// overload accepts any compound type so user-described records get the same cue-based
-  /// layout. The detector/readout attributes are only written when known, and the original
-  /// type description string (when given) is stored as a dataset attribute.
+  /// layout. The detector identity — the ESS packet-type byte, unrecoverable from the
+  /// record layout — is written as a group attribute when known; the original type
+  /// description string (when given) is stored as a dataset attribute.
   std::optional<HighFive::Group> getCollector(
     const std::string& name,
     const HighFive::DataType& datatype,
     const std::optional<DetectorType>& detector = std::nullopt,
-    const std::optional<ReadoutType>& readout = std::nullopt,
     const std::optional<std::string>& description = std::nullopt
     ) {
     using namespace HighFive;
@@ -280,6 +279,9 @@ public:
     if (!collector_->exist(name)) {
       auto group = collector_->createGroup(name);
       group.createAttribute<std::string>(type_attribute(), collector_group_type());
+      if (detector.has_value()) {
+        group.createAttribute<std::string>(detector_attribute_name(), detectorType_name(detector.value()));
+      }
 
       // but should chunk file operations to avoid too much disk IO?
       DataSetCreateProps props;
@@ -287,9 +289,6 @@ public:
 
       // create the readouts dataset, set to an empty vector []
       auto ds = group.createDataSet(readout_dataset_name(), DataSpace({0}, {DataSpace::UNLIMITED}), datatype, props);
-      if (detector.has_value() && readout.has_value()) {
-        ensure_dataset_attributes(ds, detector.value(), readout.value());
-      }
       if (description.has_value()) {
         ds.createAttribute<std::string>(parameter_description_attribute_name(), description.value());
       }
@@ -402,12 +401,19 @@ public:
   /// cue-based group layout as the typed collectors. When the description matches one of
   /// the canonical readout_type_description() strings the resulting file is EFU-sendable;
   /// otherwise it is readable and combinable but skipped by replay.
+  ///
+  /// \param Type the ESS detector type int (e.g. 0x34 for BIFROST) recorded as the group's
+  ///             detector attribute — the EFU packet-type byte at replay. Pass 0 (or less)
+  ///             for records with no detector identity.
   explicit Collector(
     const std::string &filename,
     std::string name,
     const std::string &type_description,
-    const uint64_t normalization=0
-  ): name_{std::move(name)}, normalization_{normalization}, detector_{std::nullopt}, readout_{std::nullopt} {
+    const uint64_t normalization=0,
+    const int Type=0
+  ): name_{std::move(name)}, normalization_{normalization},
+     detector_{Type > 0 ? std::optional(detectorType_from_int(Type)) : std::nullopt},
+     readout_{std::nullopt} {
     const auto schema = parse_type_description(type_description);
     datatype_ = build_hdf5_compound_type(schema);
     record_size_ = schema.total_size;
@@ -415,7 +421,7 @@ public:
     if (!sink->is_setup()) {
       sink->setup(filename);
     }
-    group_ = sink->getCollector(name_, datatype_.value(), std::nullopt, std::nullopt, type_description);
+    group_ = sink->getCollector(name_, datatype_.value(), detector_, type_description);
     dataset_ = group_->getDataSet(CollectorSink::readout_dataset_name());
   }
 

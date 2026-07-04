@@ -314,6 +314,7 @@ TEST_CASE("Multi-point replay samples Poisson events and publishes parameters", 
     [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
       const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
       stats->packets++;
+      if (!ess_header_ok(header->CookieAndType, 0x34)) { stats->bad++; return; }
       stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
     });
   REQUIRE(receiver.isRunning());
@@ -333,6 +334,7 @@ TEST_CASE("Multi-point replay samples Poisson events and publishes parameters", 
   const auto received = settled_readouts(stats);
   const auto tolerance = 5.0 * std::sqrt(mean);
   CHECK(std::abs(static_cast<double>(received) - mean) < tolerance);
+  CHECK(stats->bad == 0);
 
   // each point's parameters were published, in point order, before its readouts were sent
   REQUIRE(publisher.published.size() == 2);
@@ -347,6 +349,7 @@ TEST_CASE("Multi-point replay samples Poisson events and publishes parameters", 
     [all_stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
       const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
       all_stats->packets++;
+      if (!ess_header_ok(header->CookieAndType, 0x34)) { all_stats->bad++; return; }
       all_stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
     });
   REQUIRE(all_receiver.isRunning());
@@ -354,6 +357,7 @@ TEST_CASE("Multi-point replay samples Poisson events and publishes parameters", 
   all_config.default_port = all_port;
   replay(multi, all_config);
   CHECK(settled_readouts(all_stats) == 2 * rays);
+  CHECK(all_stats->bad == 0);
 
   fs::remove(fs::path(file_a));
   fs::remove(fs::path(file_b));
@@ -371,6 +375,7 @@ TEST_CASE("Replay with negligible counting time sends no events", "[replay][stat
     [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
       const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
       stats->packets++;
+      if (!ess_header_ok(header->CookieAndType, 0x34)) { stats->bad++; return; }
       stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
     });
   REQUIRE(receiver.isRunning());
@@ -383,6 +388,7 @@ TEST_CASE("Replay with negligible counting time sends no events", "[replay][stat
 
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
   CHECK(stats->readouts == 0);
+  CHECK(stats->bad == 0);
 
   fs::remove(fs::path(file_a));
 }
@@ -413,6 +419,7 @@ TEST_CASE("Replay routes two groups to their file-embedded EFU ports", "[replay]
       [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
         const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
         stats->packets++;
+        if (!ess_header_ok(header->CookieAndType, 0x34)) { stats->bad++; return; }
         stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
       });
   };
@@ -433,6 +440,8 @@ TEST_CASE("Replay routes two groups to their file-embedded EFU ports", "[replay]
 
   CHECK(settled_readouts(left_stats)  == static_cast<int>(left_count));
   CHECK(settled_readouts(right_stats) == static_cast<int>(right_count));
+  CHECK(left_stats->bad == 0);
+  CHECK(right_stats->bad == 0);
 
   fs::remove(fs::path(filename));
 }
@@ -469,6 +478,7 @@ TEST_CASE("Explicit SenderConfigs override file-embedded EFU routing", "[replay]
       [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
         const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
         stats->packets++;
+        if (!ess_header_ok(header->CookieAndType, 0x34)) { stats->bad++; return; }
         stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
       });
   };
@@ -495,6 +505,7 @@ TEST_CASE("Explicit SenderConfigs override file-embedded EFU routing", "[replay]
 
   const int total = static_cast<int>(left_count + right_count);
   CHECK(settled_readouts(override_stats) == total);
+  CHECK(override_stats->bad == 0);
   CHECK(left_stats->readouts  == 0);
   CHECK(right_stats->readouts == 0);
 

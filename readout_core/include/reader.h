@@ -47,7 +47,6 @@ class Reader {
   std::optional<HighFive::DataSet> readouts_, cues_, weights_, normalizations_;
   std::vector<uint32_t> cue_values_;
   std::optional<DetectorType> detector_{std::nullopt};
-  std::optional<ReadoutType> readout_{std::nullopt};
   std::optional<ReadoutType> sendable_{std::nullopt};
   std::optional<std::string> description_{std::nullopt};
   std::optional<std::string> efu_address_{std::nullopt};
@@ -87,12 +86,12 @@ public:
     weights_ = group_->getDataSet(CollectorSink::weight_dataset_name());
     normalizations_ = group_->getDataSet(CollectorSink::normalization_dataset_name());
 
-    // detector/readout attributes are informative and only present on registry-typed groups
-    if (readouts_->hasAttribute(CollectorSink::detector_attribute_name())) {
-      detector_ = detectorType_from_name(readouts_->getAttribute(CollectorSink::detector_attribute_name()).read<std::string>());
-    }
-    if (readouts_->hasAttribute(CollectorSink::readout_attribute_name())) {
-      readout_ = readoutType_from_name(readouts_->getAttribute(CollectorSink::readout_attribute_name()).read<std::string>());
+    // The detector identity (the ESS packet-type byte at replay) is a group
+    // attribute, next to the EFU routing attributes; absent for user-described
+    // record groups with no EFU destiny. The record layout has no attribute at
+    // all: it is the dataset's own compound datatype.
+    if (group_->hasAttribute(CollectorSink::detector_attribute_name())) {
+      detector_ = detectorType_from_name(group_->getAttribute(CollectorSink::detector_attribute_name()).read<std::string>());
     }
     if (readouts_->hasAttribute(CollectorSink::parameter_description_attribute_name())) {
       description_ = readouts_->getAttribute(CollectorSink::parameter_description_attribute_name()).read<std::string>();
@@ -138,9 +137,8 @@ public:
   RL_API [[nodiscard]] const std::string & collector_name() const { return group_name_; }
   /// The detector named by the group's attribute, or Reserved for user-described groups
   RL_API [[nodiscard]] DetectorType detector_type() const { return detector_.value_or(DetectorType::Reserved); }
-  /// The readout type named by the group's attribute, or implied by the stored datatype
+  /// The readout type implied by the stored compound datatype
   RL_API [[nodiscard]] ReadoutType readout_type() const {
-    if (readout_.has_value()) { return readout_.value(); }
     if (sendable_.has_value()) { return sendable_.value(); }
     throw std::runtime_error("Collector group has no readout type: it stores user-described records");
   }
