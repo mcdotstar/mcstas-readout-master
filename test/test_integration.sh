@@ -26,6 +26,17 @@ case "${antlr_banner}" in
         exit 100
         ;;
 esac
+# mccode-antlr <= 0.21.0 has a bug preventing Windows use (upstream fix pending):
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+        antlr_version="$(printf '%s' "${antlr_banner}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+        antlr_version="${antlr_version:-0.0.0}"
+        if [ "$(printf '%s\n%s\n' '0.21.0' "${antlr_version}" | sort -V | tail -1)" = "0.21.0" ]; then
+            echo "mccode-antlr ${antlr_version} <= 0.21.0 does not work on Windows, skipping integration tests."
+            exit 100
+        fi
+        ;;
+esac
 readout_config=""
 if [ -x bin/readout-config ]; then
     readout_config="bin/readout-config"
