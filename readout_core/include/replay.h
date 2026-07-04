@@ -73,14 +73,24 @@ struct RL_API ReplayConfig {
   /// Number of stored readouts per HDF5 read
   size_t chunk_size{65536};
   std::optional<ReplaySubset> subset{std::nullopt};
+  /// Pulse (reference time) repetition rate in Hz; packet pulse times march
+  /// forward on this grid, as at a continuously pulsed source (ESS: 14 Hz)
+  double pulse_rate{14.0};
+  /// Stamp each event at pulse + (tof % period) instead of pulse + tof, so
+  /// long-time-of-flight events wrap into the frame they would be detected in
+  bool fold_tof{false};
 };
 
 /** \brief Replay a Collector file to one or more EFUs
  *
  * Steps through the points in the file in order. For each point the instrument parameters
- * are handed to the publisher, then every collector group's readouts for that point are
- * sampled per the config and sent to the group's (detector, readout)-matched EFU endpoint.
- * Pulse times advance between points.
+ * are handed to the publisher; once point_ready returns, the sender waits for the next
+ * pulse-grid tick (config.pulse_rate) so the point's reference times are wall-clock
+ * instants strictly after the parameters were published, then every collector group's
+ * readouts for that point are sampled per the config and sent to the group's
+ * (detector, readout)-matched EFU endpoint. Within a point, packet pulse times march
+ * forward on the pulse grid as the wall clock passes each tick, mimicking a continuously
+ * pulsed source.
  */
 RL_API void replay(const std::string & filename, const ReplayConfig & config, ParameterPublisher & publisher);
 RL_API void replay(const std::string & filename, const ReplayConfig & config);

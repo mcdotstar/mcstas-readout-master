@@ -7,10 +7,12 @@
 //===----------------------------------------------------------------------===//
 #include "Sender.h"
 
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <tuple>
 
 void Sender::setPulseTime(const uint32_t PHI, const uint32_t PLO, const uint32_t PPHI, const uint32_t PPLO) {
@@ -39,7 +41,9 @@ void Sender::newPacket() {
   hp->CookieAndType = (static_cast<int>(detector_type) << 24) + 0x535345;
   hp->OutputQueue = OutputQueue;
   hp->TotalLength = sizeof(struct PacketHeaderV0);
-  hp->SeqNum = SeqNum++;
+  // the sequence number is assigned at transmission, so that only packets
+  // actually sent consume a number and the EFU sees a contiguous sequence
+  hp->SeqNum = SeqNum;
   hp->TimeSource = 0;
   hp->PulseHigh = phi;
   hp->PulseLow = plo;
@@ -51,8 +55,37 @@ void Sender::newPacket() {
 void Sender::check_size_and_send() {
   if (DataSize >= MaxDataSize) {
     send();
+    maybe_advance_pulse();
     newPacket();
   }
+}
+
+void Sender::maybe_advance_pulse() {
+  auto time_lock = std::lock_guard(time_mutex);
+  const auto now = efu_time();
+  if (now > time && (now - time) >= period) {
+    time = time + period * ((now - time) / period);
+    const auto prev = time - period;
+    setPulseTime(time.high(), time.low(), prev.high(), prev.low());
+  }
+}
+
+void Sender::begin_pulse() {
+  auto time_lock = std::lock_guard(time_mutex);
+  if (DataSize > static_cast<int>(sizeof(struct PacketHeaderV0))) {
+    send();
+  }
+  auto now = efu_time();
+  // the next grid tick strictly after now; the grid is anchored at the first pulse time
+  const auto tick = (now > time) ? time + period * ((now - time) / period + 1u) : time + period;
+  while (now < tick) {
+    std::this_thread::sleep_for(std::chrono::nanoseconds((tick - now).total_nanoseconds()));
+    now = efu_time();
+  }
+  time = tick;
+  const auto prev = time - period;
+  setPulseTime(time.high(), time.low(), prev.high(), prev.low());
+  newPacket();
 }
 
 void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const CAEN_readout_t *data) {
@@ -191,9 +224,11 @@ void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t,
 
 void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const double tof, const double, const void *data) {
   // FIXME Make this class thread safe by adding a mutex lock
-  // provided time-of-flight plus the current pulse time
-  const auto t = efu_time(tof) + time;
-  // TODO implement t = (tof % period) + time -- such that we have realistic reference times
+  // roll a full packet first, so the event time uses the packet's pulse time
+  check_size_and_send();
+  // provided time-of-flight plus the current pulse time; folding attributes the
+  // event to the frame it would be detected in, as the real readout reports it
+  const auto t = fold_tof_ ? time + (efu_time(tof) % period) : time + efu_time(tof);
   lasthi = t.high();
   lastlo = t.low();
   // the sender ignores any weight and just sends.
@@ -219,6 +254,8 @@ int Sender::send() {
   int error_code = 0;
   {
     std::lock_guard lock(send_mutex);
+    const auto hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
+    hp->SeqNum = SeqNum++;
     const auto chr_ptr = reinterpret_cast<char *>(buffer);
     auto [bytes, ret_code] = sender.send(std::string(chr_ptr, chr_ptr + DataSize));
     error_code = ret_code;
@@ -226,7 +263,6 @@ int Sender::send() {
       std::cout << "Sending UDP data failed: returns " << error_code << "\n";
     }
   }
-  newPacket();
   return error_code;
 }
 

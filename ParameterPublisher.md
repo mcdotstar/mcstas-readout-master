@@ -14,7 +14,10 @@ For each point `p` in file order, `replay()` calls, synchronously on the caller'
    `value` is the stored value rendered to a string with default `std::ostream`
    formatting; `unit` is the parameter's `unit` attribute when present.
 2. `point_ready(p)` once, after all of the point's parameters.
-3. Only then are the point's readouts sampled and sent to the EFU(s).
+3. Only then does replay wait for the next pulse-grid tick (`ReplayConfig::pulse_rate`,
+   default 14 Hz) and start sending the point's readouts — so every reference (pulse)
+   time carried by the point's events is a wall-clock instant *after* `point_ready`
+   returned.
 
 Guarantees and properties an implementation may rely on:
 
@@ -47,7 +50,9 @@ Guarantees and properties an implementation may rely on:
    *before* the point's events arrive (or at least with timestamps that order
    correctly). Block in `point_ready` until the writes complete (CA/pvAccess put
    callbacks) plus any Forwarder/Kafka latency margin. A fixed configurable delay is
-   the crude-but-effective baseline.
+   the crude-but-effective baseline. Blocking here is exactly what preserves causal
+   ordering end-to-end: replay only picks the point's first pulse time — and hence the
+   earliest possible event timestamp — after `point_ready` returns.
 4. **The integration shape: link against libreadout.** The recommended structure is an
    external tool (mccode-plumber) that links libreadout, constructs its EPICS-backed
    `ParameterPublisher`, builds a `ReplayConfig`, and calls
@@ -64,12 +69,16 @@ Guarantees and properties an implementation may rely on:
 
 - **Events are not paced.** A point's events are sent as fast as UDP framing allows,
   not spread over the counting time; parameter validity intervals in the written file
-  will be much shorter than the simulated counting time. If the downstream consumers
+  will be much shorter than the simulated counting time. (The reference *clock* is
+  paced — pulse times march on the configured `pulse_rate` grid as the wall clock
+  passes each tick — but the events themselves are not.) If the downstream consumers
   need realistic wall-clock pacing, that is a replay feature to add (see below), not a
   publisher concern.
-- **Pulse times are not exposed.** Sender pulse timestamps advance at point boundaries
-  but are not passed to the publisher; if parameter timestamps must correlate with
-  event pulse times rather than wall clock, the interface needs extending.
+- **Pulse times are not passed to the publisher.** The causal ordering (parameters
+  first, then strictly-later reference times) is guaranteed by replay itself, so an
+  implementation timestamping parameters at publication orders correctly. A publisher
+  wanting the exact pulse-time base (e.g. to back-date timestamps onto the pulse grid)
+  would need the interface extended.
 - **Descriptions are not passed.** The file stores an optional description attribute
   per parameter (visible via `ReaderSource::parameter_views()`), but `publish` only
   receives the unit. An EPICS implementation wanting to fill `DESC` fields should hold

@@ -50,6 +50,8 @@ readout-replay [options] FILE
 | `-n`, `--count COUNT` | Replay only COUNT stored readouts |
 | `-f`, `--first FIRST` | First stored readout of the subset (with `--count`) |
 | `-e`, `--every EVERY` | Take every EVERYth stored readout (with `--count`) |
+| `--pulse-rate RATE` | Pulse (reference time) repetition rate in Hz; packet pulse times march forward on this grid (default 14, the ESS source frequency) |
+| `--fold-tof` | Stamp each event at pulse + (tof mod pulse period) instead of pulse + tof, wrapping long-time-of-flight events into the frame they would be detected in |
 | `-a`, `--addr ADDR` | Default EFU IP address |
 | `-p`, `--port PORT` | Default EFU UDP port |
 | `-c`, `--config CONFIG` | JSON file with per-(detector, readout) EFU endpoints |
@@ -58,6 +60,15 @@ readout-replay [options] FILE
 EFU endpoints are resolved per collector group in precedence order: the
 `--config` JSON, attributes embedded in the file by the Collector component
 (`efu_address`/`efu_port`), then the `--addr`/`--port` defaults.
+
+Reference times mimic a continuously pulsed source: the pulse time in each
+packet header is the latest 1/RATE grid tick the wall clock has passed, so
+consecutive packets share a pulse time until the reference clock ticks, and the
+previous pulse time is always exactly one period earlier. At each point
+boundary the replay first publishes the point's parameters, then waits for the
+next grid tick — every reference time of a point's events is therefore a
+wall-clock instant *after* its parameters were published, preserving the causal
+order the downstream file writer relies on.
 
 ### Sender configuration JSON
 
