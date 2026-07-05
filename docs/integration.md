@@ -45,3 +45,21 @@ Define and fill variables before the Collector component executes.
 
 `ReadoutCAEN.comp`, `ReadoutTTLMonitor.comp`, and `ReadoutDiscreteCAEN.comp`
 remain available for in-simulation runtime event streaming use-cases.
+
+## 6. Running under MPI
+
+Collector components are MPI-aware: each node accumulates its own records,
+the records are gathered to the master node at the end of the run, and the
+master writes a single HDF5 file with the normalization scaled by the node
+count. No per-node files are produced and no manual merge step is needed.
+
+The legacy streaming components behave differently:
+
+- `ReadoutCAEN` and `ReadoutTTLMonitor` require every node to have network
+  access to the EFU host. When HDF5 output is enabled (`filename=...`), each
+  node writes `filename.node_N.h5`; the master merges them into one file in
+  `FINALLY` unless `merge_mpi=0`, deleting the per-node files unless
+  `keep_mpi_unmerged=1`. This merge supports the legacy flat layout with
+  exactly one collector group per file.
+- `ReadoutDiscreteCAEN` has no file output; its exact-count draw is made
+  per node.

@@ -25,6 +25,12 @@ Group attributes may include:
 EFU-sendability is decided by exact datatype match against the readout registry,
 not by attributes.
 
+Collector files are ordinary HDF5: for analysis or ad-hoc inspection, read
+them directly with h5py (`h5py.File(...)["caen_bank0/readouts"][...]` yields a
+structured NumPy array of the compound records). The `mcstas_readout` Python
+package drives replay and combine but deliberately does not wrap record
+access — the file format needs no wrapper.
+
 ## Validate files
 
 ```bash
