@@ -15,7 +15,14 @@ Each collector group contains:
 - `readouts` (compound records)
 - `cues` (point end offsets into `readouts`)
 - `weights` (sum of rate-weights per point)
-- `normalizations` (simulated-particle count context)
+- `normalizations` (simulated-particle count per point)
+
+Record weights are stored with the source-term scaling removed (`p * ncount`),
+so the physical rate of a record — and of a point's summed `weights` entry — is
+its stored weight divided by the point's `normalizations` entry. Appending
+files sums both records and normalizations, which keeps that ratio (and hence
+any replayed intensity) the combined ray-count-weighted estimate rather than
+the sum of the runs.
 
 Group attributes may include:
 
@@ -59,7 +66,7 @@ Replay all stored readouts exactly once:
 readout-replay --addr 127.0.0.1 --port 9000 scan.h5
 ```
 
-Replay with counting-time sampling (`n ~ Poisson(w * counting_time)`):
+Replay with counting-time sampling (`n ~ Poisson(w / normalization * counting_time)`):
 
 ```bash
 readout-replay --time 1.5 --seed 1234 scan.h5

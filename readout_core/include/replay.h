@@ -62,8 +62,9 @@ struct RL_API ReplaySubset {
 // New fields need a matching setter in readout_capi.h and a field in the
 // mcstas_readout.ReplayConfig Python dataclass (bump READOUT_CAPI_ABI_VERSION on change).
 struct RL_API ReplayConfig {
-  /// Counting time in seconds. When set, a stored readout with rate-weight w is sent
-  /// n ~ Poisson(w * counting_time) times; when unset every stored readout is sent exactly once.
+  /// Counting time in seconds. When set, a stored readout with rate-weight w in a point with
+  /// simulated-ray normalization N is sent n ~ Poisson(w / N * counting_time) times; when
+  /// unset every stored readout is sent exactly once.
   std::optional<double> counting_time{std::nullopt};
   /// Seed for the sampling and shuffling generator; 0 selects a non-deterministic seed
   uint32_t seed{0};

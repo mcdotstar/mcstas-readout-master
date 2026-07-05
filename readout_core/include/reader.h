@@ -53,6 +53,7 @@ class Reader {
   std::optional<HighFive::Group> group_;
   std::optional<HighFive::DataSet> readouts_, cues_, weights_, normalizations_;
   std::vector<uint32_t> cue_values_;
+  std::vector<uint64_t> normalization_values_;
   std::optional<DetectorType> detector_{std::nullopt};
   std::optional<ReadoutType> sendable_{std::nullopt};
   std::optional<std::string> description_{std::nullopt};
@@ -134,7 +135,8 @@ public:
     if (cue_values_.back() != size()) {
       throw std::runtime_error("Collector cues end value does not match readout dataset size");
     }
-    if (weights_->getDimensions().back() != cue_values_.size() || normalizations_->getDimensions().back() != cue_values_.size()) {
+    normalizations_->read(normalization_values_);
+    if (weights_->getDimensions().back() != cue_values_.size() || normalization_values_.size() != cue_values_.size()) {
       throw std::runtime_error("Collector point datasets (cues, weights, normalizations) have mismatched dimensions");
     }
   }
@@ -159,12 +161,22 @@ public:
   RL_API [[nodiscard]] HighFive::DataType datatype() const { return readouts_->getDataType(); }
   RL_API [[nodiscard]] size_t record_size() const { return readouts_->getDataType().getSize(); }
 
-  /// The accumulated rate-weight of one point
+  /// The accumulated rate-weight of one point, in stored (ncount-scaled) units:
+  /// divide by point_normalization() to recover the physical rate
   RL_API [[nodiscard]] double point_weight(const size_t point) const {
     if (point >= cue_values_.size()) {
       throw std::runtime_error("Out of bounds point requested");
     }
     return weights_->select({point}, {1}).read<double>();
+  }
+
+  /// The accumulated simulated-ray count of one point; grows when files are appended,
+  /// so stored-weight / normalization stays the physical rate contribution of a record
+  RL_API [[nodiscard]] uint64_t point_normalization(const size_t point) const {
+    if (point >= normalization_values_.size()) {
+      throw std::runtime_error("Out of bounds point requested");
+    }
+    return normalization_values_[point];
   }
 
   /// Raw access to stored records for user-described groups: count records starting at index,
