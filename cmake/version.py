@@ -1,45 +1,50 @@
 from pathlib import Path
 
 
-def intable(x):
-    try:
-        int(x)
-    except:
-        return False
-    return True
-
-
-def semver_groups(s):
+def safe_version(version):
+    """Extract the plain X.Y.Z prefix of a version string, if present."""
     import re
-    r = re.compile(r"^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$")
-    if m := r.match(s):
-        d = m.groupdict()
-        return d
-    return None
+    m = re.match(r"(\d+\.\d+\.\d+)", version)
+    return m.group(1) if m else None
 
 
 def git_run(args, default=None, cwd=None):
     from subprocess import run
-    from pathlib import Path
     if not Path(cwd).joinpath('.git').is_dir():
         return default
     res = run(args, cwd=cwd, capture_output=True, text=True)
     return default if res.returncode else res.stdout.strip()
 
 
-def get_version(root: Path):
-    file = Path(root).joinpath('VERSION')
-    fallback = file.read_text()
-    version = git_run(['git', 'describe', '--long'], cwd=root, default=fallback).split('v', maxsplit=1)[-1]
-    d = semver_groups(version)
-    if not d:
-        # warn about a non-semantic-version value?
-        d = semver_groups(fallback)
-        version = fallback
-    safe = f"{d['major']}.{d['minor']}.{d['patch']}"
-    if safe != fallback:
-        file.write_text(safe)
-    return version, f"{d['major']}.{d['minor']}.{d['patch']}"
+def pkg_info_version(root: Path):
+    """An sdist has no git metadata but carries its resolved version in PKG-INFO."""
+    file = Path(root).joinpath('PKG-INFO')
+    if not file.is_file():
+        return None
+    for line in file.read_text().splitlines():
+        if line.startswith('Version:'):
+            return line.split(':', maxsplit=1)[1].strip()
+    return None
+
+
+def get_version(root: Path, override=None):
+    """Resolve the build version.
+
+    An explicit override (scikit-build-core's setuptools_scm result, passed
+    through check.cmake) beats `git describe`, which beats an sdist's PKG-INFO.
+    """
+    candidates = (
+        override,
+        # --tags: releases made via `gh release create` are lightweight tags
+        git_run(['git', 'describe', '--tags', '--long'], cwd=root),
+        pkg_info_version(root),
+    )
+    for candidate in candidates:
+        if candidate:
+            full = candidate.lstrip('v')
+            if safe := safe_version(full):
+                return full, safe
+    return '0.0.0', '0.0.0'
 
 
 def git_info(root: Path):
@@ -48,13 +53,13 @@ def git_info(root: Path):
     return sha, branch
 
 
-def version_header(root: Path, filename: Path):
+def version_header(root: Path, filename: Path, override=None):
     from textwrap import dedent
     from datetime import datetime
     import platform
 
     sha, branch= git_info(root)
-    full_v, safe_v = get_version(root)
+    full_v, safe_v = get_version(root, override=override)
     date_str = datetime.now().date().isoformat()
     hostname = platform.node()
 
@@ -94,8 +99,11 @@ def main():
     parser = ArgumentParser()
     parser.add_argument('repository')
     parser.add_argument('directory')
+    parser.add_argument('--version', default=None,
+                        help='externally resolved version, overrides git metadata')
     args = parser.parse_args()
-    version_header(Path(args.repository), Path(args.directory).joinpath('version.hpp'))
+    version_header(Path(args.repository), Path(args.directory).joinpath('version.hpp'),
+                   override=args.version)
 
 
 if __name__ == '__main__':

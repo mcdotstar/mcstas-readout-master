@@ -2,7 +2,6 @@ import os
 
 from conan import ConanFile
 from conan.tools.cmake import CMake, cmake_layout
-from conan.tools.files import load
 
 
 class ReadoutRecipe(ConanFile):
@@ -40,9 +39,7 @@ class ReadoutRecipe(ConanFile):
 
     generators = "CMakeToolchain", "CMakeDeps"
 
-    exports = "VERSION"
     exports_sources = (
-        "VERSION",
         "CMakeLists.txt",
         "cmake/*",
         "readout_core/*",
@@ -63,15 +60,17 @@ class ReadoutRecipe(ConanFile):
     def set_version(self):
         if self.version:
             return
-        # exports = "VERSION" places the file next to the recipe for conan create;
-        # the scikit-build-core-conan backend instead copies the recipe to a temp
-        # dir, where no VERSION exists — and the dependency-provider role does not
-        # need one, so fall back rather than fail.
-        for root in (self.recipe_folder, os.getcwd()):
-            candidate = os.path.join(root, "VERSION")
-            if os.path.isfile(candidate):
-                self.version = load(self, candidate).strip()
-                return
+        # `conan create` (and `conan export`) run set_version in the checkout,
+        # where the git tag supplies the version; the scikit-build-core-conan
+        # backend instead copies the recipe to a temp dir without git — and the
+        # dependency-provider role does not need one, so fall back rather than fail.
+        import re
+        from subprocess import run
+        res = run(["git", "describe", "--tags", "--long"], cwd=self.recipe_folder,
+                  capture_output=True, text=True)
+        if res.returncode == 0 and (m := re.match(r"v?(\d+\.\d+\.\d+)", res.stdout.strip())):
+            self.version = m.group(1)
+            return
         self.version = "0.0.0"
 
     def requirements(self):
