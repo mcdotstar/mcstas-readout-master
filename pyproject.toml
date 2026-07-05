@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core>=0.11", "scikit-build-core-conan>=0.6"]
+requires = ["scikit-build-core>=0.11", "scikit-build-core-conan>=0.6", "setuptools-scm>=8"]
 build-backend = "scikit_build_core_conan.build"
 
 [project]
@@ -41,10 +41,12 @@ wheel.install-dir = "_readout_core/data"
 wheel.py-api = "py3"
 build.verbose = true
 
+# The version comes from git tags (vX.Y.Z) at build time; sdists carry the
+# resolved version in PKG-INFO, so builds from an sdist need no git.
 [tool.scikit-build.metadata.version]
-provider = "scikit_build_core.metadata.regex"
-input = "VERSION"
-regex = "^(?P<value>.+?)\\s*$"
+provider = "scikit_build_core.metadata.setuptools_scm"
+
+[tool.setuptools_scm]
 
 [tool.scikit-build.cmake.define]
 READOUT_BUILD_TESTS = "OFF"
@@ -61,3 +63,8 @@ build = ["cp312-*"]
 skip = ["*-musllinux*"]
 build-verbosity = 1
 test-command = "readout-config --version && readout-config --show compdir && readout-replay --help && readout-combine --help && python -c \"import mcstas_readout; print(mcstas_readout.lib_version())\""
+
+[tool.cibuildwheel.linux]
+# the manylinux container sees the checkout as root-owned at /project; without
+# this, git (and thus setuptools_scm) refuses to read it (dubious ownership)
+before-all = "git config --global --add safe.directory /project"

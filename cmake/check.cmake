@@ -14,8 +14,12 @@ endif()
 set(post_configure_file ${gen_dir}/version.hpp)
 
 function(checkVersion version)
+  set(version_arg)
+  if (DEFINED project_version AND NOT "${project_version}" STREQUAL "")
+    set(version_arg --version=${project_version})
+  endif()
   execute_process(
-          COMMAND ${Python3_EXECUTABLE} ${CURRENT_LIST_DIR}/version.py ${src_dir} ${gen_dir}
+          COMMAND ${Python3_EXECUTABLE} ${CURRENT_LIST_DIR}/version.py ${src_dir} ${gen_dir} ${version_arg}
           OUTPUT_VARIABLE returned_version
           OUTPUT_STRIP_TRAILING_WHITESPACE
           ECHO_ERROR_VARIABLE
@@ -25,10 +29,20 @@ function(checkVersion version)
 endfunction()
 
 function(checkSetup name)
+  if (NOT DEFINED project_version)
+    # scikit-build-core already resolved the version via setuptools_scm;
+    # reuse it instead of re-deriving from git (absent in an sdist build)
+    if (DEFINED SKBUILD_PROJECT_VERSION_FULL)
+      set(project_version ${SKBUILD_PROJECT_VERSION_FULL})
+    elseif (DEFINED SKBUILD_PROJECT_VERSION)
+      set(project_version ${SKBUILD_PROJECT_VERSION})
+    endif()
+  endif()
   add_custom_target(AlwaysCheck COMMAND ${CMAKE_COMMAND}
     -DRUN_CHECK=1
     -Dgen_dir=${gen_dir}
     -Dsrc_dir=${src_dir}
+    "-Dproject_version=${project_version}"
     -P ${CURRENT_LIST_DIR}/check.cmake
     BYPRODUCTS ${post_configure_file}
   )
