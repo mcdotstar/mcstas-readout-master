@@ -109,6 +109,15 @@ void stream_point(const Reader & reader, Sender & sender, const size_t point, co
                   std::mt19937 & rng, std::optional<SubsetState> & subset) {
   const auto offset = reader.point_offset(point);
   const auto count = reader.point_size(point);
+  // stored weights carry the simulated-ray count (w_i = p_i * ncount, accumulated across
+  // appends), so the physical rate of a record is w_i / normalization
+  double normalization{1.};
+  if (config.counting_time.has_value() && count > 0) {
+    normalization = static_cast<double>(reader.point_normalization(point));
+    if (!(normalization > 0.)) {
+      throw std::runtime_error("Collector point has no normalization; cannot Poisson-sample event counts");
+    }
+  }
   // Only the shuffled path needs to buffer the sampled events; sequential sends immediately
   std::vector<EventT> buffered;
   auto emit = [&](const EventT & event) {
@@ -134,9 +143,9 @@ void stream_point(const Reader & reader, Sender & sender, const size_t point, co
       }
       size_t copies{1};
       if (config.counting_time.has_value()) {
-        // n_i ~ Poisson(w_i * T): per-ray draws reproduce the aggregate Poisson(W * T)
+        // n_i ~ Poisson(w_i / N * T): per-ray draws reproduce the aggregate Poisson(W / N * T)
         // event count exactly, by the Poisson-multinomial decomposition
-        const auto mean = event.weight * config.counting_time.value();
+        const auto mean = event.weight / normalization * config.counting_time.value();
         if (mean > 0.) {
           std::poisson_distribution<size_t> distribution(mean);
           copies = distribution(rng);

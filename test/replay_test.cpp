@@ -238,12 +238,12 @@ int settled_readouts(const std::shared_ptr<UDPStats> & stats) {
   return stats->readouts;
 }
 
-std::string write_caen_point_file(const std::string & base, const double chopper_speed, const uint16_t rays, const double weight) {
+std::string write_caen_point_file(const std::string & base, const double chopper_speed, const uint16_t rays, const double weight, const uint64_t normalization = 1u) {
   namespace fs = std::filesystem;
   auto filepath = fs::temp_directory_path() / fs::path(pid_filename(base, ".h5"));
   fs::remove(filepath);
   const auto filename = filepath.string();
-  Collector collector(filename, "events", 0x34, 1u);
+  Collector collector(filename, "events", 0x34, normalization);
   collector.addParameter("chopper_speed", chopper_speed, std::optional<std::string>("Hz"), std::nullopt);
   CAEN_readout_t data;
   for (uint16_t i = 0; i < rays; ++i) {
@@ -325,7 +325,8 @@ TEST_CASE("Multi-point replay samples Poisson events and publishes parameters", 
     });
   REQUIRE(receiver.isRunning());
 
-  // total stored rate is 2 * rays * weight; a 5 s counting time expects 10000 events
+  // with normalization 1 the stored rate is the physical rate: 2 * rays * weight,
+  // so a 5 s counting time expects 10000 events
   const double counting_time{5.0};
   const double mean = 2.0 * rays * weight * counting_time;
 
@@ -397,6 +398,128 @@ TEST_CASE("Replay with negligible counting time sends no events", "[replay][stat
   CHECK(stats->bad == 0);
 
   fs::remove(fs::path(file_a));
+}
+
+TEST_CASE("Replay divides stored weights by the point normalization", "[replay][normalization][statistics]") {
+  namespace fs = std::filesystem;
+  // stored weights carry the simulated-ray count (w = p * ncount in the collector
+  // components), so the Poisson mean must be w / normalization * T, not w * T
+  const uint16_t rays{1000};
+  const uint64_t normalization{4};
+  const double weight{4.0}; // physical rate per record: weight / normalization = 1
+  const auto filename = write_caen_point_file("replay_norm", 100.0, rays, weight, normalization);
+
+  {
+    const ReaderSource source(filename);
+    const auto & reader = source.reader("events");
+    REQUIRE(reader.point_normalization(0) == normalization);
+  }
+
+  auto stats = std::make_shared<UDPStats>();
+  const int port = find_free_udp_port();
+  REQUIRE(port > 0);
+  cluon::UDPReceiver receiver("127.0.0.1", port,
+    [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+      const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
+      stats->packets++;
+      if (!ess_header_ok(header->CookieAndType, 0x34)) { stats->bad++; return; }
+      stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
+    });
+  REQUIRE(receiver.isRunning());
+
+  const double counting_time{5.0};
+  const double mean = rays * (weight / static_cast<double>(normalization)) * counting_time;
+
+  ReplayConfig config;
+  config.counting_time = counting_time;
+  config.seed = 424242u;
+  config.default_port = port;
+  replay(filename, config);
+
+  // 5 sigma window around the normalized mean; the unnormalized mean (4x) sits far outside
+  const auto received = settled_readouts(stats);
+  const auto tolerance = 5.0 * std::sqrt(mean);
+  CHECK(std::abs(static_cast<double>(received) - mean) < tolerance);
+  CHECK(stats->bad == 0);
+
+  fs::remove(fs::path(filename));
+}
+
+TEST_CASE("Appending independent runs preserves the replayed intensity", "[replay][normalization][append][statistics]") {
+  namespace fs = std::filesystem;
+  // two statistically independent runs of identical conditions: appending them doubles
+  // the stored records AND the normalization, so the replayed event rate — the combined
+  // ray-count-weighted estimate — must match a single run, not double it
+  const uint16_t rays{1000};
+  const uint64_t normalization{1000};
+  const double weight{1.0}; // per-run intensity I = rays * weight / normalization = 1
+  const auto file_a = write_caen_point_file("replay_app_a", 100.0, rays, weight, normalization);
+  const auto file_b = write_caen_point_file("replay_app_b", 100.0, rays, weight, normalization);
+  auto combined_path = fs::temp_directory_path() / fs::path(pid_filename("replay_app", ".h5"));
+  fs::remove(combined_path);
+  const auto combined = combined_path.string();
+  REQUIRE(append_collector_files(combined, {file_a, file_b}, false));
+
+  {
+    const ReaderSource source(combined);
+    REQUIRE(source.points() == 1);
+    const auto & reader = source.reader("events");
+    REQUIRE(reader.point_size(0) == 2 * rays);
+    REQUIRE(reader.point_normalization(0) == 2 * normalization);
+  }
+
+  auto stats = std::make_shared<UDPStats>();
+  const int port = find_free_udp_port();
+  REQUIRE(port > 0);
+  cluon::UDPReceiver receiver("127.0.0.1", port,
+    [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+      const auto * header = reinterpret_cast<const PacketHeaderV0*>(data.data());
+      stats->packets++;
+      if (!ess_header_ok(header->CookieAndType, 0x34)) { stats->bad++; return; }
+      stats->readouts += static_cast<int>((header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(struct CaenData));
+    });
+  REQUIRE(receiver.isRunning());
+
+  const double intensity = rays * weight / static_cast<double>(normalization);
+  const double counting_time{5000.0};
+  const double mean = intensity * counting_time;
+
+  ReplayConfig config;
+  config.counting_time = counting_time;
+  config.seed = 424242u;
+  config.default_port = port;
+  replay(combined, config);
+
+  // 5 sigma window around I * T; the pre-fix behavior (2 * I * T and worse) sits far outside
+  const auto received = settled_readouts(stats);
+  const auto tolerance = 5.0 * std::sqrt(mean);
+  CHECK(std::abs(static_cast<double>(received) - mean) < tolerance);
+  CHECK(stats->bad == 0);
+
+  fs::remove(fs::path(file_a));
+  fs::remove(fs::path(file_b));
+  fs::remove(combined_path);
+}
+
+TEST_CASE("Replay with a counting time rejects zero normalization", "[replay][normalization]") {
+  namespace fs = std::filesystem;
+  const auto filename = write_caen_point_file("replay_norm_zero", 100.0, 10, 1.0, 0u);
+
+  const int port = find_free_udp_port();
+  REQUIRE(port > 0);
+
+  // Poisson sampling needs the normalization; a zero value cannot yield a rate
+  ReplayConfig config;
+  config.counting_time = 1.0;
+  config.default_port = port;
+  REQUIRE_THROWS(replay(filename, config));
+
+  // without a counting time the weights are never used, so the file still replays
+  ReplayConfig all_config;
+  all_config.default_port = port;
+  REQUIRE(replay(filename, all_config));
+
+  fs::remove(fs::path(filename));
 }
 
 TEST_CASE("Replay routes two groups to their file-embedded EFU ports", "[replay][routing][efu]") {
