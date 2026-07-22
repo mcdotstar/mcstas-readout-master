@@ -13,7 +13,8 @@ enum class ConfigShow {
   VERSION,
   BINDIR,
   LDFLAGS,
-  CFLAGS
+  CFLAGS,
+  BUILDFLAGS
 };
 
 long long version_integer(const char * version){
@@ -39,12 +40,28 @@ const char * installation_info(const ConfigShow choice) {
     case ConfigShow::BINDIR: return libreadout::config::bindir;
     case ConfigShow::LDFLAGS: return libreadout::config::ldflags;
     case ConfigShow::CFLAGS: return libreadout::config::cflags;
+    case ConfigShow::BUILDFLAGS: return nullptr; // computed in lookup_choice, not a stored field
   }
   return nullptr;
 }
 
 
 std::string lookup_choice(const ConfigShow choice) {
+  if (choice == ConfigShow::BUILDFLAGS) {
+    // Platform-aware compile/link flags for building a McStas instrument
+    // against the installed library, mirroring mcpl-config/ncrystal-config
+    // --show buildflags: reference the library file directly (no bare -L/-l)
+    // so the flags are correct for both GCC/Clang and MSVC-style toolchains.
+    auto libdir = lookup_choice(ConfigShow::LIBDIR);
+    auto includedir = lookup_choice(ConfigShow::INCLUDEDIR);
+#ifdef _WIN32
+    auto libpath = (std::filesystem::path(libdir) / libreadout::config::implibname).string();
+    return "/I" + includedir + " " + libpath;
+#else
+    auto libpath = (std::filesystem::path(libdir) / libreadout::config::libname).string();
+    return "-Wl,-rpath," + libdir + " -Wl," + libpath + " -I" + includedir;
+#endif
+  }
   auto info = installation_info(choice);
   if (info == nullptr) return "";
   if (ConfigShow::LIBNAME == choice || ConfigShow::VERSION == choice) return info;
@@ -89,13 +106,14 @@ struct ConfgShowReader
     else if (value == "bindir") destination = ConfigShow::BINDIR;
     else if (value == "ldflags") destination = ConfigShow::LDFLAGS;
     else if (value == "cflags") destination = ConfigShow::CFLAGS;
+    else if (value == "buildflags") destination = ConfigShow::BUILDFLAGS;
     else throw std::runtime_error("Invalid choice: " + in_value + " for " + name);
   }
 };
 
 
 int main(int argc, char * argv[]){
-  std::string choices{"libdir, includedir, compdir, libname, bindir, ldflags, cflags"};
+  std::string choices{"libdir, includedir, compdir, libname, bindir, ldflags, cflags, buildflags"};
   args::ArgumentParser parser("Readout library configuration information",
                               "Resolved paths are only valid if this binary is installed.");
   args::HelpFlag help(parser, "help", "Display this help menu", {'h', "help"});

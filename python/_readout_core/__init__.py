@@ -18,6 +18,18 @@ def data_dir() -> Path:
     return Path(__file__).resolve().parent / "data"
 
 
+def bin_dir() -> Path:
+    return data_dir() / "bin"
+
+
+def include_dir() -> Path:
+    return data_dir() / "include"
+
+
+def comp_dir() -> Path:
+    return data_dir() / "share" / "Readout"
+
+
 def cmakedir() -> Path:
     """The directory containing ReadoutConfig.cmake, usable as Readout_DIR for
     find_package(Readout) against the wheel-installed library. Provided in

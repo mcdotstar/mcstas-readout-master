@@ -9,6 +9,9 @@ namespace libreadout::config {
     auto constexpr compdir = "@Readout_BIN2DATA@";
     //! \brief Configuration information for the library name
     auto constexpr libname = "@Readout_LIBNAME@";
+    //! \brief Configuration information for the Windows import-library name
+    //! (the .lib companion linked against to use the .dll); empty elsewhere
+    auto constexpr implibname = "@Readout_IMPLIBNAME@";
     //! \brief Configuration information for the version
     auto constexpr version = "@READOUT_VERSION@";
     //! \brief Configuration information for the binary directory location

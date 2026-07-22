@@ -19,6 +19,7 @@ Typical use, replacing a `readout-replay` shell invocation::
 from __future__ import annotations
 
 from ._lib import lib_path, lib_version
+from ._paths import bin_dir, cmakedir, comp_dir, include_dir
 from .exceptions import ReadoutError
 from .replay import (ParameterPublisher, Replay, ReplayConfig, ReplaySubset,
                      StreamParameterPublisher, replay)
@@ -53,5 +54,9 @@ __all__ = [
     "combine_collector_files",
     "lib_path",
     "lib_version",
+    "bin_dir",
+    "include_dir",
+    "comp_dir",
+    "cmakedir",
     "__version__",
 ]

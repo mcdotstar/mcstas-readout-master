@@ -33,6 +33,7 @@ file(RELATIVE_PATH Readout_CMAKE2INC "${PROJECT_BINARY_DIR}/${Readout_CMAKEDIR}"
 
 add_library(${READOUT_LIBRARY_TARGET} SHARED)
 set(Readout_LIBNAME "${CMAKE_SHARED_LIBRARY_PREFIX}${READOUT_LIBRARY_TARGET}${CMAKE_SHARED_LIBRARY_SUFFIX}")
+set(Readout_IMPLIBNAME "${CMAKE_IMPORT_LIBRARY_PREFIX}${READOUT_LIBRARY_TARGET}${CMAKE_IMPORT_LIBRARY_SUFFIX}")
 set_target_properties(${READOUT_LIBRARY_TARGET} PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
 if (APPLE)
     # Keep dylib install_name resolvable from executable @rpath entries in wheel repair.
@@ -81,6 +82,15 @@ find_package(nlohmann_json REQUIRED)
 target_link_libraries(${READOUT_LIBRARY_TARGET} PRIVATE nlohmann_json::nlohmann_json)
 # Ensure include availability across MSVC multi-config Conan generation.
 target_include_directories(${READOUT_LIBRARY_TARGET} PRIVATE ${nlohmann_json_INCLUDE_DIRS})
+
+# Sender.cpp's vendored cluon-complete.hpp spawns real std::thread workers
+# (UDP/TCP receive loops), which libstdc++ lowers to pthread_create/pthread_join.
+# This has always been a real dependency of the library, previously resolved
+# only by luck via another dependency's transitive link requirements; declare
+# it explicitly so it doesn't depend on what HDF5 (or anything else) exports.
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+target_link_libraries(${READOUT_LIBRARY_TARGET} PRIVATE Threads::Threads)
 
 # HDF5 is linked statically (see conanfile.py). For wheel builds its symbols
 # must not leak out of libreadout, or they can clash with another HDF5 loaded
@@ -157,6 +167,7 @@ if (READOUT_BUILD_TESTS)
     add_test(NAME replay_binary_test COMMAND ${READOUT_REPLAY_BINARY} --help)
     add_test(NAME replay_config_help_test COMMAND ${READOUT_CONFIG_BINARY} --help)
     add_test(NAME replay_config_show_test COMMAND ${READOUT_CONFIG_BINARY} --show libdir)
+    add_test(NAME replay_config_show_buildflags_test COMMAND ${READOUT_CONFIG_BINARY} --show buildflags)
     add_test(NAME combine_binary_help_test COMMAND ${READOUT_COMBINE_BINARY} --help)
     add_test(NAME combine_validate_missing_test COMMAND ${READOUT_COMBINE_BINARY} validate /nonexistent_file_for_testing.h5)
     set_tests_properties(combine_validate_missing_test PROPERTIES WILL_FAIL TRUE)
