@@ -95,7 +95,7 @@ int ess_type=16, // TTLMonitor should always be 0x10 == 16
 double efficiency=1
 )
 OUTPUT PARAMETERS ()
-DEPENDENCY "-Wl,-rpath,CMD(readout-config --show libdir) -LCMD(readout-config --show libdir) -lreadout -ICMD(readout-config --show includedir)"
+DEPENDENCY "CMD(readout-config --show buildflags)"
 SHARE
 %{
 %include "lib-readout"

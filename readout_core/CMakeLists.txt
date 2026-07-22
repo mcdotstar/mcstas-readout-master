@@ -33,6 +33,7 @@ file(RELATIVE_PATH Readout_CMAKE2INC "${PROJECT_BINARY_DIR}/${Readout_CMAKEDIR}"
 
 add_library(${READOUT_LIBRARY_TARGET} SHARED)
 set(Readout_LIBNAME "${CMAKE_SHARED_LIBRARY_PREFIX}${READOUT_LIBRARY_TARGET}${CMAKE_SHARED_LIBRARY_SUFFIX}")
+set(Readout_IMPLIBNAME "${CMAKE_IMPORT_LIBRARY_PREFIX}${READOUT_LIBRARY_TARGET}${CMAKE_IMPORT_LIBRARY_SUFFIX}")
 set_target_properties(${READOUT_LIBRARY_TARGET} PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
 if (APPLE)
     # Keep dylib install_name resolvable from executable @rpath entries in wheel repair.
@@ -157,6 +158,7 @@ if (READOUT_BUILD_TESTS)
     add_test(NAME replay_binary_test COMMAND ${READOUT_REPLAY_BINARY} --help)
     add_test(NAME replay_config_help_test COMMAND ${READOUT_CONFIG_BINARY} --help)
     add_test(NAME replay_config_show_test COMMAND ${READOUT_CONFIG_BINARY} --show libdir)
+    add_test(NAME replay_config_show_buildflags_test COMMAND ${READOUT_CONFIG_BINARY} --show buildflags)
     add_test(NAME combine_binary_help_test COMMAND ${READOUT_COMBINE_BINARY} --help)
     add_test(NAME combine_validate_missing_test COMMAND ${READOUT_COMBINE_BINARY} validate /nonexistent_file_for_testing.h5)
     set_tests_properties(combine_validate_missing_test PROPERTIES WILL_FAIL TRUE)

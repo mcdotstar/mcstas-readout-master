@@ -74,7 +74,7 @@ string efu_address = 0, // Optional EFU IP address for replay routing; leave 0/e
 int efu_port = 0         // Optional EFU UDP port for replay routing; leave 0 to omit from file
 )
 OUTPUT PARAMETERS ()
-DEPENDENCY "-Wl,-rpath,CMD(readout-config --show libdir) -LCMD(readout-config --show libdir) -lreadout -ICMD(readout-config --show includedir)"
+DEPENDENCY "CMD(readout-config --show buildflags)"
 SHARE
 %{
 %include "lib-readout"

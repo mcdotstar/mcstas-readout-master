@@ -10,10 +10,16 @@ Self-locating configuration query tool, used by the McStas components'
 and component files:
 
 ```bash
-readout-config --show compdir    # McStas component directory
-readout-config --show libdir     # shared library directory
-readout-config --show includedir # header directory
+readout-config --show compdir     # McStas component directory
+readout-config --show libdir      # shared library directory
+readout-config --show includedir  # header directory
+readout-config --show buildflags  # compile/link flags for building against the installed library
 ```
+
+`buildflags` is what every component's `DEPENDENCY` line uses (mirroring
+`mcpl-config`/`ncrystal-config --show buildflags`): it resolves to the correct
+compiler and linker arguments for the current platform, referencing the
+library file directly rather than a bare `-L`/`-l` pair.
 
 ## readout-combine
 

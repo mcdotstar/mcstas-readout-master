@@ -26,6 +26,17 @@ The load fails with `ReadoutError` when the library's C API generation
 (`readout_capi_abi_version()`) differs from the one the wrapper was written
 against. `mcstas_readout.lib_path()` and `lib_version()` report what was loaded.
 
+## Locating other installed resources
+
+`mcstas_readout.bin_dir()`, `include_dir()`, and `comp_dir()` resolve the same
+way as the library lookup above (wheel data directory first, otherwise
+`readout-config --show bindir`/`includedir`/`compdir` on PATH) — the Python
+equivalent of the `readout-config --show` CLI (see [Command-line
+tools](cli.md)). `cmakedir()` only resolves for a wheel install: it points at
+the bundled `ReadoutConfig.cmake`, usable as `Readout_DIR` for
+`find_package(Readout)`; a conda or system install already puts that file on
+the normal `find_package` search path.
+
 ## Replay
 
 ```python
