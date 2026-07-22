@@ -2,6 +2,7 @@ name: Main
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 concurrency:
@@ -65,6 +66,23 @@ jobs:
         working-directory: build
         run: ctest -C ${{ matrix.cmake-type }} --verbose -j
 
+      # The integration_tests job below only varies the MPI flavor used to
+      # compile *instruments* (via mpicc, at test time); libreadout/readout-config
+      # itself is MPI-agnostic, so one build here is reused for all three MPI
+      # legs instead of reconfiguring/rebuilding the CMake project from scratch
+      # three more times.
+      - name: Upload build for integration tests
+        if: matrix.variant.os == 'ubuntu-latest' && matrix.cmake-type == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: readout-build-ubuntu-latest-release
+          path: |
+            build/bin
+            build/lib*
+            build/include
+            build/share
+          retention-days: 1
+
   integration_tests:
     name: "Python integration tests, ${{ matrix.variant.os }} ${{ matrix.mpi }}"
     runs-on: ${{ matrix.variant.os }}
@@ -96,17 +114,23 @@ jobs:
 
       - name: Install Python-based dependencies
         run: |
-          python -m pip install conan numpy mccode-antlr pytest h5py
+          python -m pip install numpy mccode-antlr pytest h5py
 
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Build with development mode
-        run: |
-          cmake -S . -B build-dev
-          cmake --build build-dev -j
+      - name: Download prebuilt project (ubuntu-latest, Release, from cmake_and_ctest)
+        uses: actions/download-artifact@v4
+        with:
+          name: readout-build-ubuntu-latest-release
+          path: build
+
+      - name: Mark downloaded binaries executable
+        run: chmod +x build/bin/*
 
       - name: Run integration tests
+        env:
+          READOUT_BUILD_DIR: ${{ github.workspace }}/build
         run: python -m pytest tests/ -v --tb=short
