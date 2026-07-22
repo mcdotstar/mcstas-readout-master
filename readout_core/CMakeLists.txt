@@ -83,6 +83,15 @@ target_link_libraries(${READOUT_LIBRARY_TARGET} PRIVATE nlohmann_json::nlohmann_
 # Ensure include availability across MSVC multi-config Conan generation.
 target_include_directories(${READOUT_LIBRARY_TARGET} PRIVATE ${nlohmann_json_INCLUDE_DIRS})
 
+# Sender.cpp's vendored cluon-complete.hpp spawns real std::thread workers
+# (UDP/TCP receive loops), which libstdc++ lowers to pthread_create/pthread_join.
+# This has always been a real dependency of the library, previously resolved
+# only by luck via another dependency's transitive link requirements; declare
+# it explicitly so it doesn't depend on what HDF5 (or anything else) exports.
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+target_link_libraries(${READOUT_LIBRARY_TARGET} PRIVATE Threads::Threads)
+
 # HDF5 is linked statically (see conanfile.py). For wheel builds its symbols
 # must not leak out of libreadout, or they can clash with another HDF5 loaded
 # in the same process (e.g. h5py importing alongside — the brille lesson).
