@@ -330,6 +330,28 @@ std::pair<std::string, std::map<std::string, CollectorShape>> verify_parameters_
 }
 
 
+/*** A parameter dataset's values, in a form two files can be compared by.
+ *
+ * Not the raw bytes. A variable-length string dataset stores *pointers*, so
+ * `getDataType().getSize()` is the width of a pointer and `read_raw` hands back heap
+ * addresses rather than characters -- addresses that differ between any two reads, so a
+ * file carrying a string parameter compared unequal even to itself. McStas instruments
+ * conventionally declare `string filename`, which put that in essentially every file.
+ *
+ * Strings are therefore read as strings. Everything else keeps the byte comparison,
+ * which is exact for the fixed-width numeric types a parameters group otherwise holds.
+ */
+std::vector<std::string> comparable_parameter_values(const HighFive::DataSet & dataset) {
+  const auto type = dataset.getDataType();
+  if (type.getClass() == HighFive::DataTypeClass::String) {
+    return dataset.read<std::vector<std::string>>();
+  }
+  const auto count = dataset.getDimensions().back() * type.getSize();
+  std::vector<uint8_t> buffer(count);
+  dataset.read_raw(buffer.data(), type);
+  return {std::string(buffer.begin(), buffer.end())};
+}
+
 std::pair<std::string, std::map<std::string, CollectorShape>> verify_parameters_identical(const std::vector<std::string> & filenames) {
   auto [vres, shapes] = verify_parameters_consistent(filenames, true);
   if (vres.size() > 0) {
@@ -338,20 +360,16 @@ std::pair<std::string, std::map<std::string, CollectorShape>> verify_parameters_
   // Everything except for the dataset values has been shown to be identical. Now go through again and verify
   // that the values are the same:
   std::stringstream res;
-  std::map<std::string, std::vector<uint8_t>> buffers;
+  std::map<std::string, std::vector<std::string>> values;
   std::map<std::string, std::string> first;
   for (const auto & filename: filenames) {
     const auto group = HighFive::File(filename, HighFive::File::ReadOnly).getGroup(CollectorSink::parameter_group_name());
     for (const auto & name: shapes.at(filenames.front()).parameters) {
-      const auto dataset = group.getDataSet(name);
-      const auto type = dataset.getDataType();
-      const auto count = dataset.getDimensions().back() * type.getSize();
-      std::vector<uint8_t> buffer(count);
-      dataset.read_raw(buffer.data(), type);
-      if (!buffers.contains(name)) {
-        buffers.insert({name, buffer});
+      auto value = comparable_parameter_values(group.getDataSet(name));
+      if (!values.contains(name)) {
+        values.insert({name, std::move(value)});
         first.insert({name, filename});
-      } else if (!std::ranges::equal(buffers.at(name), buffer)) {
+      } else if (values.at(name) != value) {
         res << "Parameter value mismatch for " << name << " in file " << filename << " compared to " << first.at(name) << ".";
         return {res.str(), {}};
       }
@@ -366,18 +384,14 @@ std::pair<Consistency, std::map<std::string, CollectorShape>> classify_file_para
   auto [res, shapes] = verify_parameters_consistent(filenames, true);
   if (!res.empty()) return {Consistency::inconsistent, {}};
 
-  std::map<std::string, std::vector<uint8_t>> buffers;
+  std::map<std::string, std::vector<std::string>> values;
   for (const auto & filename: filenames) {
     const auto group = HighFive::File(filename, HighFive::File::ReadOnly).getGroup(CollectorSink::parameter_group_name());
     for (const auto & name: shapes.at(filenames.front()).parameters) {
-      const auto dataset = group.getDataSet(name);
-      const auto type = dataset.getDataType();
-      const auto count = dataset.getDimensions().back() * type.getSize();
-      std::vector<uint8_t> buffer(count);
-      dataset.read_raw(buffer.data(), type);
-      if (!buffers.contains(name)) {
-        buffers.insert({name, buffer});
-      } else if (!std::ranges::equal(buffers.at(name), buffer)) {
+      auto value = comparable_parameter_values(group.getDataSet(name));
+      if (!values.contains(name)) {
+        values.insert({name, std::move(value)});
+      } else if (values.at(name) != value) {
         return {Consistency::consistent, shapes};
       }
     }

@@ -48,6 +48,30 @@ static std::string write_scan_point(const std::string & tag, double scan_val,
   return filename;
 }
 
+/// As write_scan_point, but also carrying a string parameter.
+///
+/// Every file a McStas instrument produces has one -- they conventionally declare
+/// `string filename` -- and until the comparison learned to read strings as strings,
+/// their presence made append refuse every pair of files, including a file and itself.
+static std::string write_named_point(const std::string & tag, const double scan_val,
+                                     const std::string & label, const uint16_t count) {
+  auto filename = combine_temp_h5(tag);
+  std::filesystem::remove(filename);
+  {
+    Collector col(filename, "events", 0x34 /* BIFROST/CAEN */, 1u);
+    col.addParameter("scan_val", scan_val,
+                     std::optional<std::string>("arb"), std::nullopt);
+    col.addParameter("label", label, std::nullopt, std::nullopt);
+    CAEN_readout_t data{};
+    for (uint16_t i = 0; i < count; ++i) {
+      data.channel = 3;
+      data.a = i;
+      col.addReadout(0, 0, static_cast<double>(i) * 0.001, 1.0, &data);
+    }
+  }
+  return filename;
+}
+
 // ---- Test 1: concatenate three different-point files -------------------
 
 TEST_CASE("concatenate_collector_files produces 3-point file in input order",
@@ -163,6 +187,48 @@ TEST_CASE("append_collector_files returns false when parameters differ",
 
   const bool ok = append_collector_files(file_out, {file_a, file_b}, false);
   CHECK(!ok);
+
+  std::filesystem::remove(file_a);
+  std::filesystem::remove(file_b);
+  std::filesystem::remove(file_out);
+}
+
+
+// ---- String-valued parameters ------------------------------------------
+
+TEST_CASE("append_collector_files combines files carrying equal string parameters",
+          "[combine][append][string]") {
+  // A variable-length string dataset stores pointers, so comparing the raw bytes of two
+  // reads compares heap addresses -- which never match. Every file with a string
+  // parameter therefore compared unequal even to an identical one.
+  const uint16_t N_a = 7;
+  const uint16_t N_b = 5;
+  auto file_a = write_named_point("comb_str_a_", 5.0, "same", N_a);
+  auto file_b = write_named_point("comb_str_b_", 5.0, "same", N_b);
+  auto file_out = combine_temp_h5("comb_str_out_");
+  std::filesystem::remove(file_out);
+
+  REQUIRE(append_collector_files(file_out, {file_a, file_b}, false));
+  {
+    const ReaderSource source(file_out);
+    CHECK(source.points() == 1);
+    CHECK(source.reader("events").point_size(0) == static_cast<size_t>(N_a + N_b));
+  }
+  std::filesystem::remove(file_a);
+  std::filesystem::remove(file_b);
+  std::filesystem::remove(file_out);
+}
+
+TEST_CASE("append_collector_files refuses files whose string parameters differ",
+          "[combine][append][string]") {
+  // The other half: reading strings properly has to make a real difference visible, not
+  // merely stop reporting a false one.
+  auto file_a = write_named_point("comb_diff_a_", 5.0, "one", 6);
+  auto file_b = write_named_point("comb_diff_b_", 5.0, "other", 6);
+  auto file_out = combine_temp_h5("comb_diff_out_");
+  std::filesystem::remove(file_out);
+
+  CHECK_FALSE(append_collector_files(file_out, {file_a, file_b}, false));
 
   std::filesystem::remove(file_a);
   std::filesystem::remove(file_b);
