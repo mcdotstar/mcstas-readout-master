@@ -96,11 +96,14 @@ mechanism is available to C++ callers through `ReplayConfig::stop` (a caller-own
   passes each tick — but the events themselves are not.) If the downstream consumers
   need realistic wall-clock pacing, that is a replay feature to add (see below), not a
   publisher concern.
-- **Pulse times are not passed to the publisher.** The causal ordering (parameters
-  first, then strictly-later reference times) is guaranteed by replay itself, so an
-  implementation timestamping parameters at publication orders correctly. A publisher
-  wanting the exact pulse-time base (e.g. to back-date timestamps onto the pulse grid)
-  would need the interface extended.
+- ~~**Pulse times are not passed to the publisher.**~~ Resolved: `pulse_ready(point,
+  pulse_ns)` reports the reference time once the point's pulse has begun. It is a
+  separate callback rather than an argument to `point_ready` because `point_ready` runs
+  *before* the pulse is started, and starting it sleeps to the next grid tick before
+  fixing the time -- so at that moment there is no pulse to report. A publisher deriving
+  timestamps of its own must take them from here; one stamping at publication lands
+  before the pulse it belongs to by up to a full period. Not called for a file with no
+  sendable readouts, since then no pulse begins.
 - **Descriptions are not passed.** The file stores an optional description attribute
   per parameter (visible via `ReaderSource::parameter_views()`), but `publish` only
   receives the unit. An EPICS implementation wanting to fill `DESC` fields should hold
@@ -113,4 +116,3 @@ mechanism is available to C++ callers through `ReplayConfig::stop` (a caller-own
 - `run_begin()` / `run_end()` virtuals so the publisher can drive run control itself.
 - A paced-replay mode (`events spread over counting_time`) with per-point wall-clock
   scheduling.
-- Passing the point's pulse-time base to `point_ready`.

@@ -61,9 +61,10 @@ class ParameterPublisher(ABC):
     """Receives per-point instrument parameters as replay steps through a file.
 
     ``publish`` is called once per (point, parameter) in name order, then
-    ``point_ready`` once, before any of the point's events are sent. Both run
-    synchronously on the thread executing ``Replay.run()`` and may block; an
-    exception raised here stops the replay and is re-raised from ``run()``.
+    ``point_ready`` once, then ``pulse_ready`` when the point's pulse has begun --
+    all before any of the point's events are sent. They run synchronously on the
+    thread executing ``Replay.run()`` and may block; an exception raised here stops
+    the replay and is re-raised from ``run()``.
     """
 
     @abstractmethod
@@ -72,6 +73,19 @@ class ParameterPublisher(ABC):
 
     def point_ready(self, point: int) -> None:
         """All of the point's parameters have been published."""
+
+    def pulse_ready(self, point: int, pulse_ns: int) -> None:
+        """The point's pulse has begun, at ``pulse_ns`` nanoseconds since the epoch.
+
+        This is the reference time the point's events are sent against, and the only
+        moment it exists: ``point_ready`` runs before the pulse is started, and
+        starting it sleeps to the next grid tick before fixing the time. A publisher
+        deriving timestamps of its own -- a chopper's top-dead-centre crossings, say --
+        must take them from here, or they land before the pulse they belong to by up to
+        one full period.
+
+        Not called for a file with no sendable readouts, because then no pulse begins.
+        """
 
 
 class StreamParameterPublisher(ParameterPublisher):
@@ -173,7 +187,16 @@ class Replay:
                 self._pending_exception = exc
                 return 1
 
-        return _lib.PUBLISH_CB(on_publish), _lib.POINT_READY_CB(on_point_ready)
+        def on_pulse_ready(_user_data, point, pulse_ns):
+            try:
+                publisher.pulse_ready(int(point), int(pulse_ns))
+                return 0
+            except BaseException as exc:  # noqa: BLE001
+                self._pending_exception = exc
+                return 1
+
+        return (_lib.PUBLISH_CB(on_publish), _lib.POINT_READY_CB(on_point_ready),
+                _lib.PULSE_READY_CB(on_pulse_ready))
 
     def run(self) -> bool:
         """Replay the file; blocking.
@@ -191,16 +214,17 @@ class Replay:
         self._lib.readout_replay_reset_stop(self._handle)
         self._pending_exception = None
         if self.publisher is not None:
-            publish_cb, ready_cb = self._trampolines()
+            publish_cb, ready_cb, pulse_cb = self._trampolines()
         else:
-            publish_cb, ready_cb = _lib.PUBLISH_CB(0), _lib.POINT_READY_CB(0)
+            publish_cb, ready_cb, pulse_cb = (_lib.PUBLISH_CB(0), _lib.POINT_READY_CB(0),
+                                              _lib.PULSE_READY_CB(0))
         # The CFUNCTYPE objects must stay referenced while the C side may call
         # them — dropping them mid-run is a use-after-free.
-        self._callbacks = (publish_cb, ready_cb)
+        self._callbacks = (publish_cb, ready_cb, pulse_cb)
         self._running = True
         try:
             status = self._lib.readout_replay_run(
-                self._handle, self._filename.encode(), publish_cb, ready_cb, None)
+                self._handle, self._filename.encode(), publish_cb, ready_cb, pulse_cb, None)
         finally:
             self._running = False
             self._callbacks = None
