@@ -170,3 +170,50 @@ class TestCompileMultiComponent:
         
         END
         """))
+
+
+class TestCompileCollectorDiskChopper:
+    def test_compile_turning(self):
+        _compile_instrument(dedent("""
+        DEFINE INSTRUMENT test_collector_disk_chopper_turning(string filename="output")
+        TRACE
+        SEARCH SHELL "readout-config --show compdir"
+        COMPONENT origin = Progress_bar() AT (0, 0, 0) ABSOLUTE
+        COMPONENT chopper = CollectorDiskChopper(
+          slit_edges={10, 30, 100, 140}, n_edges=4,
+          radius=0.35, yheight=0.06, nu=14, delay=0,
+          tdc_pv="BIFRO-ChpSy1:Chop-PSC-101:00-TS-I",
+          filename=filename
+        ) AT (0, 0, 1) ABSOLUTE
+        END
+        """))
+
+    def test_compile_parked(self):
+        """A stationary disc is a supported mode, not a degenerate one."""
+        _compile_instrument(dedent("""
+        DEFINE INSTRUMENT test_collector_disk_chopper_parked(string filename="output")
+        TRACE
+        SEARCH SHELL "readout-config --show compdir"
+        COMPONENT origin = Progress_bar() AT (0, 0, 0) ABSOLUTE
+        COMPONENT chopper = CollectorDiskChopper(
+          slit_edges={170, 190}, n_edges=2,
+          radius=0.35, yheight=0.06, nu=0, park_angle=180,
+          filename=filename
+        ) AT (0, 0, 1) ABSOLUTE
+        END
+        """))
+
+    def test_compile_with_a_beam_angle(self):
+        """A disc hanging above its beam, placed without turning the component."""
+        _compile_instrument(dedent("""
+        DEFINE INSTRUMENT test_collector_disk_chopper_beam_angle(string filename="output")
+        TRACE
+        SEARCH SHELL "readout-config --show compdir"
+        COMPONENT origin = Progress_bar() AT (0, 0, 0) ABSOLUTE
+        COMPONENT chopper = CollectorDiskChopper(
+          slit_edges={95, 265}, n_edges=2,
+          radius=0.35, yheight=0.054, nu=14, delay=0, beam_angle=180,
+          filename=filename
+        ) AT (0, 0, 1) ABSOLUTE
+        END
+        """))

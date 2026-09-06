@@ -557,3 +557,218 @@ class TestRunMultiComponent:
         from pathlib import Path
         h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
         assert len(h5_files) > 0, "Expected HDF5 output from CollectorCAEN"
+
+
+@requires_run
+class TestRunCollectorDiskChopper:
+    """The transmission a disc chopper is for, and the declaration it leaves behind."""
+
+    #: A monochromatic pencil beam straight down the axis, so a ray's arrival time at
+    #: the disc is fixed and the only thing deciding transmission is the disc itself.
+    SOURCE = """
+        COMPONENT origin = Progress_bar() AT (0, 0, 0) ABSOLUTE
+        COMPONENT source = Source_simple(
+          radius=0.001, dist=1, focus_xw=0.002, focus_yh=0.002,
+          E0=5, dE=0, flux=1e10
+        ) AT (0, 0, 0) ABSOLUTE
+    """
+
+    RAYS = 200
+
+    def _run(self, chopper: str, tmp_path):
+        return _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_chopper(string filename="chopper_test")
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {self.SOURCE}
+            {chopper}
+            COMPONENT mon = Monitor_nD(
+              xwidth=0.02, yheight=0.02, options="intensity"
+            ) AT (0, 0, 2) ABSOLUTE
+            END
+            """), parameters=f"-n {self.RAYS} filename=chopper_test",
+            directory=str(tmp_path))
+
+    @staticmethod
+    def _transmitted(dats) -> float:
+        """How many rays reached the monitor past the disc."""
+        monitor = next(d for name, d in dats.dats.items() if name.startswith("mon"))
+        return float(monitor.metadata["values"].split()[2])
+
+    def test_a_parked_disc_passes_the_beam_through_an_opening(self, tmp_path):
+        """The case stock DiskChopper cannot express.
+
+        The disc is stationary with its mark at 180 degrees and a slit spanning it, so
+        the opening sits squarely on the beam and rays go through.
+        """
+        result, dats = self._run(dedent("""
+            COMPONENT chopper = CollectorDiskChopper(
+              slit_edges={170, 190}, n_edges=2, radius=0.35, yheight=0.06,
+              nu=0, park_angle=180, filename=filename
+            ) AT (0, 0, 1) ABSOLUTE
+        """), tmp_path)
+        assert b"TRACE end" in result
+        assert self._transmitted(dats) == self.RAYS
+
+    def test_a_parked_disc_blocks_when_no_opening_faces_the_beam(self, tmp_path):
+        """Same disc, turned so the solid part faces the beam. `DiskChopper` with
+        `nu=0` would pass everything here, because it substitutes omega=1e-15 and
+        falls permanently open."""
+        result, dats = self._run(dedent("""
+            COMPONENT chopper = CollectorDiskChopper(
+              slit_edges={170, 190}, n_edges=2, radius=0.35, yheight=0.06,
+              nu=0, park_angle=0, filename=filename
+            ) AT (0, 0, 1) ABSOLUTE
+        """), tmp_path)
+        assert b"TRACE end" in result
+        assert self._transmitted(dats) == 0
+
+    def test_a_turning_disc_chops_in_time(self, tmp_path):
+        """The disc is a clock, not a mask.
+
+        Two runs of one instrument differing only in `delay`, half a rotation apart, so
+        the same rays meet the opening in one and the solid disc in the other. Asserted
+        without saying which is which, because that depends on the neutron velocity;
+        what matters is that the two are opposite, which a disc that did not chop could
+        not produce.
+        """
+        template = """
+            COMPONENT chopper = CollectorDiskChopper(
+              slit_edges={{170, 190}}, n_edges=2, radius=0.35, yheight=0.06,
+              nu=14, delay={delay}, filename=filename
+            ) AT (0, 0, 1) ABSOLUTE
+        """
+        counts = []
+        for index, delay in enumerate((0.0, 1.0 / (2 * 14))):
+            run_dir = tmp_path / f"delay{index}"
+            run_dir.mkdir()
+            _, dats = self._run(dedent(template.format(delay=delay)), run_dir)
+            counts.append(self._transmitted(dats))
+        assert sorted(counts) == [0, self.RAYS], counts
+
+    def test_the_default_beam_angle_leaves_the_beam_at_the_top(self, tmp_path):
+        """Zero is the DiskChopper convention, so nothing already written changes."""
+        _, dats = self._run(dedent("""
+            COMPONENT chopper = CollectorDiskChopper(
+              slit_edges={-10, 10}, n_edges=2, radius=0.35, yheight=0.06,
+              nu=0, park_angle=0, beam_angle=0, filename=filename
+            ) AT (0, 0, 1) ABSOLUTE
+        """), tmp_path)
+        assert self._transmitted(dats) == self.RAYS
+
+    def test_a_beam_angle_moves_the_beam_round_the_disc(self, tmp_path):
+        """A disc hanging above its beam: the opening is at 180, and so is the beam.
+
+        With `beam_angle` the caller no longer turns the whole component about its own z
+        to bring that part of the disc to the top -- which is the only thing
+        `DiskChopper` could express.
+        """
+        _, dats = self._run(dedent("""
+            COMPONENT chopper = CollectorDiskChopper(
+              slit_edges={170, 190}, n_edges=2, radius=0.35, yheight=0.06,
+              nu=0, park_angle=0, beam_angle=180, filename=filename
+            ) AT (0, 0, 1) ABSOLUTE
+        """), tmp_path)
+        assert self._transmitted(dats) == self.RAYS
+
+    def test_a_beam_angle_is_a_shift_of_the_openings(self, tmp_path):
+        """What fixes the sense, rather than leaving it to be discovered.
+
+        `beam_angle` enters in the same sense as `slit_edges`, so moving the beam round
+        by B is the same disc as moving every edge back by B. Two instruments that must
+        agree ray for ray.
+        """
+        shapes = {
+            # the beam moved round to the opening
+            "shifted_beam": ("slit_edges={100, 140}, n_edges=2, beam_angle=120", self.RAYS),
+            # the opening moved round to the beam: the same disc, said the other way
+            "shifted_edges": ("slit_edges={-20, 20}, n_edges=2, beam_angle=0", self.RAYS),
+            # and the other direction, which is what fails if the sign is inverted
+            "wrong_way": ("slit_edges={100, 140}, n_edges=2, beam_angle=-120", 0),
+        }
+        for label, (spec, expected) in shapes.items():
+            run_dir = tmp_path / label
+            run_dir.mkdir()
+            _, dats = self._run(dedent(f"""
+                COMPONENT chopper = CollectorDiskChopper(
+                  {spec}, radius=0.35, yheight=0.06,
+                  nu=0, park_angle=0, filename=filename
+                ) AT (0, 0, 1) ABSOLUTE
+            """), run_dir)
+            assert self._transmitted(dats) == expected, label
+
+    def test_the_spindle_lies_where_the_angles_put_it(self, tmp_path):
+        """Which side of the beam the disc hangs on, tested by what it absorbs.
+
+        An on-axis pencil beam cannot see this -- it is the same distance from a spindle
+        above as from one below -- so the beam is displaced in +y and `abs_out` is off,
+        which makes the two sides behave oppositely: a ray beyond the rim passes, and
+        one inside the solid middle does not.
+
+        With the spindle below (`beam_angle=0`) the displaced rays are past the rim and
+        get through; with the disc hanging above the beam (`beam_angle=180`) the same
+        rays are inside the hub and are absorbed. A component that assumed the spindle
+        was always below would pass both.
+
+        The beam has width, so it straddles the rim and only some of it clears -- the
+        claim is that one side transmits and the other does not, not a precise fraction.
+        """
+        template = """
+            COMPONENT chopper = CollectorDiskChopper(
+              slit_edges={{0, 359}}, n_edges=2, radius=0.35, yheight=0.06,
+              nu=0, park_angle=0, beam_angle={beam_angle}, abs_out=0,
+              filename=filename
+            ) AT (0, -0.04, 1) ABSOLUTE
+        """
+        outcomes = {}
+        for label, beam_angle in (("below", 0), ("above", 180)):
+            run_dir = tmp_path / label
+            run_dir.mkdir()
+            _, dats = self._run(dedent(template.format(beam_angle=beam_angle)), run_dir)
+            outcomes[label] = self._transmitted(dats)
+        assert outcomes["above"] == 0, outcomes
+        assert outcomes["below"] > self.RAYS / 4, outcomes
+
+    def test_zero_angle_does_not_change_what_passes(self, tmp_path):
+        """It moves the disc, not the openings.
+
+        Whether a neutron passes is decided on the disc, in the mark's own frame, and
+        `zero_angle` says nothing about that -- it only rotates the pickup, and with it
+        the spindle, about the component's own axis.
+        """
+        template = """
+            COMPONENT chopper = CollectorDiskChopper(
+              slit_edges={{170, 190}}, n_edges=2, radius=0.35, yheight=0.06,
+              nu=0, park_angle=180, beam_angle=0, zero_angle={zero_angle},
+              filename=filename
+            ) AT (0, 0, 1) ABSOLUTE
+        """
+        for label, zero_angle in (("aligned", 0), ("turned", 90)):
+            run_dir = tmp_path / label
+            run_dir.mkdir()
+            _, dats = self._run(dedent(template.format(zero_angle=zero_angle)), run_dir)
+            assert self._transmitted(dats) == self.RAYS, label
+
+    def test_a_disc_declares_its_top_dead_centre_channel(self, tmp_path):
+        """What makes the chopper discoverable at replay."""
+        h5py = pytest.importorskip("h5py")
+        result, dats = self._run(dedent("""
+            COMPONENT chopper = CollectorDiskChopper(
+              slit_edges={10, 350}, n_edges=2, radius=0.35, yheight=0.06,
+              nu=14, delay=0, tdc_pv="BIFRO-ChpSy1:Chop-PSC-101:00-TS-I",
+              filename=filename
+            ) AT (0, 0, 1) ABSOLUTE
+        """), tmp_path)
+        assert b"TRACE end" in result
+
+        from pathlib import Path
+        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert h5_files, "expected an HDF5 output file"
+        with h5py.File(h5_files[0], "r") as f:
+            assert "chopper" in f, list(f)
+            parameters = f["parameters"]
+            key = "chopper_chopper_tdc"
+            assert key in parameters, list(parameters)
+            value = parameters[key][0]
+            assert (value.decode() if isinstance(value, bytes) else value) \
+                == "BIFRO-ChpSy1:Chop-PSC-101:00-TS-I"

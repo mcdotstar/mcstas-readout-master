@@ -25,7 +25,8 @@ void lib_readout_error(const char * comp_type, const char* named, const char * m
 
 void readout_caen_error(const char * named, const char * variable);
 void readout_ttlmonitor_error(const char * named, const char * variable);
-void collector_error(const char * message, const char * variable);
+void collector_error(const char * named, const char * variable);
+void collector_chopper_error(const char * named, const char * message);
 
 void readout_particle_check(const char * comp_type, const char * comp_name, _class_particle* p, int present, char * name);
 

@@ -1,0 +1,354 @@
+/*******************************************************************************
+*
+* McStas readout-master component for the ESS data pipeline
+*
+* %I
+* Written by: Gregory Tucker
+* Date: 2026
+* Origin: European Spallation Source ERIC
+*
+* A disc chopper with arbitrary openings, which declares itself to a collector
+* file so that a replay can publish its top-dead-centre times.
+*
+* %D
+* One component per physical disc, however many openings it has.
+*
+* McStas' own `DiskChopper` describes `nslit` *identical, evenly spaced* openings
+* and nothing else, so a disc whose openings are neither has to be emitted as a
+* GROUP of several components -- which is why an `NXdisk_chopper` could not be
+* written from an emitted instrument without reassembling it afterwards. This
+* component takes the edges directly, so one disc is one component and one
+* NeXus group.
+*
+* It also stops. `DiskChopper` replaces a zero frequency with `omega = 1e-15`,
+* which leaves the disc permanently *open* rather than parked; here `nu = 0`
+* means the disc is stationary with its zero mark at `park_angle`, and a ray
+* passes only if an opening happens to be in front of the beam. That is what a
+* commissioning run with a parked chopper actually does.
+*
+* Nothing is recorded per ray. A top-dead-centre time is not measured by the
+* simulation, it *follows* from the disc's speed and delay -- the mark is on the
+* beam at `delay`, and every `1/|nu|` seconds after -- and those two numbers are
+* already stored in the file as instrument parameters. So this component only
+* declares that they describe a chopper, by storing the top-dead-centre PV name
+* under `<name>_chopper_tdc`; the replay computes the times against the pulse it
+* is sending events for, so that every timestamp in the written file shares one
+* reference.
+*
+* Geometry follows `DiskChopper`: the beam crosses the disc a distance
+* `radius - yheight/2` from the spindle, and rays are located by
+* `atan2(x, y + delta_y)` about that crossing.
+*
+* Where the beam crosses the disc is `beam_angle`, measured from the zero mark in
+* the same sense as `slit_edges` and `park_angle`. The default of 0 puts the beam
+* at the top of the disc, which is the only thing `DiskChopper` can express -- so
+* a caller that used to turn the whole component about its own z to bring the
+* right part of the disc to the top can stop, and say the angle instead. A disc
+* hanging above its beam is `beam_angle = 180`.
+*
+* Two angles, because they answer different questions. Whether a neutron passes
+* is decided entirely on the disc, in the mark's own frame, and needs only
+* `beam_angle`. Where the disc *is* -- which way the spindle lies from the beam
+* crossing, and so which rays miss the disc altogether -- is
+* `zero_angle + beam_angle` from the component's +y, and that sum is all it takes:
+* the distance is `radius - yheight/2` and the direction is the sum.
+*
+* %P
+* INPUT PARAMETERS:
+*
+* slit_edges: [deg] opening and closing edge of each slit, from the disc's zero mark, in pairs
+* n_edges: [1]     number of entries in slit_edges; must be even and non-zero
+* radius: [m]      outer radius of the disc
+* yheight: [m]     radial height of the openings; 0 means they reach the spindle
+* xwidth: [m]      chord width of the beam window; 0 leaves the opening unrestricted
+* nu: [Hz]         signed rotation frequency; 0 parks the disc at park_angle
+* delay: [s]       when the disc's zero mark is on the beam
+* park_angle: [deg] where the zero mark stands while parked; only read when nu is 0
+* beam_angle: [deg] where the beam crosses the disc, from the zero mark, in the same sense as slit_edges; 0 puts the beam at the top of the disc
+* zero_angle: [deg] from the component's +y axis to the top-dead-centre pickup; with beam_angle it says which way the spindle lies
+* jitter: [s]      timing jitter applied to each ray
+* abs_out: [1]     absorb rays that miss the disc entirely
+* tdc_pv: [str]    the control-system channel this disc's top-dead-centre times are published on
+* filename: [str]  HDF5 output file; empty stores to "collected_events"; several collectors may share one file
+* dataset_name: [str] collector group name inside the file; empty uses the component instance name
+* verbose: [1]     -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+*
+* %L
+* <a href="https://github.com/g5t/mcstas-readout">mcstas-readout-master</a>
+*
+* %E
+*******************************************************************************/
+DEFINE COMPONENT CollectorDiskChopper
+DEFINITION PARAMETERS()
+SETTING PARAMETERS (
+vector slit_edges,
+int n_edges = 0,
+radius = 0.35,
+yheight = 0,
+xwidth = 0,
+nu = 0,
+delay = 0,
+park_angle = 0,
+beam_angle = 0,
+zero_angle = 0,
+jitter = 0,
+int abs_out = 1,
+string tdc_pv = 0,
+string filename = 0,
+string dataset_name = 0,
+int verbose = 0
+)
+OUTPUT PARAMETERS ()
+DEPENDENCY "CMD(readout-config --show buildflags)"
+
+SHARE
+%{
+%include "lib-readout"
+
+/* A chopper group stores no rays. The description is still a parseable field
+ * list because that is how a collector group's datatype is built; it matches no
+ * EFU readout type, so replay announces the group and steps over it. */
+#ifndef COLLECTOR_DISK_CHOPPER_DESCRIPTION
+#define COLLECTOR_DISK_CHOPPER_DESCRIPTION "double time;"
+#endif
+
+/* Fold an angle into [0, 360). fmod alone keeps the sign of its argument. */
+double collector_chopper_wrap(double degrees) {
+    double folded = fmod(degrees, 360.0);
+    return folded < 0 ? folded + 360.0 : folded;
+}
+%}
+
+DECLARE
+%{
+collector_t * collector_ptr;
+char * this_filename;
+char * this_dataset_name;
+double delta_y;      /* spindle offset: the beam crosses this far from the centre */
+double inner_radius; /* rays inside this hit the solid middle of the disc */
+double omega;        /* signed angular frequency, rad/s */
+double spindle_x;    /* the spindle, in component coordinates */
+double spindle_y;
+double along_x;      /* unit vector spindle -> beam crossing */
+double along_y;
+double across_x;     /* and its perpendicular, the sense angles increase in */
+double across_y;
+%}
+
+INITIALIZE
+%{
+    collector_ptr = NULL;
+
+    if (n_edges <= 0 || n_edges % 2) {
+        collector_chopper_error(NAME_CURRENT_COMP, "slit_edges must hold a non-zero even number of angles");
+    }
+    if (radius <= 0) {
+        collector_chopper_error(NAME_CURRENT_COMP, "radius must be positive");
+    }
+    for (int i = 1; i < n_edges; ++i) {
+        if (slit_edges[i] <= slit_edges[i - 1]) {
+            collector_chopper_error(NAME_CURRENT_COMP, "slit_edges must increase; each opening is a low-high pair");
+        }
+    }
+    if (slit_edges[n_edges - 1] - slit_edges[0] >= 360.0) {
+        collector_chopper_error(NAME_CURRENT_COMP, "slit_edges span a full turn or more");
+    }
+
+    double height = (yheight == 0) ? radius : yheight;
+    if (height > radius) {
+        collector_chopper_error(NAME_CURRENT_COMP, "yheight must not exceed radius");
+    }
+    delta_y = radius - height / 2.0;
+    inner_radius = radius - height;
+    omega = 2.0 * PI * nu;
+
+    /* Which way the disc lies. The component sits at the beam crossing, so the
+     * spindle is `delta_y` away in the direction the two angles give -- the pickup
+     * is `zero_angle` round from +y, and the beam a further `beam_angle` round from
+     * the pickup. At zero the spindle is straight below and the beam is at the top
+     * of the disc, which is DiskChopper's only arrangement. */
+    double turn = DEG2RAD * (zero_angle + beam_angle);
+    along_x = sin(turn);
+    along_y = cos(turn);
+    across_x = cos(turn);
+    across_y = -sin(turn);
+    spindle_x = -delta_y * along_x;
+    spindle_y = -delta_y * along_y;
+
+    char * basepath = mcfull_file("", NULL);
+    const char * safe_filename = (filename != NULL && filename[0] != '\0') ? filename : "collected_events";
+    this_filename = calloc(collector_construct_filename_size(basepath, safe_filename), sizeof(char));
+    collector_construct_filename(basepath, safe_filename, this_filename);
+
+    int have_dataset_name = (dataset_name != NULL) && (dataset_name[0] != '\0');
+    const char * chosen = have_dataset_name ? dataset_name : NAME_CURRENT_COMP;
+    this_dataset_name = calloc(strlen(chosen) + 1, sizeof(char));
+    strcpy(this_dataset_name, chosen);
+
+    uint64_t normalization = (uint64_t)mcget_ncount();
+#ifdef USE_MPI
+    normalization *= (uint64_t) mpi_node_count;
+    if (mpi_node_rank == mpi_node_root) {
+#endif
+    /* ess_type 0: this group has no detector identity and is not sendable */
+    collector_ptr = collector_star_new(this_filename, this_dataset_name,
+                                       COLLECTOR_DISK_CHOPPER_DESCRIPTION, 0, normalization);
+    if (collector_sink_users(this_filename) == 1) {
+        collector_sink_parameters(NAME_CURRENT_COMP);
+    }
+    /* What makes the disc discoverable at replay: the channel its top-dead-centre
+     * times belong on. The speed and delay it needs alongside are already in the
+     * file, as the instrument parameters they are. */
+    if (tdc_pv != NULL && tdc_pv[0] != '\0') {
+        char * key = calloc(strlen(NAME_CURRENT_COMP) + 13, sizeof(char));
+        sprintf(key, "%s_chopper_tdc", NAME_CURRENT_COMP);
+        collector_sink_string(key, tdc_pv, NULL, "top-dead-centre channel of this disc");
+        free(key);
+    }
+#ifdef USE_MPI
+    }
+#endif
+
+    if (verbose > 1) {
+        printf("CollectorDiskChopper: %s: %d opening(s), beam at %g deg, %s\n",
+               NAME_CURRENT_COMP, n_edges / 2, beam_angle, nu ? "turning" : "parked");
+    }
+%}
+
+TRACE
+%{
+    PROP_Z0;
+    /* From the spindle to the ray, and its components along and across the line
+     * from the spindle to the beam crossing. With both angles zero these are
+     * (y + delta_y) and x, which is what DiskChopper measures. */
+    double dx = x - spindle_x;
+    double dy = y - spindle_y;
+    double along = dx * along_x + dy * along_y;
+    double across = dx * across_x + dy * across_y;
+    double rsq = dx * dx + dy * dy;
+
+    if (abs_out && rsq > radius * radius) {
+        ABSORB;
+    }
+    if (rsq < inner_radius * inner_radius) {
+        ABSORB;
+    }
+    if (xwidth > 0 && fabs(across) > xwidth / 2.0) {
+        ABSORB;
+    }
+
+    /* Where the ray crosses the disc, as an angle about the spindle measured from
+     * the beam crossing, in the sense the openings are numbered. */
+    double hit = RAD2DEG * atan2(across, along);
+
+    /* Where the disc's zero mark is at that moment. Parked, it stands at
+     * park_angle; turning, it reached the reference orientation at `delay` and has
+     * gone on from there. The rest of the test is the same either way, which is
+     * the point of writing it like this. */
+    double when = t + (jitter ? jitter * randnorm() : 0);
+    double mark = nu ? RAD2DEG * omega * (when - delay) : park_angle;
+
+    /* The ray's position on the disc itself, measured from the zero mark: the beam
+     * crosses at `beam_angle`, the ray is `hit` further round from the beam, and
+     * the disc has turned `mark` out from under both. */
+    double on_disc = collector_chopper_wrap(beam_angle + hit - mark);
+
+    int through = 0;
+    for (int i = 0; i < n_edges; i += 2) {
+        double opening = collector_chopper_wrap(slit_edges[i]);
+        double width = slit_edges[i + 1] - slit_edges[i];
+        /* measured from this opening's leading edge, so a slit spanning the zero
+         * mark needs no special case */
+        if (collector_chopper_wrap(on_disc - opening) < width) {
+            through = 1;
+            break;
+        }
+    }
+    if (!through) {
+        ABSORB;
+    }
+%}
+
+SAVE
+%{
+%}
+
+FINALLY
+%{
+    if (collector_ptr != NULL) {
+        collector_free(collector_ptr);
+        collector_ptr = NULL;
+    }
+    free(this_filename);
+    free(this_dataset_name);
+%}
+
+MCDISPLAY
+%{
+    /* Spoke to the pickup, so the disc's zero is visible. The pickup is fixed to the
+     * housing, not to the disc, so it does not move when the disc is parked. */
+    double mark = DEG2RAD * zero_angle;
+    line(spindle_x, spindle_y, 0, spindle_x + radius * sin(mark), spindle_y + radius * cos(mark), 0);
+    if (mcdotrace == 1) {
+        /* about the spindle, wherever the angles put it */
+        circle("xy", spindle_x, spindle_y, 0, radius);
+        if (inner_radius > 0) {
+            circle("xy", spindle_x, spindle_y, 0, inner_radius);
+        }
+    } else {
+        /* A triangle fan about the spindle, in the JSON `mcdis_polygon` builds for
+         * `mcdis_polyhedron` -- mimicked rather than called, because that function takes
+         * its vertices as varargs and we have a loop. Follow it if it changes.
+         *
+         * The boundary is walked once: across each opening at the inner radius, then
+         * around the solid section following it at the rim. The jump between the two
+         * radii at an opening's edge is the opening's radial side, so it needs no
+         * vertices of its own. The disc is drawn at its reference orientation, turned
+         * to `park_angle` when it is parked there. */
+        double turned = mark + (nu == 0 ? DEG2RAD * park_angle : 0.0);
+        double deg_resolution = 1.0;
+        int count = 0;
+
+        printf("MCDISPLAY: polyhedron { \"vertices\": [");
+        for (int i = 0; i < n_edges; i += 2) {
+            for (int part = 0; part < 2; ++part) {
+                double at = part ? radius : inner_radius;
+                double from = part ? slit_edges[i + 1] : slit_edges[i];
+                /* the last solid section wraps past 360 to the first opening */
+                double to = part ? ((i < n_edges - 2) ? slit_edges[i + 2] : slit_edges[0] + 360.0)
+                                 : slit_edges[i + 1];
+                if (!part && inner_radius <= 0) {
+                    /* the openings reach the spindle: a point there, not an arc */
+                    printf("%s[%g, %g, 0.0]", count ? ", " : "", spindle_x, spindle_y);
+                    ++count;
+                    continue;
+                }
+                if (to <= from) {
+                    continue;  /* a solid section of no width */
+                }
+                /* stepped by fraction rather than by accumulation, so both ends land
+                 * exactly on the edges they are meant to */
+                int steps = (int)ceil((to - from) / deg_resolution);
+                if (steps < 1) {
+                    steps = 1;
+                }
+                for (int s = 0; s <= steps; ++s) {
+                    double tht = turned + DEG2RAD * (from + (to - from) * s / steps);
+                    printf("%s[%g, %g, 0.0]", count ? ", " : "",
+                           spindle_x + at * sin(tht), spindle_y + at * cos(tht));
+                    ++count;
+                }
+            }
+        }
+        /* the fan centre, which is vertex number `count` */
+        printf(", [%g, %g, %g]", spindle_x, spindle_y, 0.);
+        printf("], \"faces\": [");
+        for (int k = 0; k < count; ++k) {
+            /* every boundary edge with the centre, the last wrapping back to vertex 0 */
+            printf("%s{ \"face\": [%d, %d, %d]}", k ? ", " : "", k, (k + 1) % count, count);
+        }
+        printf("]}\n");
+    }
+%}
+
+END
