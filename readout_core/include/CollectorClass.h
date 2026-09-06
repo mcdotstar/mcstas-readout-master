@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 #pragma once
 
+#include <filesystem>
+#include <cstdlib>
+#include <sstream>
 #include <string>
 #include <iomanip>
 #include <utility>
@@ -118,6 +121,10 @@ protected:
   CollectorSink() = default;
 
   std::set<std::string> users_;
+  /// Whether this run is adding a scan point to a file that already held some.
+  bool appending_{false};
+  /// How many points the file held when this run opened it.
+  size_t points_before_{0};
   std::optional<std::string> filename_{std::nullopt};
   std::optional<HighFive::File> file_{std::nullopt};
   std::optional<HighFive::Group> collector_, parameters_{std::nullopt};
@@ -221,7 +228,35 @@ public:
   [[nodiscard]] std::string current_filename() const { return filename_.value_or(""); }
   [[nodiscard]] size_t user_count() const { return users_.size(); }
 
+  /// \brief Whether a run may add to a collector file that already existed.
+  ///
+  /// False unless READOUT_ALLOW_EXISTING_FILE is set in the environment. See setup().
+  static bool allow_existing_file() {
+    const char * const flag = std::getenv("READOUT_ALLOW_EXISTING_FILE");
+    return flag != nullptr && flag[0] != '\0' && flag[0] != '0';
+  }
+
+  /// \brief Open (or create) the one file this process collects into.
+  ///
+  /// Called once per file per process, from the Collector constructors and guarded by
+  /// is_setup() -- which is what makes it the right place to refuse a file that was
+  /// already on disk. Several collectors sharing one file are expected and fine; what is
+  /// not fine is a *second run* writing into the file a previous one left behind, which
+  /// folds its rays into the earlier run's scan point and leaves one set of parameter
+  /// values standing for all of them. Nothing errors when that happens, which is why it
+  /// is refused here rather than detected later.
   void setup(const std::string& filename) {
+    const bool existing = std::filesystem::exists(filename);
+    if (existing && !allow_existing_file()) {
+      std::stringstream message;
+      message << "Collector file '" << filename << "' already exists.\n"
+              << "  A second run into one file merges its rays into the first run's scan\n"
+              << "  point, leaving one set of parameter values standing for all of them.\n"
+              << "  Write to a new output directory (--dir), or merge files deliberately\n"
+              << "  with readout-combine. Set READOUT_ALLOW_EXISTING_FILE=1 to add to it\n"
+              << "  anyway.";
+      throw std::runtime_error(message.str());
+    }
     filename_ = filename;
     try {
       // If the file doesn't exist, create it, otherwise open it for read/write so we can add to it
@@ -232,6 +267,46 @@ public:
     }
     collector_ = file_->getGroup("/");
     ensure_file_attributes(*file_);
+    // Adding to a file that already holds points means adding a *point*, not more rays
+    // to the last one: this run had its own parameter values and its own ray count, and
+    // folding them into a previous run's point loses both.
+    appending_ = existing;
+    points_before_ = appending_ ? count_points() : 0;
+  }
+
+  /// \brief How many scan points the file already holds, read from any collector group.
+  ///
+  /// The collector groups are the authority -- every one of them carries one cue per
+  /// point -- and a file with no collector groups yet holds no points.
+  [[nodiscard]] size_t count_points() const {
+    if (!collector_.has_value()) {
+      return 0;
+    }
+    for (const auto & name : collector_->listObjectNames()) {
+      if (name == parameter_group_name()) {
+        continue;
+      }
+      if (collector_->getObjectType(name) != HighFive::ObjectType::Group) {
+        continue;
+      }
+      if (auto group = collector_->getGroup(name); group.exist(cue_dataset_name())) {
+        return group.getDataSet(cue_dataset_name()).getDimensions().back();
+      }
+    }
+    return 0;
+  }
+
+  /// \brief Grow a per-point dataset to `length`, filling any new elements with `value`.
+  template<class T>
+  static void extend_points(HighFive::DataSet ds, const size_t length, const T value) {
+    const auto current = ds.getDimensions().back();
+    if (current >= length) {
+      return;
+    }
+    ds.resize({length});
+    for (size_t i = current; i < length; ++i) {
+      ds.select({i}, {1}).write(value);
+    }
   }
 
   void teardown() {
@@ -240,6 +315,8 @@ public:
         file_->flush();
         file_ = std::nullopt;
       }
+      appending_ = false;
+      points_before_ = 0;
       filename_ = std::nullopt;
       collector_ = std::nullopt;
       parameters_ = std::nullopt;
@@ -292,18 +369,37 @@ public:
       if (description.has_value()) {
         ds.createAttribute<std::string>(parameter_description_attribute_name(), description.value());
       }
-      // create the weights dataset, and set its value to [0.]
-      const auto ws = group.createDataSet(weight_dataset_name(), DataSpace({1}, {DataSpace::UNLIMITED}), AtomicType<double>(), props);
-      ws.select({0},{1}).write(0.);
-      // create the cues dataset, and set it to [0u]
-      const auto cs = group.createDataSet(cue_dataset_name(), DataSpace({1}, {DataSpace::UNLIMITED}), AtomicType<uint32_t>(), props);
-      cs.select({0},{1}).write(0);
-      // create the normalizations dataset, and set its value to [0]
-      const auto ns = group.createDataSet(normalization_dataset_name(), DataSpace({1}, {DataSpace::UNLIMITED}), AtomicType<uint64_t>(), props);
-      ns.select({0},{1}).write(0);
+      // One element per point, the last of which is the point being collected now.
+      // A group first seen partway through a file's life is padded with empty points,
+      // so every collector group carries the same number as the file does.
+      const auto points = points_before_ + 1;
+      const auto ws = group.createDataSet(weight_dataset_name(), DataSpace({points}, {DataSpace::UNLIMITED}), AtomicType<double>(), props);
+      for (size_t i = 0; i < points; ++i) ws.select({i},{1}).write(0.);
+      const auto cs = group.createDataSet(cue_dataset_name(), DataSpace({points}, {DataSpace::UNLIMITED}), AtomicType<uint32_t>(), props);
+      for (size_t i = 0; i < points; ++i) cs.select({i},{1}).write(0);
+      const auto ns = group.createDataSet(normalization_dataset_name(), DataSpace({points}, {DataSpace::UNLIMITED}), AtomicType<uint64_t>(), props);
+      for (size_t i = 0; i < points; ++i) ns.select({i},{1}).write(0);
 
-      users_.insert(name);
+    } else if (appending_) {
+      // The group is already here from an earlier run, so open a new point on it: a
+      // fresh weight and normalization to accumulate into, and a cue seeded with the
+      // records already stored, which is where this point would end if it stored none.
+      auto group = collector_->getGroup(name);
+      const auto points = points_before_ + 1;
+      const auto cds = group.getDataSet(cue_dataset_name());
+      const auto stored = cds.getDimensions().back()
+          ? cds.select({cds.getDimensions().back() - 1}, {1}).read<uint32_t>() : 0u;
+      extend_points(group.getDataSet(weight_dataset_name()), points, 0.);
+      extend_points(cds, points, stored);
+      extend_points(group.getDataSet(normalization_dataset_name()), points,
+                    static_cast<uint64_t>(0));
     }
+    // Outside the branch above: a collector whose group is already in the file is still
+    // a user of it. Registering only new groups meant that re-opening a file left the
+    // sink with no users at all -- so the first-user gate never fired, ~Collector's
+    // removeCollector found nothing to remove, and teardown could close the file while
+    // another collector was still writing.
+    users_.insert(name);
     // TODO verify that the group has the right components?
     return collector_->getGroup(name);
   }
@@ -325,14 +421,22 @@ public:
       return;
     }
     if (!parameters_.has_value()) {
-      parameters_ = collector_->createGroup(parameter_group_name());
+      // Opened rather than created when it is already there, as getCollector does for
+      // collector groups: HighFive throws on createGroup for a name that exists, and
+      // the per-parameter datasets below already handle being written twice.
+      const auto & group_name = parameter_group_name();
+      parameters_ = collector_->exist(group_name) ? collector_->getGroup(group_name)
+                                                  : collector_->createGroup(group_name);
       ensure_parameter_group_attributes(parameters_.value());
     }
     if (!parameters_->exist(name)) {
       DataSetCreateProps props;
       props.add(Chunking(std::vector<hsize_t>{100}));
-      auto ds = parameters_->createDataSet(name, DataSpace({1}, {DataSpace::UNLIMITED}), create_datatype<T>(), props);
-      ds.select({0},{1}).write(value);
+      // One value per point. A parameter first recorded partway through a file's life
+      // is padded, so its length still matches the number of points.
+      const auto points = points_before_ + 1;
+      auto ds = parameters_->createDataSet(name, DataSpace({points}, {DataSpace::UNLIMITED}), create_datatype<T>(), props);
+      ds.select({points - 1},{1}).write(value);
       if (unit.has_value()) {
         ds.createAttribute(parameter_unit_attribute_name(), unit.value());
       }
@@ -357,9 +461,16 @@ public:
         ) {
         std::cerr << "Parameter " << name << " already exists with a different description!" << std::endl;
       }
-      if (existing_ds.select({existing_ds.getDimensions().back()-1},{1}).read<T>() != value) {
+      if (appending_) {
+        // This run is a new point, so the value belongs beside the earlier ones rather
+        // than on top of them -- the whole reason a parameter dataset is per-point.
+        extend_points(existing_ds, points_before_ + 1, value);
+        existing_ds.select({points_before_},{1}).write(value);
+      } else if (existing_ds.select({existing_ds.getDimensions().back()-1},{1}).read<T>() != value) {
+        // Written to the current point rather than over the whole dataset, which would
+        // overwrite every earlier point's value with this one.
         std::cerr << "Parameter " << name << " already exists with a different value! Overwriting." << std::endl;
-        existing_ds.write(value);
+        existing_ds.select({existing_ds.getDimensions().back()-1},{1}).write(value);
       }
     }
   }

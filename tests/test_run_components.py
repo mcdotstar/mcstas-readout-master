@@ -772,3 +772,312 @@ class TestRunCollectorDiskChopper:
             value = parameters[key][0]
             assert (value.decode() if isinstance(value, bytes) else value) \
                 == "BIFRO-ChpSy1:Chop-PSC-101:00-TS-I"
+
+
+@requires_run
+class TestCollectorFileReuse:
+    """A second run must not write into the file a previous one left behind.
+
+    McStas normally puts each run in its own output directory, so the file is not there
+    to collide with -- but the bare executable writes into the working directory, and
+    running it twice used to append the second run's rays to the first run's scan point
+    while keeping one set of parameter values for all of them. Nothing failed; the file
+    was simply wrong, which is why this is refused at the point the file is opened.
+    """
+
+    INSTRUMENT = """
+        DEFINE INSTRUMENT reuse(string filename="reuse", double chopper_speed=14)
+        {uservars}
+        TRACE
+        SEARCH SHELL "readout-config --show compdir"
+        {origin}
+        COMPONENT collector = CollectorCAEN(
+          ring="RING", fen="FEN", tube="TUBE", a_name="A", b_name="B", tof="tof",
+          filename=filename
+        ) AT (0, 0, 1) ABSOLUTE
+        END
+    """
+
+    def _binary(self, tmp_path):
+        """Compile once; the tests below run the result themselves, twice."""
+        import os
+        from mccode_antlr.loader import parse_mcstas_instr
+        from mccode_antlr.reader.registry import registry_from_specification
+        from mccode_antlr.run import mccode_compile
+        from mccode_antlr.utils import Flavor
+
+        old_path, old_ld = os.environ.get("PATH", ""), os.environ.get("LD_LIBRARY_PATH", "")
+        env = _build_env()
+        try:
+            os.environ["PATH"] = env["PATH"]
+            os.environ["LD_LIBRARY_PATH"] = env.get("LD_LIBRARY_PATH", "")
+            source = dedent(self.INSTRUMENT.format(uservars=CAEN_USERVARS,
+                                                   origin=CAEN_ORIGIN_EXTEND))
+            instr = parse_mcstas_instr(source,
+                                       registries=[registry_from_specification(str(SHARE_READOUT))])
+            binary, _ = mccode_compile(instr, str(tmp_path), flavor=Flavor.MCSTAS)
+            return str(binary), env
+        finally:
+            os.environ["PATH"] = old_path
+            os.environ["LD_LIBRARY_PATH"] = old_ld
+
+    @staticmethod
+    def _run(binary, cwd, env, speed, extra_env=None):
+        """Run the bare executable, which writes into its working directory."""
+        import os
+        import subprocess
+        environment = dict(os.environ)
+        environment["PATH"] = env["PATH"]
+        environment["LD_LIBRARY_PATH"] = env.get("LD_LIBRARY_PATH", "")
+        environment.update(extra_env or {})
+        return subprocess.run(
+            [binary, "-n", "20", "filename=reuse", f"chopper_speed={speed}"],
+            cwd=str(cwd), env=environment, capture_output=True, text=True)
+
+    def test_a_second_run_into_the_same_file_is_refused(self, tmp_path):
+        binary, env = self._binary(tmp_path)
+        work = tmp_path / "work"
+        work.mkdir()
+
+        first = self._run(binary, work, env, 14)
+        assert (work / "reuse.h5").is_file(), first.stderr
+
+        second = self._run(binary, work, env, 196)
+        message = second.stdout + second.stderr
+        assert "already exists" in message, message
+        # and it says what to do about it, rather than only that something went wrong
+        assert "--dir" in message and "readout-combine" in message, message
+
+    def test_the_refusal_leaves_the_first_run_intact(self, tmp_path):
+        """A refused run must not have half-written itself into the file first."""
+        h5py = pytest.importorskip("h5py")
+        binary, env = self._binary(tmp_path)
+        work = tmp_path / "work"
+        work.mkdir()
+
+        self._run(binary, work, env, 14)
+        with h5py.File(work / "reuse.h5", "r") as f:
+            before = (f["collector/readouts"].shape[0], f["collector/cues"][:].tolist(),
+                      f["parameters/chopper_speed"][:].tolist())
+
+        self._run(binary, work, env, 196)
+        with h5py.File(work / "reuse.h5", "r") as f:
+            after = (f["collector/readouts"].shape[0], f["collector/cues"][:].tolist(),
+                     f["parameters/chopper_speed"][:].tolist())
+        assert after == before, (before, after)
+
+    def test_opting_in_adds_a_scan_point_rather_than_merging(self, tmp_path):
+        """The escape hatch the message names, for someone who means it.
+
+        Each run is its own point: its own rays, its own weight and normalization, and
+        its own parameter values. Folding them together would report every ray as having
+        been taken at whichever run's settings happened to be written.
+        """
+        h5py = pytest.importorskip("h5py")
+        binary, env = self._binary(tmp_path)
+        work = tmp_path / "work"
+        work.mkdir()
+        allow = {"READOUT_ALLOW_EXISTING_FILE": "1"}
+
+        self._run(binary, work, env, 14)
+        second = self._run(binary, work, env, 196, extra_env=allow)
+        # "Collector file ... already exists" is the refusal, which must not appear here
+        message = second.stdout + second.stderr
+        assert "Collector file" not in message, message
+        self._run(binary, work, env, 42, extra_env=allow)
+
+        with h5py.File(work / "reuse.h5", "r") as f:
+            assert f["parameters/chopper_speed"][:].tolist() == [14.0, 196.0, 42.0]
+            # cues are end offsets, so three equal runs of 20 rays land 20 apart
+            assert f["collector/cues"][:].tolist() == [20, 40, 60]
+            assert f["collector/normalizations"][:].tolist() == [20, 20, 20]
+            assert f["collector/readouts"].shape[0] == 60
+            # a weight per point, none of them zero
+            assert all(w > 0 for w in f["collector/weights"][:])
+
+    def test_a_collector_joining_late_is_padded_to_the_files_points(self, tmp_path):
+        """A group first seen on a later run still needs one cue per point.
+
+        The reader requires every collector group to carry the same number of points as
+        the file, so a group that did not exist for the earlier runs is padded with empty
+        ones rather than starting its own count from zero.
+        """
+        import os
+        import subprocess
+        from mccode_antlr.loader import parse_mcstas_instr
+        from mccode_antlr.reader.registry import registry_from_specification
+        from mccode_antlr.run import mccode_compile
+        from mccode_antlr.utils import Flavor
+        h5py = pytest.importorskip("h5py")
+
+        def build(name, groups):
+            body = "\n".join(
+                f'COMPONENT {g} = CollectorCAEN(ring="RING", fen="FEN", tube="TUBE", '
+                f'a_name="A", b_name="B", tof="tof", filename=filename, '
+                f'dataset_name="{g}") AT (0, 0, {i + 1}) ABSOLUTE'
+                for i, g in enumerate(groups))
+            source = dedent(f"""
+                DEFINE INSTRUMENT {name}(string filename="late")
+                {CAEN_USERVARS}
+                TRACE
+                SEARCH SHELL "readout-config --show compdir"
+                {CAEN_ORIGIN_EXTEND}
+                {body}
+                END
+            """)
+            instr = parse_mcstas_instr(
+                source, registries=[registry_from_specification(str(SHARE_READOUT))])
+            binary, _ = mccode_compile(instr, str(tmp_path / name), flavor=Flavor.MCSTAS)
+            return str(binary)
+
+        old_path, old_ld = os.environ.get("PATH", ""), os.environ.get("LD_LIBRARY_PATH", "")
+        env = _build_env()
+        try:
+            os.environ["PATH"] = env["PATH"]
+            os.environ["LD_LIBRARY_PATH"] = env.get("LD_LIBRARY_PATH", "")
+            one = build("only_one", ["one"])
+            two = build("one_and_two", ["one", "two"])
+        finally:
+            os.environ["PATH"] = old_path
+            os.environ["LD_LIBRARY_PATH"] = old_ld
+
+        work = tmp_path / "work"
+        work.mkdir()
+        environment = dict(os.environ)
+        environment["PATH"] = env["PATH"]
+        environment["LD_LIBRARY_PATH"] = env.get("LD_LIBRARY_PATH", "")
+        subprocess.run([one, "-n", "20", "filename=late"], cwd=str(work),
+                       env=environment, capture_output=True, text=True)
+        environment["READOUT_ALLOW_EXISTING_FILE"] = "1"
+        subprocess.run([two, "-n", "20", "filename=late"], cwd=str(work),
+                       env=environment, capture_output=True, text=True)
+
+        with h5py.File(work / "late.h5", "r") as f:
+            assert "two" in f, list(f)
+            # both groups report the same number of points, though 'two' missed the first
+            assert len(f["one/cues"][:]) == len(f["two/cues"][:]) == 2
+            assert f["two/normalizations"][:].tolist() == [0, 20]
+
+    def test_padded_files_concatenate(self, tmp_path):
+        """readout-combine must accept a file whose groups did not all start together.
+
+        Concatenation lines the files up point by point, so a group padded with empty
+        points has to keep them -- dropping them would slide every later point of that
+        group onto another point's parameter values.
+        """
+        import os
+        import subprocess
+        from mccode_antlr.loader import parse_mcstas_instr
+        from mccode_antlr.reader.registry import registry_from_specification
+        from mccode_antlr.run import mccode_compile
+        from mccode_antlr.utils import Flavor
+        h5py = pytest.importorskip("h5py")
+
+        def build(name, groups):
+            body = "\n".join(
+                f'COMPONENT {g} = CollectorCAEN(ring="RING", fen="FEN", tube="TUBE", '
+                f'a_name="A", b_name="B", tof="tof", filename=filename, '
+                f'dataset_name="{g}") AT (0, 0, {i + 1}) ABSOLUTE'
+                for i, g in enumerate(groups))
+            source = dedent(f"""
+                DEFINE INSTRUMENT {name}(string filename="pad", double chopper_speed=14)
+                {CAEN_USERVARS}
+                TRACE
+                SEARCH SHELL "readout-config --show compdir"
+                {CAEN_ORIGIN_EXTEND}
+                {body}
+                END
+            """)
+            instr = parse_mcstas_instr(
+                source, registries=[registry_from_specification(str(SHARE_READOUT))])
+            binary, _ = mccode_compile(instr, str(tmp_path / name), flavor=Flavor.MCSTAS)
+            return str(binary)
+
+        old_path, old_ld = os.environ.get("PATH", ""), os.environ.get("LD_LIBRARY_PATH", "")
+        env = _build_env()
+        try:
+            os.environ["PATH"] = env["PATH"]
+            os.environ["LD_LIBRARY_PATH"] = env.get("LD_LIBRARY_PATH", "")
+            one, both = build("pad_one", ["one"]), build("pad_both", ["one", "two"])
+        finally:
+            os.environ["PATH"] = old_path
+            os.environ["LD_LIBRARY_PATH"] = old_ld
+
+        environment = dict(os.environ)
+        environment["PATH"] = env["PATH"]
+        environment["LD_LIBRARY_PATH"] = env.get("LD_LIBRARY_PATH", "")
+        appending = dict(environment, READOUT_ALLOW_EXISTING_FILE="1")
+
+        # Concatenation is for files holding *different* points, so each directory scans
+        # its own pair of speeds; two files of identical points are an append, and are
+        # refused here by design.
+        made = []
+        for tag, speeds in (("a", (14, 196)), ("b", (42, 84))):
+            work = tmp_path / tag
+            work.mkdir()
+            subprocess.run([one, "-n", "20", "filename=pad", f"chopper_speed={speeds[0]}"],
+                           cwd=str(work), env=environment, capture_output=True, text=True)
+            subprocess.run([both, "-n", "20", "filename=pad", f"chopper_speed={speeds[1]}"],
+                           cwd=str(work), env=appending, capture_output=True, text=True)
+            made.append(str(work / "pad.h5"))
+
+        out = tmp_path / "joined.h5"
+        result = subprocess.run(["readout-combine", "concatenate", "-o", str(out), *made],
+                                env=environment, capture_output=True, text=True)
+        assert out.is_file(), result.stdout + result.stderr
+
+        with h5py.File(out, "r") as f:
+            # two files of two points each
+            assert f["parameters/chopper_speed"][:].tolist() == [14.0, 196.0, 42.0, 84.0]
+            # 'one' collected on every point; 'two' only on the second of each file, so
+            # its empty points survive as repeated end-offsets
+            assert f["one/cues"][:].tolist() == [20, 40, 60, 80]
+            assert f["two/cues"][:].tolist() == [0, 20, 20, 40]
+            assert f["two/normalizations"][:].tolist() == [0, 20, 0, 20]
+
+    def test_several_collectors_in_one_run_still_share_a_file(self, tmp_path):
+        """What the refusal must not break: the file is created once and used twice."""
+        import os
+        from mccode_antlr.loader import parse_mcstas_instr
+        from mccode_antlr.reader.registry import registry_from_specification
+        from mccode_antlr.run import mccode_compile, mccode_run_compiled
+        from mccode_antlr.utils import Flavor
+        h5py = pytest.importorskip("h5py")
+
+        source = dedent(f"""
+            DEFINE INSTRUMENT shared(string filename="shared")
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            COMPONENT one = CollectorCAEN(
+              ring="RING", fen="FEN", tube="TUBE", a_name="A", b_name="B", tof="tof",
+              filename=filename, dataset_name="one"
+            ) AT (0, 0, 1) ABSOLUTE
+            COMPONENT two = CollectorCAEN(
+              ring="RING", fen="FEN", tube="TUBE", a_name="A", b_name="B", tof="tof",
+              filename=filename, dataset_name="two"
+            ) AT (0, 0, 2) ABSOLUTE
+            END
+        """)
+        old_path, old_ld = os.environ.get("PATH", ""), os.environ.get("LD_LIBRARY_PATH", "")
+        env = _build_env()
+        try:
+            os.environ["PATH"] = env["PATH"]
+            os.environ["LD_LIBRARY_PATH"] = env.get("LD_LIBRARY_PATH", "")
+            instr = parse_mcstas_instr(source,
+                                       registries=[registry_from_specification(str(SHARE_READOUT))])
+            binary, target = mccode_compile(instr, str(tmp_path), flavor=Flavor.MCSTAS)
+            out, dats = mccode_run_compiled(binary, target, tmp_path / "t",
+                                            "-n 20 filename=shared")
+        finally:
+            os.environ["PATH"] = old_path
+            os.environ["LD_LIBRARY_PATH"] = old_ld
+
+        from pathlib import Path
+        h5 = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        assert h5, out
+        with h5py.File(h5[0], "r") as f:
+            assert "one" in f and "two" in f, list(f)
+            # the gate that decides who writes the parameters still fires exactly once
+            assert "parameters" in f, list(f)
