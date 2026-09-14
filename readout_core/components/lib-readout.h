@@ -9,15 +9,12 @@ double particle_getvar(_class_particle* p, const char* name, int* signal);
 void * particle_getvar_void(_class_particle* p, const char* name, int* signal);
 #endif
 
-#include <signal.h>
-#include <unistd.h> // for execve
-#include <sys/time.h>
+/* Only the C standard library is needed here; keep this header free of POSIX
+ * headers (unistd.h, sys/time.h, ...) so the generated instrument compiles
+ * with MSVC on Windows as well as with GCC/Clang. */
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <fcntl.h>
-#include <unistd.h>
 
 #include <Readout.h>
 
