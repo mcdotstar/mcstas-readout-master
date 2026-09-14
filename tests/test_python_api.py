@@ -82,12 +82,16 @@ class RecordingPublisher:
     def __init__(self):
         self.published: list[tuple[int, str, str, str | None]] = []
         self.ready: list[int] = []
+        self.pulses: list[tuple[int, int]] = []
 
     def publish(self, point, name, value, unit):
         self.published.append((point, name, value, unit))
 
     def point_ready(self, point):
         self.ready.append(point)
+
+    def pulse_ready(self, point, pulse_ns):
+        self.pulses.append((point, pulse_ns))
 
 
 @requires_library
@@ -144,6 +148,54 @@ def test_replay_publishes_parameters_and_completes(tmp_path):
     assert ro.replay(filename, config, publisher) is True
     assert publisher.published == [(0, "chopper_speed", "100", "Hz")]
     assert publisher.ready == [0]
+
+
+@requires_library
+def test_replay_reports_the_pulse_its_events_are_sent_against(tmp_path):
+    """The reference time a publisher must derive its own timestamps from.
+
+    It cannot be taken from a clock of the publisher's own: `point_ready` runs before
+    the pulse is started, and starting it sleeps to the next grid tick, so a
+    self-stamped value lands before the pulse it belongs to.
+    """
+    import time
+
+    import mcstas_readout as ro
+
+    class Recorder(RecordingPublisher, ro.ParameterPublisher):
+        pass
+
+    filename = write_caen_point_file(tmp_path / "point.h5", 100.0)
+    publisher = Recorder()
+    before = time.time_ns()
+    config = ro.ReplayConfig(pulse_rate=50.0, default_port=29876)
+    assert ro.replay(filename, config, publisher) is True
+    after = time.time_ns()
+
+    # one pulse per point, for the same points that reported ready
+    assert [point for point, _ in publisher.pulses] == publisher.ready
+    for _, pulse_ns in publisher.pulses:
+        # a real instant, inside the run, not a placeholder
+        assert before <= pulse_ns <= after
+
+
+@requires_library
+def test_a_publisher_needs_no_pulse_ready(tmp_path):
+    """The callback is optional: an existing publisher predating it still replays."""
+    import mcstas_readout as ro
+
+    class OldStyle(ro.ParameterPublisher):
+        def __init__(self):
+            self.published = []
+
+        def publish(self, point, name, value, unit):
+            self.published.append(name)
+
+    filename = write_caen_point_file(tmp_path / "point.h5", 100.0)
+    publisher = OldStyle()
+    config = ro.ReplayConfig(pulse_rate=50.0, default_port=29876)
+    assert ro.replay(filename, config, publisher) is True
+    assert publisher.published == ["chopper_speed"]
 
 
 @requires_library

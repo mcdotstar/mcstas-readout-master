@@ -37,6 +37,19 @@ public:
   virtual ~ParameterPublisher() = default;
   virtual void publish(size_t point, const std::string & name, const std::string & value, const std::optional<std::string> & unit) = 0;
   virtual void point_ready(size_t /*point*/) {}
+  /** \brief The point's pulse has begun, at pulse_ns nanoseconds since the epoch.
+   *
+   * Called after the senders start the point's pulse and before any of its events are
+   * sent, which is the only moment the reference time exists: point_ready runs *before*
+   * begin_pulse, and begin_pulse sleeps to the next grid tick before fixing the time.
+   *
+   * A publisher deriving timestamps -- a chopper's top-dead-centre crossings, say --
+   * must take them from here rather than from a clock of its own, or they land before
+   * the pulse they belong to by up to one full period.
+   *
+   * Not called when a file has no sendable readouts, because then there is no pulse.
+   */
+  virtual void pulse_ready(size_t /*point*/, uint64_t /*pulse_ns*/) {}
 };
 
 class RL_API NullParameterPublisher final : public ParameterPublisher {

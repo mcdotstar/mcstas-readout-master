@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <cstdint>
 
 #ifdef WIN32
 #ifdef READOUT_SHARED

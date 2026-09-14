@@ -61,10 +61,12 @@ struct replay_cancelled {};
 class CApiPublisher final : public ParameterPublisher {
   readout_publish_cb publish_;
   readout_point_ready_cb point_ready_;
+  readout_pulse_ready_cb pulse_ready_;
   void * user_data_;
 public:
-  CApiPublisher(const readout_publish_cb publish, const readout_point_ready_cb point_ready, void * user_data)
-    : publish_{publish}, point_ready_{point_ready}, user_data_{user_data} {}
+  CApiPublisher(const readout_publish_cb publish, const readout_point_ready_cb point_ready,
+                const readout_pulse_ready_cb pulse_ready, void * user_data)
+    : publish_{publish}, point_ready_{point_ready}, pulse_ready_{pulse_ready}, user_data_{user_data} {}
   void publish(const size_t point, const std::string & name, const std::string & value,
                const std::optional<std::string> & unit) override {
     if (publish_ == nullptr) {
@@ -76,6 +78,11 @@ public:
   }
   void point_ready(const size_t point) override {
     if (point_ready_ != nullptr && point_ready_(user_data_, point)) {
+      throw replay_cancelled{};
+    }
+  }
+  void pulse_ready(const size_t point, const uint64_t pulse_ns) override {
+    if (pulse_ready_ != nullptr && pulse_ready_(user_data_, point, pulse_ns)) {
       throw replay_cancelled{};
     }
   }
@@ -231,12 +238,13 @@ int readout_replay_set_senders_json(readout_replay_t * handle, const char * json
 int readout_replay_run(readout_replay_t * handle, const char * filename,
                        const readout_publish_cb publish,
                        const readout_point_ready_cb point_ready,
+                       const readout_pulse_ready_cb pulse_ready,
                        void * user_data) {
   clear_error();
   if (require_handle(handle)) return READOUT_ERROR;
   if (require_string(filename, "filename")) return READOUT_ERROR;
   try {
-    CApiPublisher publisher(publish, point_ready, user_data);
+    CApiPublisher publisher(publish, point_ready, pulse_ready, user_data);
     return replay(filename, handle->config, publisher) ? READOUT_OK : READOUT_STOPPED;
   } catch (const replay_cancelled &) {
     return READOUT_STOPPED;

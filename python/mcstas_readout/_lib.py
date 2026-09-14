@@ -27,18 +27,21 @@ from pathlib import Path
 from .exceptions import ReadoutError
 
 # The readout_capi.h ABI generation this wrapper implements.
-ABI_VERSION = 1
+ABI_VERSION = 2
 
 # Status codes (enum readout_status in readout_capi.h)
 OK = 0
 STOPPED = 1
 ERROR = -1
 
-# Callback types (readout_publish_cb / readout_point_ready_cb).
+# Callback types (readout_publish_cb / readout_point_ready_cb / readout_pulse_ready_cb).
 # c_char_p arguments arrive in Python callbacks as bytes, or None for NULL.
 PUBLISH_CB = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint64,
                               ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p)
 POINT_READY_CB = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint64)
+# (user_data, point, pulse_ns) -- pulse_ns is nanoseconds since the epoch
+PULSE_READY_CB = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint64,
+                                  ctypes.c_uint64)
 
 
 def _wheel_candidates() -> list[Path]:
@@ -122,7 +125,8 @@ def _declare(lib: ctypes.CDLL) -> ctypes.CDLL:
         fn.argtypes = [handle, *extra]
 
     lib.readout_replay_run.restype = ctypes.c_int
-    lib.readout_replay_run.argtypes = [handle, ctypes.c_char_p, PUBLISH_CB, POINT_READY_CB, ctypes.c_void_p]
+    lib.readout_replay_run.argtypes = [handle, ctypes.c_char_p, PUBLISH_CB, POINT_READY_CB,
+                                      PULSE_READY_CB, ctypes.c_void_p]
     lib.readout_replay_request_stop.restype = None
     lib.readout_replay_request_stop.argtypes = [handle]
     lib.readout_replay_stop_requested.restype = ctypes.c_int

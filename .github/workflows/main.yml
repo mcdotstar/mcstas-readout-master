@@ -62,6 +62,10 @@ jobs:
       - name: build
         run: cmake --build build --config ${{ matrix.cmake-type }} -j
 
+      - name: Setup MSVC compilers for (Python mccode-antlr) testing
+        if: runner.os == 'Windows'
+        uses: egor-tensin/vs-shell@v2
+
       - name: test
         working-directory: build
         run: ctest -C ${{ matrix.cmake-type }} --verbose -j
@@ -114,7 +118,7 @@ jobs:
 
       - name: Install Python-based dependencies
         run: |
-          python -m pip install numpy mccode-antlr pytest h5py
+          python -m pip install numpy mccode-antlr pytest h5py scipp
 
       - uses: actions/checkout@v6
         with:

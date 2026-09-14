@@ -16,9 +16,12 @@ void readout_ttlmonitor_error(const char * named, const char * variable){
   lib_readout_error("ReadoutTTLMonitor", named, "Unknown particle variable", variable);
 }
 
-
 void collector_error(const char * named, const char * variable){
   lib_readout_error("CollectorSink", named, "Unknown particle variable", variable);
+}
+
+void collector_chopper_error(const char * named, const char * message){
+  lib_readout_error("Collector*Chopper", named, message, "");
 }
 
 

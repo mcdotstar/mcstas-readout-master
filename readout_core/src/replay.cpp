@@ -231,6 +231,16 @@ bool replay(const std::string & filename, const ReplayConfig & config, Parameter
     for (auto & [key, sender] : senders) {
       sender.begin_pulse();
     }
+    // Every sender's grid is anchored at its own construction, and they are all built
+    // in one loop, so their pulses agree to within that construction skew -- take the
+    // first as the point's reference. With no senders there is no pulse to report.
+    if (!senders.empty()) {
+      const auto pulse = efu_time(senders.begin()->second.lastPulseTime());
+      publisher.pulse_ready(point, pulse.total_nanoseconds());
+      if (stop_requested(config)) {
+        return false;
+      }
+    }
     for (const auto & reader : source.readers()) {
       if (!reader.sendable_readout_type().has_value()) {
         continue;

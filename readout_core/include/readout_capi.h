@@ -38,7 +38,7 @@ extern "C" {
 
 /** Incremented whenever any signature in this header changes; foreign wrappers
  *  compare it against the value they were written for before calling anything else. */
-#define READOUT_CAPI_ABI_VERSION 1
+#define READOUT_CAPI_ABI_VERSION 2
 
 /// The READOUT_CAPI_ABI_VERSION the library was compiled with.
 RL_API int readout_capi_abi_version(void);
@@ -109,6 +109,14 @@ typedef int (*readout_publish_cb)(void * user_data, uint64_t point,
 /// Per-point publisher callback (ParameterPublisher::point_ready); same return convention.
 typedef int (*readout_point_ready_cb)(void * user_data, uint64_t point);
 
+/** \brief Per-pulse publisher callback (ParameterPublisher::pulse_ready).
+ *
+ * pulse_ns is nanoseconds since the epoch, the reference time this point's events are
+ * sent against. Same return convention. Not called for a file with no sendable
+ * readouts, because then no pulse is started.
+ */
+typedef int (*readout_pulse_ready_cb)(void * user_data, uint64_t point, uint64_t pulse_ns);
+
 /** \brief Replay a collector file; blocking.
  *
  * Callbacks may be NULL (the corresponding notification is skipped); they run
@@ -118,6 +126,7 @@ typedef int (*readout_point_ready_cb)(void * user_data, uint64_t point);
 RL_API int readout_replay_run(readout_replay_t * handle, const char * filename,
                               readout_publish_cb publish,
                               readout_point_ready_cb point_ready,
+                              readout_pulse_ready_cb pulse_ready,
                               void * user_data);
 
 /** \brief Request that a running replay stop at the next point or chunk boundary.

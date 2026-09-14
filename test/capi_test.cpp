@@ -100,6 +100,8 @@ struct PublishRecord {
 struct CallbackRecorder {
   std::vector<PublishRecord> published;
   std::vector<uint64_t> ready;
+  // (point, pulse_ns) as reported once the point's pulse has begun
+  std::vector<std::pair<uint64_t, uint64_t>> pulses;
   // stop the replay by returning nonzero from publish once this point is reached
   uint64_t reject_from_point{UINT64_MAX};
   // synchronisation for the threaded-cancel test
@@ -118,6 +120,12 @@ int recording_publish(void * user_data, const uint64_t point, const char * name,
 int recording_point_ready(void * user_data, const uint64_t point) {
   auto * recorder = static_cast<CallbackRecorder *>(user_data);
   recorder->ready.push_back(point);
+  return 0;
+}
+
+int recording_pulse_ready(void * user_data, const uint64_t point, const uint64_t pulse_ns) {
+  auto * recorder = static_cast<CallbackRecorder *>(user_data);
+  recorder->pulses.emplace_back(point, pulse_ns);
   return 0;
 }
 
@@ -179,8 +187,8 @@ TEST_CASE("C API handle lifecycle and setter errors", "[capi][errors]") {
 TEST_CASE("C API run errors identify the failure", "[capi][errors]") {
   auto * handle = readout_replay_create();
   REQUIRE(handle != nullptr);
-  CHECK(readout_replay_run(handle, nullptr, nullptr, nullptr, nullptr) == READOUT_ERROR);
-  CHECK(readout_replay_run(handle, "/nonexistent_capi_file.h5", nullptr, nullptr, nullptr) == READOUT_ERROR);
+  CHECK(readout_replay_run(handle, nullptr, nullptr, nullptr, nullptr, nullptr) == READOUT_ERROR);
+  CHECK(readout_replay_run(handle, "/nonexistent_capi_file.h5", nullptr, nullptr, nullptr, nullptr) == READOUT_ERROR);
   CHECK(std::strlen(readout_last_error()) > 0);
   readout_replay_destroy(handle);
 }
@@ -201,8 +209,19 @@ TEST_CASE("C API replay publishes parameters and sends every readout", "[capi][r
   REQUIRE(readout_replay_set_pulse_rate(handle, 50.0) == READOUT_OK);
 
   CallbackRecorder recorder;
-  CHECK(readout_replay_run(handle, multi.c_str(), recording_publish, recording_point_ready, &recorder) == READOUT_OK);
+  CHECK(readout_replay_run(handle, multi.c_str(), recording_publish, recording_point_ready, recording_pulse_ready, &recorder) == READOUT_OK);
   readout_replay_destroy(handle);
+
+  // one pulse per point, reported after the parameters and strictly increasing:
+  // it is the reference every timestamp the publisher derives must be measured from
+  CHECK(recorder.pulses.size() == recorder.ready.size());
+  for (size_t i = 0; i < recorder.pulses.size(); ++i) {
+    CHECK(recorder.pulses[i].first == recorder.ready[i]);
+    CHECK(recorder.pulses[i].second > 0);
+    if (i) {
+      CHECK(recorder.pulses[i].second > recorder.pulses[i - 1].second);
+    }
+  }
 
   // without a counting time every stored readout is sent exactly once
   CHECK(capi_settled_readouts(stats) == 2 * rays);
@@ -238,7 +257,7 @@ TEST_CASE("C API nonzero publish return stops the replay before the point's even
 
   CallbackRecorder recorder;
   recorder.reject_from_point = 1; // accept point 0, stop at point 1
-  CHECK(readout_replay_run(handle, multi.c_str(), recording_publish, recording_point_ready, &recorder) == READOUT_STOPPED);
+  CHECK(readout_replay_run(handle, multi.c_str(), recording_publish, recording_point_ready, recording_pulse_ready, &recorder) == READOUT_STOPPED);
   readout_replay_destroy(handle);
 
   // only point 0 was replayed, and point 1 saw no point_ready after the rejected publish
@@ -274,7 +293,7 @@ TEST_CASE("C API request_stop from another thread stops a blocked replay", "[cap
     recorder.may_continue = true;
     recorder.cv.notify_all();
   });
-  CHECK(readout_replay_run(handle, multi.c_str(), nullptr, blocking_point_ready, &recorder) == READOUT_STOPPED);
+  CHECK(readout_replay_run(handle, multi.c_str(), nullptr, blocking_point_ready, nullptr, &recorder) == READOUT_STOPPED);
   stopper.join();
 
   // the stop landed between point_ready and the pulse start: no events at all
@@ -283,9 +302,9 @@ TEST_CASE("C API request_stop from another thread stops a blocked replay", "[cap
   CHECK(recorder.ready == std::vector<uint64_t>{0});
 
   // the stop is sticky until reset: an immediate rerun stops before anything happens
-  CHECK(readout_replay_run(handle, multi.c_str(), nullptr, nullptr, nullptr) == READOUT_STOPPED);
+  CHECK(readout_replay_run(handle, multi.c_str(), nullptr, nullptr, nullptr, nullptr) == READOUT_STOPPED);
   readout_replay_reset_stop(handle);
-  CHECK(readout_replay_run(handle, multi.c_str(), nullptr, nullptr, nullptr) == READOUT_OK);
+  CHECK(readout_replay_run(handle, multi.c_str(), nullptr, nullptr, nullptr, nullptr) == READOUT_OK);
   readout_replay_destroy(handle);
 
   fs::remove(fs::path(multi));
