@@ -62,6 +62,10 @@ jobs:
       - name: build
         run: cmake --build build --config ${{ matrix.cmake-type }} -j
 
+      - name: Setup MSVC compilers for (Python mccode-antlr) testing
+        if: runner.os == 'Windows'
+        uses: egor-tensin/vs-shell@v2
+
       - name: test
         working-directory: build
         run: ctest -C ${{ matrix.cmake-type }} --verbose -j
