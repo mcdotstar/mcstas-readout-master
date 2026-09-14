@@ -118,7 +118,7 @@ jobs:
 
       - name: Install Python-based dependencies
         run: |
-          python -m pip install numpy mccode-antlr pytest h5py
+          python -m pip install numpy mccode-antlr pytest h5py scipp
 
       - uses: actions/checkout@v6
         with:
