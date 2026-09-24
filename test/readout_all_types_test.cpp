@@ -2,6 +2,7 @@
 #include "cluon-complete.hpp"
 #include <Readout.h>
 #include <Structs.h>
+#include <enums.h>
 #include "test_utils.h"
 
 #ifdef _WIN32
@@ -41,8 +42,9 @@ static int find_free_port() {
 }
 #endif
 
-// Helper: verify ESS packet header
-static void verify_header(const std::string& data, uint32_t expected_type) {
+// Helper: verify ESS packet header carries the packet type an EFU expects for this detector
+static void verify_header(const std::string& data, uint32_t detector) {
+  const uint32_t expected_type = packetType_from_detectorType(detectorType_from_int(static_cast<int>(detector)));
   auto ptr = data.data();
   auto* header = reinterpret_cast<const PacketHeaderV0*>(ptr);
   REQUIRE(header->Padding0 == 0);
@@ -121,7 +123,7 @@ TEST_CASE("Send and receive VMM3 packets", "[c][VMM3]") {
 
 TEST_CASE("Send and receive BM0 packets", "[c][BM0]") {
   const uint16_t max = 100;
-  uint32_t det_type = 0xf0; // CBM0 -> BM0
+  uint32_t det_type = 0xf0; // CBM0 -> BM0, sent as packet type 0x10
   int port = find_free_port();
   REQUIRE(port > 0);
   auto stats = std::make_shared<UDPStats>();
@@ -130,6 +132,10 @@ TEST_CASE("Send and receive BM0 packets", "[c][BM0]") {
     [stats, det_type](std::string&& data, std::string&&, std::chrono::system_clock::time_point&&) noexcept {
       verify_header(data, det_type);
       auto readouts = (reinterpret_cast<const PacketHeaderV0*>(data.data())->TotalLength - sizeof(PacketHeaderV0)) / sizeof(BM0Data);
+      for (size_t i = 0; i < readouts; ++i) {
+        auto* r = reinterpret_cast<const BM0Data*>(data.data() + sizeof(PacketHeaderV0) + i * sizeof(BM0Data));
+        REQUIRE(r->Type == 1);  // the EFU's CbmType, which BEER's parser also checks
+      }
       stats->packets++;
       stats->readouts += static_cast<int>(readouts);
     });
@@ -160,6 +166,10 @@ TEST_CASE("Send and receive BM2 packets", "[c][BM2]") {
     [stats, det_type](std::string&& data, std::string&&, std::chrono::system_clock::time_point&&) noexcept {
       verify_header(data, det_type);
       auto readouts = (reinterpret_cast<const PacketHeaderV0*>(data.data())->TotalLength - sizeof(PacketHeaderV0)) / sizeof(BM2Data);
+      for (size_t i = 0; i < readouts; ++i) {
+        auto* r = reinterpret_cast<const BM2Data*>(data.data() + sizeof(PacketHeaderV0) + i * sizeof(BM2Data));
+        REQUIRE(r->Type == 2);  // the EFU's CbmType, which BEER's parser also checks
+      }
       stats->packets++;
       stats->readouts += static_cast<int>(readouts);
     });
@@ -181,7 +191,7 @@ TEST_CASE("Send and receive BM2 packets", "[c][BM2]") {
 
 TEST_CASE("Send and receive BMI packets", "[c][BMI]") {
   const uint16_t max = 100;
-  uint32_t det_type = 0xfa; // CBMI -> BMI
+  uint32_t det_type = 0xfa; // CBMI -> BMI, sent as packet type 0x10
   int port = find_free_port();
   REQUIRE(port > 0);
   auto stats = std::make_shared<UDPStats>();
@@ -190,6 +200,10 @@ TEST_CASE("Send and receive BMI packets", "[c][BMI]") {
     [stats, det_type](std::string&& data, std::string&&, std::chrono::system_clock::time_point&&) noexcept {
       verify_header(data, det_type);
       auto readouts = (reinterpret_cast<const PacketHeaderV0*>(data.data())->TotalLength - sizeof(PacketHeaderV0)) / sizeof(BMIData);
+      for (size_t i = 0; i < readouts; ++i) {
+        auto* r = reinterpret_cast<const BMIData*>(data.data() + sizeof(PacketHeaderV0) + i * sizeof(BMIData));
+        REQUIRE(r->Type == 3);  // the EFU's CbmType, which BEER's parser also checks
+      }
       stats->packets++;
       stats->readouts += static_cast<int>(readouts);
     });

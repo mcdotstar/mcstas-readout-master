@@ -5,7 +5,7 @@
 The repository ships a full collect → combine → replay walkthrough in
 `examples/`:
 
-- `examples/readout_example.instr` — a small instrument with a TTL beam
+- `examples/readout_example.instr` — a small instrument with a beam
   monitor and a bank of CAEN-read tubes, both storing records into one
   collector file,
 - `examples/run_example.sh` — runs two simulation points, validates and
@@ -58,9 +58,9 @@ readout-replay --time 2.0 --seed 42 --config senders.json scan_all.h5
       "tcp_port": 10800
     },
     {
-      "detector_type": "TTLMonitor",
-      "readout_type": "TTLMonitor",
-      "ip_address": "efu-ttl.example.org",
+      "detector_type": "CBMI",
+      "readout_type": "BMI",
+      "ip_address": "efu-cbm.example.org",
       "udp_port": 9002,
       "tcp_port": 10800
     }
@@ -81,13 +81,13 @@ readout-replay --config senders.json --addr efu-default.example.org --port 9000 
 TRACE
   SEARCH SHELL "readout-config --show compdir"
   ...
-  COMPONENT collect = CollectorTTLMonitor(
+  COMPONENT collect = CollectorBMI(
     filename="monitor_run",
     dataset_name="beam_monitor",
-    ring="ring_id",
+    ring="fibre_id",       /* 2N or 2N+1 for the cbm EFU's "MonitorRing": N */
     fen="fen_id",
-    identity="channel",
-    value="adc",
+    channel_name="channel",
+    adc_name="adc",
     tof="t"
   ) AT (0,0,0) RELATIVE PREVIOUS
   ...

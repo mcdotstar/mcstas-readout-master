@@ -4,15 +4,16 @@ neutron raytracing runtime and replaying them, statistically correctly, to ESS E
 Units (EFUs) after the fact — decoupling the simulation runtime from the data-acquisition
 pipeline.
 
-Collection happens through the `Collector{ReadoutType}.comp` component family (CAEN, TTLMonitor,
+Collection happens through the `Collector{ReadoutType}.comp` component family (CAEN,
 CDT, VMM3, BM0, BM2, BMI in share/Readout/). Each component stores whole records through the
 description-based collector engine: the C-struct layout of one record is described by a canonical
 string (lib/readout_type_descriptions.h) parsed at runtime into an HDF5 compound datatype.
 Multiple components write independent named groups into one file, each with the cue-based layout
 `readouts`, `cues`, `weights`, `normalizations`, managed by the singleton CollectorSink
 (lib/CollectorClass.h), which also records instrument parameters. Routing information lives as
-group attributes: the detector identity (from the component's ess_type — it becomes the ESS
-packet-type byte that EFUs filter on at replay) and optional EFU address/port. The record layout
+group attributes: the detector identity (from the component's ess_type — for an instrument it is the ESS
+packet-type byte that EFUs filter on at replay; every beam monitor is sent in packets of the
+EFU's CBM type, 0x10, with the format in each readout's own type byte) and optional EFU address/port. The record layout
 itself carries no attributes: it is the dataset's own compound datatype.
 
 Users can collect arbitrary additional data by passing their own struct-description string to the
@@ -33,8 +34,7 @@ defaults — in that precedence order.
 
 # Current state
 All of the above is implemented and tested (ctest plus mccode-antlr run tests per component).
-The legacy per-ray Readout broadcasting components (ReadoutCAEN, ReadoutTTLMonitor,
-ReadoutDiscreteCAEN) remain for in-simulation streaming use cases.
+The legacy per-ray Readout broadcasting components (ReadoutCAEN, ReadoutDiscreteCAEN) remain for in-simulation streaming use cases.
 
 # Remaining work
 1. EPICS implementation of ParameterPublisher (lives outside this repository; mccode-plumber).

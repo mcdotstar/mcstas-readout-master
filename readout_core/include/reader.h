@@ -107,7 +107,7 @@ public:
     // EFU-sendability is decided by the stored datatype matching a registry compound type,
     // not by the attributes: an attribute cannot lie about the record layout
     const auto stored = readouts_->getDataType();
-    for (const auto rt : {ReadoutType::CAEN, ReadoutType::TTLMonitor, ReadoutType::CDT, ReadoutType::VMM3,
+    for (const auto rt : {ReadoutType::CAEN, ReadoutType::CDT, ReadoutType::VMM3,
                           ReadoutType::BM0, ReadoutType::BM2, ReadoutType::BMI}) {
       if (stored == hdf_compound_type(rt)) {
         sendable_ = rt;
@@ -210,14 +210,6 @@ public:
     readouts_->select({index}, {count}).read_raw(event.data(), datatype);
     return event;
   }
-  RL_API auto get_TTLMonitor(const size_t index, const size_t count) const {
-    if (sendable_ != ReadoutType::TTLMonitor){ throw std::runtime_error("Non TTLMonitor readout type"); }
-    if (index >= size() || index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
-    std::vector<TTLMonitor_event> event(count);
-    const auto datatype = readouts_->getDataType();
-    readouts_->select({index}, {count}).read_raw(event.data(), datatype);
-    return event;
-  }
   RL_API auto get_VMM3(const size_t index, const size_t count) const{
     if (sendable_ != ReadoutType::VMM3) { throw std::runtime_error("Non VMM3 readout type"); }
     if (index >= size() || index + count > size()) { throw std::runtime_error("Out of bounds event requested");}
@@ -262,10 +254,6 @@ public:
   RL_API auto get_point_CAEN(const size_t point) const {
     const auto [start, end] = point_bounds(point);
     return get_CAEN(start, end - start);
-  }
-  RL_API auto get_point_TTLMonitor(const size_t point) const {
-    const auto [start, end] = point_bounds(point);
-    return get_TTLMonitor(start, end - start);
   }
   RL_API auto get_point_VMM3(const size_t point) const {
     const auto [start, end] = point_bounds(point);

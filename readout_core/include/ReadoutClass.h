@@ -68,7 +68,6 @@ public:
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const void * data);
   // Specializations for handled data types
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const CAEN_readout_t * data);
-  void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const TTLMonitor_readout_t * data);
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const CDT_readout_t * data);
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const VMM3_readout_t * data);
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const BM0_readout_t * data);

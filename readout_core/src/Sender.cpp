@@ -39,7 +39,8 @@ void Sender::newPacket() {
   const auto hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
   hp->Padding0 = 0;
   hp->Version = 0;
-  hp->CookieAndType = (static_cast<int>(detector_type) << 24) + 0x535345;
+  // an EFU filters on this byte: every beam-monitor format shares the CBM packet type
+  hp->CookieAndType = (static_cast<uint32_t>(packetType_from_detectorType(detector_type)) << 24) + 0x535345;
   hp->OutputQueue = OutputQueue;
   hp->TotalLength = sizeof(struct PacketHeaderV0);
   // the sequence number is assigned at transmission, so that only packets
@@ -113,28 +114,6 @@ void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t,
   hp->TotalLength = DataSize;
 }
 
-void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const TTLMonitor_readout_t *data) {
-  if (verbosity > 2){
-    std::cout << "Add to the packet Ring=" << static_cast<unsigned>(Ring) << " FEN=" << static_cast<unsigned>(FEN);
-    std::cout << " TimeHigh=" << t.high() << " TimeLow=" << t.low() << " Pos=" << static_cast<unsigned>(data->pos);
-    std::cout << " Channel=" << static_cast<unsigned>(data->channel) << " ADC=" << data->adc << std::endl;
-  }
-  check_size_and_send();
-  auto lock = std::lock_guard(send_mutex);
-  auto *dp = reinterpret_cast<struct TTLMonitorData *>(buffer + DataSize);
-  dp->Ring = Ring;
-  dp->FEN = FEN;
-  dp->Length = sizeof(struct TTLMonitorData);
-  dp->TimeHigh = t.high();
-  dp->TimeLow = t.low();
-  dp->Pos = data->pos;
-  dp->Channel = data->channel;
-  dp->ADC = data->adc;
-  DataSize += dp->Length;
-  const auto hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
-  hp->TotalLength = DataSize;
-}
-
 void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const CDT_readout_t *data) {
   check_size_and_send();
   auto lock = std::lock_guard(send_mutex);
@@ -181,6 +160,7 @@ void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t,
   dp->Length = sizeof(struct BM0Data);
   dp->TimeHigh = t.high();
   dp->TimeLow = t.low();
+  dp->Type = cbmType_from_readoutType(ReadoutType::BM0);
   dp->Channel = data->channel;
   DataSize += dp->Length;
   const auto hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
@@ -195,6 +175,7 @@ void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t,
   dp->Length = sizeof(struct BM2Data);
   dp->TimeHigh = t.high();
   dp->TimeLow = t.low();
+  dp->Type = cbmType_from_readoutType(ReadoutType::BM2);
   dp->Channel = data->channel;
   dp->X = data->pos_x;
   dp->Y = data->pos_y;
@@ -215,6 +196,7 @@ void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t,
   dp->Length = sizeof(struct BMIData);
   dp->TimeHigh = t.high();
   dp->TimeLow = t.low();
+  dp->Type = cbmType_from_readoutType(ReadoutType::BMI);
   dp->Channel = data->channel;
   dp->Pack = pack;
   DataSize += dp->Length;
@@ -247,7 +229,6 @@ void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const double tof,
 void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const void *data){
   switch (readout_type) {
     case ReadoutType::CAEN: return addReadout(Ring, FEN, t, static_cast<const CAEN_readout_t*>(data));
-    case ReadoutType::TTLMonitor: return addReadout(Ring, FEN, t, static_cast<const TTLMonitor_readout_t*>(data));
     case ReadoutType::CDT: return addReadout(Ring, FEN, t, static_cast<const CDT_readout_t*>(data));
     case ReadoutType::VMM3: return addReadout(Ring, FEN, t, static_cast<const VMM3_readout_t*>(data));
     case ReadoutType::BM0: return addReadout(Ring, FEN, t, static_cast<const BM0_readout_t*>(data));

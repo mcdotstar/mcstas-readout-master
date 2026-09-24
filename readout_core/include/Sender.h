@@ -78,7 +78,6 @@ public:
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const void * data);
   // Specializations for handled data types
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const CAEN_readout_t * data);
-  void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const TTLMonitor_readout_t * data);
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const CDT_readout_t * data);
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const VMM3_readout_t * data);
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const BM0_readout_t * data);
@@ -102,6 +101,7 @@ public:
   /// Choose whether add-by-time-of-flight readouts are stamped at
   /// pulse + (tof % period) — attributing each event to the frame it would be
   /// detected in, as the real readout system reports it — instead of pulse + tof.
+  /// Either way, a time-of-flight of a period or more is counted and reported.
   void fold_tof(const bool fold) { fold_tof_ = fold; }
   /// How many readouts so far had a time-of-flight of at least one pulse period.
   [[nodiscard]] uint64_t long_tof_count() const { return long_tof_; }

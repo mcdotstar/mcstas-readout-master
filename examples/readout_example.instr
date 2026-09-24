@@ -1,7 +1,7 @@
 /*******************************************************************************
 * Complete collect -> combine -> replay example for mcstas-readout-master.
 *
-* A small continuous source illuminates a TTL beam monitor and a bank of ten
+* A small continuous source illuminates a beam monitor and a bank of ten
 * position-sensitive tubes read out by CAEN digitizers. Both detectors store
 * weighted-ray records into one HDF5 file through Collector components; no
 * Event Formation Unit is needed while this instrument runs.
@@ -38,14 +38,15 @@ AT (0, 0, 0) RELATIVE origin
 COMPONENT beam_monitor = Monitor(xwidth = 0.10, yheight = 0.10, restore_neutron = 1)
 AT (0, 0, 2) RELATIVE origin
 EXTEND %{
-  ring_id = 0;
+  ring_id = 22;
   fen_id = 0;
   monitor_signal = SCATTERED ? 500 + (int)(rand01() * 1024) : 0;
 %}
 
-COMPONENT collect_monitor = CollectorTTLMonitor(
-  ring = "ring_id", fen = "fen_id", value = "monitor_signal",
-  identity_value = 0, filename = filename, dataset_name = "monitor")
+/* Fibre 22 is the cbm EFU's default MonitorRing, 11 */
+COMPONENT collect_monitor = CollectorBM0(
+  ring = "ring_id", fen = "fen_id", channel_value = 0,
+  filename = filename, dataset_name = "monitor")
 WHEN (monitor_signal > 0)
 AT (0, 0, 2) RELATIVE origin
 

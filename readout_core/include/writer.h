@@ -92,7 +92,6 @@ public:
     }
     switch (readoutType_from_detectorType(detector)) {
       case ReadoutType::CAEN: return saveReadout(CAEN_event(Ring, FEN, tof, weight, static_cast<const CAEN_readout_t*>(data)));
-      case ReadoutType::TTLMonitor: return saveReadout(TTLMonitor_event(Ring, FEN, tof, weight, static_cast<const TTLMonitor_readout_t*>(data)));
       case ReadoutType::CDT: return saveReadout(CDT_event(Ring, FEN, tof, weight, static_cast<const CDT_readout_t*>(data)));
       case ReadoutType::VMM3: return saveReadout(VMM3_event(Ring, FEN, tof, weight, static_cast<const VMM3_readout_t*>(data)));
       case ReadoutType::BM0: return saveReadout(BM0_event(Ring, FEN, tof, weight, static_cast<const BM0_readout_t*>(data)));

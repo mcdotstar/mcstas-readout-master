@@ -103,11 +103,6 @@ COMPONENT readout = ReadoutCAEN(
   )
   AT (0, 0, 1) ABSOLUTE
 
-COMPONENT monitor_readout = ReadoutTTLMonitor(
-  ring="RING", fen="FEN", position="A", identity="TUBE", value="B", tof="tof", ip="127.0.0.1", port=9001, broadcast=0
-)
-  AT (0, 0, 2) ABSOLUTE
-
 COMPONENT caen_collector = CollectorCAEN(
 ring="RING", fen="FEN", tube="TUBE", a_name="A", b_name="B", tof="tof",
 filename=filename, verbose=1

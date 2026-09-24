@@ -4,6 +4,7 @@
 
 #include <Readout.h>
 #include <Structs.h>
+#include <enums.h>
 #include "test_utils.h"
 
 #ifdef _WIN32
@@ -145,14 +146,13 @@ TEST_CASE("Send and receive CAEN packets","[c][CAEN]"){
 }
 
 
-TEST_CASE("Send and receive TTLMonitor packets","[c]"){
+TEST_CASE("Send and receive beam-monitor packets as the cbm EFU expects them","[c][CBM]"){
   const uint16_t max{1000};
-  uint32_t monitor_type{0x10};
   int monitor_port = find_port();
   auto stats = std::make_shared<UDPStats>();
 
   cluon::UDPReceiver monitor_receiver("127.0.0.1", monitor_port,
-    [stats,monitor_type](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+    [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
       // data must contain [PacketHeaderV0, readout, readout, ...].
       auto ptr = data.data();
       auto * header = reinterpret_cast<PacketHeaderV0*>(ptr);
@@ -161,15 +161,16 @@ TEST_CASE("Send and receive TTLMonitor packets","[c]"){
       auto type = (header->CookieAndType) >> 24;
       auto cookie =  (header->CookieAndType - (type << 24));
       REQUIRE(cookie == 0x535345);  // ESS identifier
-      REQUIRE(monitor_type == type);
+      // every beam-monitor format travels as the EFU's DetectorType::CBM
+      REQUIRE(type == CBM_PACKET_TYPE);
       ptr += sizeof(PacketHeaderV0);
-      size_t readout_size = sizeof(struct TTLMonitorData);
+      size_t readout_size = sizeof(struct BM0Data);
       auto readouts = (header->TotalLength - sizeof(PacketHeaderV0)) / readout_size;
       for (size_t i=0; i < readouts; ++i){
-        auto *r = reinterpret_cast<TTLMonitorData *>(ptr + i * readout_size);
-        REQUIRE(r->Ring == 0);
-        REQUIRE(r->FEN == 100);
-        REQUIRE(r->Pos == 3);
+        auto *r = reinterpret_cast<BM0Data *>(ptr + i * readout_size);
+        REQUIRE(r->Ring == 22);  // the fibre of MonitorRing 11
+        REQUIRE(r->FEN == 0);
+        REQUIRE(r->Type == 1);   // CbmType::EVENT_0D
         REQUIRE((r->Channel == 1 || r->Channel == 0));
       }
       stats->packets++;
@@ -179,19 +180,15 @@ TEST_CASE("Send and receive TTLMonitor packets","[c]"){
 
   {
     char addr[] = "127.0.0.1";
-    auto monitor_efu = readout_create(addr, monitor_port, 8889, 1 / 14., static_cast<int>(monitor_type));
-    TTLMonitor_readout_t ttl_data;
+    auto monitor_efu = readout_create(addr, monitor_port, 8889, 1 / 14., static_cast<int>(CBM0));
+    BM0_readout_t bm0_data;
     for (uint16_t i = 0; i < max; ++i) {
-      uint8_t tube = 3;
-      double tof = static_cast<double>(i) / static_cast<double>(max);
-      ttl_data.pos = tube;
-      ttl_data.channel = 0;
-      ttl_data.adc = i;
+      double tof = static_cast<double>(i) / static_cast<double>(max) / 14.;
       // Setting the weight to 0, otherwise it is used to send a random number of packets
-      readout_add(monitor_efu, 0, 100, tof, 0.0, static_cast<const void *>(&ttl_data));
-      ttl_data.channel = 1;
-      ttl_data.adc = max - i;
-      readout_add(monitor_efu, 0, 100, tof, 0.0, static_cast<const void *>(&ttl_data));
+      bm0_data.channel = 0;
+      readout_add(monitor_efu, 22, 0, tof, 0.0, static_cast<const void *>(&bm0_data));
+      bm0_data.channel = 1;
+      readout_add(monitor_efu, 22, 0, tof, 0.0, static_cast<const void *>(&bm0_data));
     }
     readout_destroy(monitor_efu);
   }

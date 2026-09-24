@@ -171,7 +171,6 @@ void stream_reader_point(const Reader & reader, Sender & sender, const size_t po
   // dispatch on the datatype-verified type, never the (optional, unverified) attribute
   switch (reader.sendable_readout_type().value()) {
     case ReadoutType::CAEN: return stream_point<CAEN_event, &Reader::get_CAEN>(reader, sender, point, config, rng, subset);
-    case ReadoutType::TTLMonitor: return stream_point<TTLMonitor_event, &Reader::get_TTLMonitor>(reader, sender, point, config, rng, subset);
     case ReadoutType::VMM3: return stream_point<VMM3_event, &Reader::get_VMM3>(reader, sender, point, config, rng, subset);
     case ReadoutType::CDT: return stream_point<CDT_event, &Reader::get_CDT>(reader, sender, point, config, rng, subset);
     case ReadoutType::BM0: return stream_point<BM0_event, &Reader::get_BM0>(reader, sender, point, config, rng, subset);

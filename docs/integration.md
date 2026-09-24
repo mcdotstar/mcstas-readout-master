@@ -43,7 +43,7 @@ Define and fill variables before the Collector component executes.
 
 ## 5. Legacy runtime streaming components
 
-`ReadoutCAEN.comp`, `ReadoutTTLMonitor.comp`, and `ReadoutDiscreteCAEN.comp`
+`ReadoutCAEN.comp` and `ReadoutDiscreteCAEN.comp`
 remain available for in-simulation runtime event streaming use-cases.
 
 ## 6. Running under MPI

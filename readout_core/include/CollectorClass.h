@@ -565,10 +565,6 @@ public:
         const CAEN_event event{Ring, FEN, tof, weight, static_cast<const CAEN_readout_t*>(data)};
         return saveReadout(event);
       }
-      case ReadoutType::TTLMonitor: {
-        const TTLMonitor_event event{Ring, FEN, tof, weight, static_cast<const TTLMonitor_readout_t*>(data)};
-        return saveReadout(event);
-      }
       case ReadoutType::CDT: {
         const CDT_event event{Ring, FEN, tof, weight, static_cast<const CDT_readout_t*>(data)};
         return saveReadout(event);

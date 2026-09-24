@@ -38,7 +38,6 @@ TEST_CASE("Canonical type descriptions match the registry compound types", "[sta
   // structs, files stop being EFU-sendable. Enforce exact HDF5 type equality.
   const std::pair<ReadoutType, size_t> cases[] = {
     {ReadoutType::CAEN, sizeof(CAEN_event)},
-    {ReadoutType::TTLMonitor, sizeof(TTLMonitor_event)},
     {ReadoutType::CDT, sizeof(CDT_event)},
     {ReadoutType::VMM3, sizeof(VMM3_event)},
     {ReadoutType::BM0, sizeof(BM0_event)},
