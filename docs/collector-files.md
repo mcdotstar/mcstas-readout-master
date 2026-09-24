@@ -24,6 +24,24 @@ files sums both records and normalizations, which keeps that ratio (and hence
 any replayed intensity) the combined ray-count-weighted estimate rather than
 the sum of the runs.
 
+### Beam monitors: how many records, and how much weight
+
+A beam monitor sees every ray that crosses it, usually far more than its
+histogram needs, and a real monitor is deliberately much less efficient than a
+detector. The beam-monitor collectors (`CollectorBM0`, `CollectorBM2`,
+`CollectorBMI`) take two per-component parameters, both 1 by default, which
+tune those two things independently:
+
+- `keep_probability` (q, 0 < q ≤ 1) records each ray with probability q and
+  stores a recorded ray's weight divided by q. The expected total weight is
+  unchanged; only the statistical noise grows, as fewer records carry it.
+- `efficiency` (0 ≤ ε ≤ 1) multiplies every recorded weight by ε. The monitored
+  intensity scales; the number of records does not.
+
+Neither touches `normalizations`, which stays the number of simulated rays, so
+replayed intensities remain `weight / normalization` estimates. At the default
+q = 1 no random number is drawn, so a run that does not thin is unchanged.
+
 Group attributes may include:
 
 - detector identity

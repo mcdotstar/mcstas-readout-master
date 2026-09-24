@@ -1003,3 +1003,96 @@ class TestCollectorFileReuse:
             assert "one" in f and "two" in f, list(f)
             # the gate that decides who writes the parameters still fires exactly once
             assert "parameters" in f, list(f)
+
+
+# -----------------------------------------------------------------------
+# Beam-monitor thinning and efficiency
+# -----------------------------------------------------------------------
+_MONITORS = {
+    "CollectorBM0": (BM0_USERVARS, BM0_ORIGIN_EXTEND, 'channel_name="CHANNEL"'),
+    "CollectorBM2": (BM2_USERVARS, BM2_ORIGIN_EXTEND,
+                     'channel_name="CHANNEL", pos_x_name="POSX", pos_y_name="POSY"'),
+    "CollectorBMI": (BMI_USERVARS, BMI_ORIGIN_EXTEND,
+                     'channel_name="CHANNEL", sum_name="SUM", adc_name="ADC"'),
+}
+
+
+def _monitor_instrument(component, **settings):
+    """One instrument with three `component` collectors seeing the same rays.
+
+    ``plain`` has the defaults, ``efficient`` and ``thinned`` whatever `settings` gives
+    them, so each is compared with ``plain`` ray for ray within one run.
+    """
+    uservars, origin, names = _MONITORS[component]
+    calls = []
+    for i, (group, extra) in enumerate((("plain", ""),
+                                         ("efficient", settings.get("efficient", "")),
+                                         ("thinned", settings.get("thinned", "")))):
+        extra = f", {extra}" if extra else ""
+        calls.append(f"""
+            COMPONENT {group} = {component}(
+              ring="RING", fen="FEN", {names}, tof="tof",
+              filename=filename, dataset_name="{group}"{extra}
+            ) AT (0, 0, {i + 1}) ABSOLUTE""")
+    return dedent(f"""
+        DEFINE INSTRUMENT test_monitor_thinning(string filename="monitors")
+        {uservars}
+        TRACE
+        SEARCH SHELL "readout-config --show compdir"
+        {origin}
+        """) + "\n".join(calls) + "\nEND\n"
+
+
+@requires_run
+@pytest.mark.parametrize("component", sorted(_MONITORS))
+class TestRunMonitorThinning:
+    """`keep_probability` sets how many rays a monitor records, `efficiency` how much
+    weight it records; each leaves the other alone."""
+
+    RAYS = 20000
+
+    def _run(self, component, tmp_path):
+        h5py = pytest.importorskip("h5py")
+        from pathlib import Path
+        result, dats = _compile_and_run(
+            _monitor_instrument(component, efficient="efficiency=0.25",
+                                thinned="keep_probability=0.1"),
+            parameters=f"-n {self.RAYS} -s 1234 filename=monitors", directory=str(tmp_path))
+        assert b"TRACE end" in result
+        (h5_path,) = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+        file = h5py.File(str(h5_path), "r")
+        return {g: file[g] for g in ("plain", "efficient", "thinned")}
+
+    def test_efficiency_scales_weight_and_keeps_every_ray(self, component, tmp_path):
+        groups = self._run(component, tmp_path)
+        plain, efficient = groups["plain"], groups["efficient"]
+        assert efficient["readouts"].shape == plain["readouts"].shape == (self.RAYS,)
+        assert efficient["readouts"]["weight"] == pytest.approx(0.25 * plain["readouts"]["weight"])
+        assert efficient["weights"][()] == pytest.approx(0.25 * plain["weights"][()])
+        assert efficient["normalizations"][()] == plain["normalizations"][()]
+
+    def test_thinning_keeps_fewer_rays_and_the_expected_weight(self, component, tmp_path):
+        import numpy as np
+        groups = self._run(component, tmp_path)
+        plain, thinned = groups["plain"], groups["thinned"]
+        kept = thinned["readouts"].shape[0]
+        # binomial: mean 0.1 N, standard deviation sqrt(0.1 * 0.9 * N) = 42 for N = 20000
+        expected, sigma = 0.1 * self.RAYS, np.sqrt(0.09 * self.RAYS)
+        assert abs(kept - expected) < 5 * sigma
+        # each kept ray carries the plain weight divided by the keep probability ...
+        assert thinned["readouts"]["weight"] == pytest.approx(plain["readouts"]["weight"][0] / 0.1)
+        # ... so the total is the plain total to within the same statistics
+        assert thinned["weights"][()][0] == pytest.approx(plain["weights"][()][0], rel=5 * sigma / expected)
+        # and the ray count, which intensities are normalised by, is unchanged
+        assert thinned["normalizations"][()] == plain["normalizations"][()]
+
+
+@requires_run
+@pytest.mark.parametrize("setting", ["keep_probability=0", "keep_probability=1.5", "efficiency=-0.1",
+                                     "efficiency=2"])
+def test_out_of_range_monitor_settings_stop_the_run(setting, tmp_path):
+    with pytest.raises(Exception) as failure:
+        _compile_and_run(_monitor_instrument("CollectorBM0", thinned=setting),
+                         parameters="-n 10 filename=monitors", directory=str(tmp_path))
+    text = str(failure.value) + str(getattr(failure.value, "stdout", "") or "")
+    assert "keep_probability must be in (0, 1]" in text
