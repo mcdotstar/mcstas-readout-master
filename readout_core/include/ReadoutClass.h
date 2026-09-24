@@ -30,7 +30,7 @@
  * exactly once); it can also mirror every stored record to a legacy flat
  * HDF5 file via dump_to(). The replay path uses Sender instead.
  */
-class Readout {
+class RL_API Readout {
 public:
   Readout(
       std::string IpAddress,
