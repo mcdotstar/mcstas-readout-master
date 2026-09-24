@@ -40,6 +40,11 @@
 * fen_count: [1]    currently unused; reserved
 * fen_value: [1]    fixed FEN ID used when fen is not named
 * channel_value: [1] fixed channel used when channel_name is not named
+* keep_probability: [1] probability of recording each ray; a recorded ray stores its weight divided
+*                   by it, so the expected total weight is unchanged. Below 1 it records fewer rays
+*                   at the cost of statistical noise: a monitor sees far more rays than its histogram needs
+* efficiency: [1]   detection efficiency, multiplying every recorded weight: it scales the monitored
+*                   intensity without changing how many rays are recorded
 * pulse_rate: [Hz]  currently unused by the collector; reference times are reconstructed at replay
 * filename: [str]   HDF5 output file; empty stores to "collected_events"; several collectors may share one file
 * dataset_name: [str] collector group name inside the file; empty uses the component instance name
@@ -68,6 +73,8 @@ int ring_count=1,
 int fen_count=1,
 int fen_value=0,
 int channel_value=0,
+keep_probability = 1,
+efficiency = 1,
 pulse_rate = 14,
 string filename = 0,
 string dataset_name = 0,
@@ -109,6 +116,12 @@ char * this_dataset_name;
 
 INITIALIZE
 %{
+if (!(keep_probability > 0 && keep_probability <= 1) || !(efficiency >= 0 && efficiency <= 1)) {
+  char value[64];
+  snprintf(value, sizeof(value), "keep_probability=%g, efficiency=%g", keep_probability, efficiency);
+  lib_readout_error("CollectorBM0", NAME_CURRENT_COMP,
+                    "keep_probability must be in (0, 1] and efficiency in [0, 1]; got", value);
+}
 char * basepath = mcfull_file("", NULL);
 
 this_filename = NULL;
@@ -181,7 +194,13 @@ array_ptr = new_array(sizeof(struct collector_bm0_record));
 
 TRACE
 %{
-double weight = p * (double)(mcget_ncount());
+double weight = p * (double)(mcget_ncount()) * efficiency;
+// Record a ray with probability keep_probability, and store its weight divided by that
+// probability so the expected total is unchanged. No draw at the default of 1, so a run
+// that does not thin uses the random-number stream exactly as before.
+if (weight && keep_probability < 1) {
+  weight = (rand01() < keep_probability) ? weight / keep_probability : 0;
+}
 
 if (weight) {
     struct collector_bm0_record data = {
