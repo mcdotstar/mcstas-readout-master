@@ -302,7 +302,9 @@ class ReaderSource {
   }
 
 public:
-  RL_API explicit ReaderSource(const std::string& filename): filename_{filename} {
+  /// \param warn_build whether to warn when another libreadout build wrote the file; off
+  ///        for a caller that has already validated it, which warns the same way
+  RL_API explicit ReaderSource(const std::string& filename, const bool warn_build = true): filename_{filename} {
     try {
       file_ = std::make_shared<HighFive::File>(filename, HighFive::File::ReadOnly);
     } catch (HighFive::Exception & ex) {
@@ -322,11 +324,8 @@ public:
       throw std::runtime_error("Collector file is missing required version attributes");
     }
 
-    const auto version = file_->getAttribute(CollectorSink::version_attribute_name()).read<std::string>();
-    const auto this_version = std::string(reinterpret_cast<const char *>(libreadout::version::version_number));
-    if (version != this_version){
-      std::cout << "The file was produced using libreadout " << version;
-      std::cout << " not current " << this_version << std::endl;
+    if (warn_build) {
+      warn_about_another_build(*file_, filename);
     }
 
     const auto root = file_->getGroup("/");

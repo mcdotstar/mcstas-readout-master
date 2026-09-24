@@ -50,6 +50,16 @@
 RL_API int validate_collector_file(const std::string & filename);
 RL_API int validate_collector_file_impl(const HighFive::File & file, const std::string & filename);
 
+/// \brief Warn on stderr if a collector file was written by another libreadout build.
+///
+/// Compares the file's version *and* revision stamps with this build's. Another build's
+/// file is still a valid file, so this only warns: combining it with this build's files is
+/// refused, and replaying it relies on record layouts and weight conventions not having
+/// changed in between. The file must carry both stamps (validation checks that first).
+///
+/// \returns true if it warned
+RL_API bool warn_about_another_build(const HighFive::File & file, const std::string & filename);
+
 RL_API void ensure_file_attributes(HighFive::File & file);
 RL_API void ensure_collector_group_attributes(HighFive::Group & group);
 RL_API void ensure_parameter_group_attributes(HighFive::Group & group);

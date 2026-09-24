@@ -506,6 +506,22 @@ std::string validate_collector_root(const HighFive::Group & group) {
 }
 
 
+bool warn_about_another_build(const HighFive::File & file, const std::string & filename) {
+  using C=CollectorSink;
+  const auto version = file.getAttribute(C::version_attribute_name()).read<std::string>();
+  const auto revision = file.getAttribute(C::revision_attribute_name()).read<std::string>();
+  if (version == C::version_attribute_value() && revision == C::revision_attribute_value()) {
+    return false;
+  }
+  std::cerr << "Warning: file " << filename << " was written by libreadout " << version
+            << " (revision " << revision << "), not this " << C::version_attribute_value()
+            << " (revision " << C::revision_attribute_value() << "). Combining it with files"
+            << " this build writes will be refused, and replaying it assumes their record"
+            << " layouts and weight conventions agree." << std::endl;
+  return true;
+}
+
+
 int validate_collector_file_impl(const HighFive::File & file, const std::string & filename) {
   using C=CollectorSink;
   using namespace HighFive;
@@ -519,6 +535,7 @@ int validate_collector_file_impl(const HighFive::File & file, const std::string 
     std::cerr << "Warning: file " << filename << " does not have version information." << std::endl;
     return -1;
   }
+  warn_about_another_build(file, filename);
   const auto root = file.getGroup("/");
   if (const auto result = validate_collector_root(root); !result.empty()) {
     std::cerr << "Warning: file " << filename << " has a root group with unexpected structure: " << std::endl << result;
