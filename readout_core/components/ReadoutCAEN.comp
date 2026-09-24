@@ -15,8 +15,9 @@
 * Carlo choice based on the ray weight (`event_mode="p"`) or its square
 * (`"pp"`); if the draw is non-zero the event-identifying values are read
 * from named particle variables (typically USER_VARS) and sent as ESS
-* readout UDP packets to a running EFU. If the draw is zero the neutron can
-* optionally be replaced by random noise (`noisy`). The record layout is the
+* readout UDP packets to a running EFU. A neutron arriving with zero weight is
+* skipped, or with `noisy` set is replaced by a random noise event with
+* probability `noise_level`. The record layout is the
 * CAEN readout used by position-sensitive He-3 tubes and B-10 straw bundles.
 *
 * This is the legacy runtime-streaming mode: the EFU must be reachable while
@@ -58,8 +59,8 @@
 * broadcast: [1]   flag controlling whether event packets are actually sent
 * pulse_rate: [Hz] reference-time pulse rate used to build EFU timestamps
 * fold_tof: [1]    flag: send tof mod (1/pulse_rate) rather than the full time-of-flight
-* noisy: [1]       flag: replace otherwise-dropped events with random noise
-* noise_level: [1] if noisy, fractional probability of noise
+* noisy: [1]       flag: replace zero-weight neutrons with random noise events, rather than skip them
+* noise_level: [1] if noisy, the probability that a zero-weight neutron becomes a noise event
 * event_mode: [str] "p" draws n ~ Poisson(p); "pp" draws n ~ Poisson(p^2)
 * filename: [str]  if given, the ray data passed to the broadcaster is also stored to this HDF5 file
 * merge_mpi: [1]   flag: merge per-node HDF5 files after an MPI run
@@ -219,38 +220,43 @@ if (p_or_pp) pp *= pp;
 int int_ring, int_fen, int_tube, int_A, int_B, int_C, int_D;
 double double_tof;
 
-if (pp) {
-  int_ring = readout_particle_getvar_int(_particle, ring);
-  int_fen = fen_present ? readout_particle_getvar_int(_particle, fen) : fen_value;
-  int_tube = readout_particle_getvar_int(_particle, tube);
-  int_A = a_present ? readout_particle_getvar_int(_particle, a_name) : a_value;
-  int_B = b_present ? readout_particle_getvar_int(_particle, b_name) : b_value;
-  int_C = c_present ? readout_particle_getvar_int(_particle, c_name) : c_value;
-  int_D = d_present ? readout_particle_getvar_int(_particle, d_name) : d_value;
-  double_tof = particle_getvar(_particle, tof, 0);
-} else {
-  int_ring = (int)(rand01() * 3);
-  int_tube = (int)(rand01() * 15);
-  int_fen = fen_value;
-  int_A = a_present ? 100 + (int)(rand01() * 1024) : a_value;
-  int_B = b_present ? 100 + (int)(rand01() * 1024) : b_value;
-  int_C = c_present ? 100 + (int)(rand01() * 1024) : c_value;
-  int_D = d_present ? 100 + (int)(rand01() * 1024) : d_value;
-  double_tof = rand01() / pulse_rate;
-}
+// A zero-weight neutron carries no event. It is skipped, unless noise was asked for; the
+// check on `noisy` comes first so that nothing is drawn from the random-number stream
+// when it was not.
+if (pp || (noisy && rand01() < noise_level)) {
+  if (pp) {
+    int_ring = readout_particle_getvar_int(_particle, ring);
+    int_fen = fen_present ? readout_particle_getvar_int(_particle, fen) : fen_value;
+    int_tube = readout_particle_getvar_int(_particle, tube);
+    int_A = a_present ? readout_particle_getvar_int(_particle, a_name) : a_value;
+    int_B = b_present ? readout_particle_getvar_int(_particle, b_name) : b_value;
+    int_C = c_present ? readout_particle_getvar_int(_particle, c_name) : c_value;
+    int_D = d_present ? readout_particle_getvar_int(_particle, d_name) : d_value;
+    double_tof = particle_getvar(_particle, tof, 0);
+  } else {
+    int_ring = (int)(rand01() * 3);
+    int_tube = (int)(rand01() * 15);
+    int_fen = fen_value;
+    int_A = a_present ? 100 + (int)(rand01() * 1024) : a_value;
+    int_B = b_present ? 100 + (int)(rand01() * 1024) : b_value;
+    int_C = c_present ? 100 + (int)(rand01() * 1024) : c_value;
+    int_D = d_present ? 100 + (int)(rand01() * 1024) : d_value;
+    double_tof = rand01() / pulse_rate;
+  }
 
-// add error checking of int -> uintN_t values?
-uint8_t RING = (uint8_t)int_ring;
-uint8_t FEN = (uint8_t)int_fen;
-readout_data.channel = (uint8_t)int_tube;
-readout_data.a = (uint16_t)int_A;
-readout_data.b = (uint16_t)int_B;
-readout_data.c = (uint16_t)int_C;
-readout_data.d = (uint16_t)int_D;
-if (verbose > 2)
-  printf("(%2u %2u %2u) %5u %5u %0.10f -- Accumulated\n", RING, FEN, readout_data.channel, readout_data.a, readout_data.b, double_tof);
-// Send the event to the broadcaster to be accumulated and broadcast and/or store the event to file
-readout_add(readout_ptr, RING, FEN, double_tof, pp, (const void *)(&readout_data));
+  // add error checking of int -> uintN_t values?
+  uint8_t RING = (uint8_t)int_ring;
+  uint8_t FEN = (uint8_t)int_fen;
+  readout_data.channel = (uint8_t)int_tube;
+  readout_data.a = (uint16_t)int_A;
+  readout_data.b = (uint16_t)int_B;
+  readout_data.c = (uint16_t)int_C;
+  readout_data.d = (uint16_t)int_D;
+  if (verbose > 2)
+    printf("(%2u %2u %2u) %5u %5u %0.10f -- Accumulated\n", RING, FEN, readout_data.channel, readout_data.a, readout_data.b, double_tof);
+  // Send the event to the broadcaster to be accumulated and broadcast and/or store the event to file
+  readout_add(readout_ptr, RING, FEN, double_tof, pp, (const void *)(&readout_data));
+}
 
 %}
 
