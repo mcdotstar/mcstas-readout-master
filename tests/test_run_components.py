@@ -1006,6 +1006,62 @@ class TestCollectorFileReuse:
 
 
 # -----------------------------------------------------------------------
+# ReadoutCAEN noise for zero-weight neutrons
+# -----------------------------------------------------------------------
+@requires_run
+class TestRunReadoutCAENNoise:
+    """A zero-weight neutron is skipped unless `noisy`; with it, it is replaced by a noise
+    event with probability `noise_level`. Each readout mirrors what it sends into an HDF5
+    file, one row per event, which is what is counted here."""
+
+    RAYS = 2000
+
+    def test_noisy_decides_what_zero_weight_neutrons_become(self, tmp_path):
+        h5py = pytest.importorskip("h5py")
+        import numpy as np
+        from pathlib import Path
+
+        def readout(name, z, settings):
+            return f"""
+            COMPONENT {name} = ReadoutCAEN(
+              ring="RING", fen="FEN", tube="TUBE",
+              event_mode="p", a_name="A", b_name="B", tof="tof",
+              ip="127.0.0.1", port=9000, broadcast=0, filename="{name}"{settings}
+            ) AT (0, 0, {z}) ABSOLUTE"""
+
+        result, dats = _compile_and_run(dedent(f"""
+            DEFINE INSTRUMENT test_readout_caen_noise()
+            {CAEN_USERVARS}
+            TRACE
+            SEARCH SHELL "readout-config --show compdir"
+            {CAEN_ORIGIN_EXTEND}
+            """) + readout("weighted", 1, "") + """
+            COMPONENT weightless = Arm() AT (0, 0, 2) ABSOLUTE
+            EXTEND %{
+            p = 0;
+            %}""" + readout("quiet", 3, "") + readout("always", 4, ", noisy=1, noise_level=1")
+            + readout("half", 5, ", noisy=1, noise_level=0.5") + "\nEND\n",
+            parameters=f"-n {self.RAYS} -s 1234", directory=str(tmp_path))
+        assert b"TRACE end" in result
+
+        def events(name):
+            path = Path(tmp_path) / "t" / f"{name}.h5"
+            if not path.exists():
+                return 0
+            with h5py.File(str(path), "r") as f:
+                return f["events"].shape[0] if "events" in f else 0
+
+        # a neutron with weight is sent whatever `noisy` says
+        assert events("weighted") == self.RAYS
+        # without `noisy`, a zero-weight neutron is not sent at all
+        assert events("quiet") == 0
+        # with it, each becomes a noise event with probability noise_level
+        assert events("always") == self.RAYS
+        expected, sigma = 0.5 * self.RAYS, np.sqrt(0.25 * self.RAYS)
+        assert abs(events("half") - expected) < 5 * sigma
+
+        
+# -----------------------------------------------------------------------
 # Beam-monitor thinning and efficiency
 # -----------------------------------------------------------------------
 _MONITORS = {
@@ -1096,3 +1152,4 @@ def test_out_of_range_monitor_settings_stop_the_run(setting, tmp_path):
                          parameters="-n 10 filename=monitors", directory=str(tmp_path))
     text = str(failure.value) + str(getattr(failure.value, "stdout", "") or "")
     assert "keep_probability must be in (0, 1]" in text
+
