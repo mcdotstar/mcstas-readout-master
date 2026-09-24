@@ -5,6 +5,8 @@
 #include <CollectorClass.h>
 #include <filesystem>
 #include <cstring>
+#include <iostream>
+#include <sstream>
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
 #include <process.h>
@@ -312,3 +314,61 @@ TEST_CASE("EFU attributes survive concatenate_collector_files", "[collector][efu
 //   }
 //   std::remove(filename.c_str());
 // }
+
+// ---- Validation and the build that wrote a file ----
+
+namespace {
+/// Capture what is written to std::cerr for the lifetime of this object.
+class CaptureCerr {
+public:
+  CaptureCerr(): old(std::cerr.rdbuf(buffer.rdbuf())) {}
+  ~CaptureCerr() { std::cerr.rdbuf(old); }
+  std::string str() const { return buffer.str(); }
+private:
+  std::ostringstream buffer;
+  std::streambuf * old;
+};
+}
+
+TEST_CASE("Validation warns about a file another libreadout build wrote", "[collector][validate]") {
+  auto filename = temp_h5("col_build_");
+  {
+    auto col = collector_new(filename.c_str(), "events", 0x34, 1u);
+    REQUIRE(col != nullptr);
+    CAEN_readout_t data{1, 100, 200, 0, 0};
+    collector_add(col, 0, 0, 0.5, 1.0, &data);
+    collector_free(col);
+  }
+  SECTION("this build's file validates without a word") {
+    CaptureCerr err;
+    CHECK(validate_collector_file(filename) == 1);
+    CHECK(err.str().find("was written by") == std::string::npos);
+  }
+  SECTION("another build's file is still valid, and says whose it is") {
+    {
+      HighFive::File file(filename, HighFive::File::ReadWrite);
+      file.getAttribute(CollectorSink::revision_attribute_name()).write(std::string("another-build"));
+    }
+    CaptureCerr err;
+    CHECK(validate_collector_file(filename) == 1);
+    CHECK(err.str().find("was written by libreadout") != std::string::npos);
+    CHECK(err.str().find("another-build") != std::string::npos);
+  }
+  SECTION("opening another build's file to read it warns the same way, unless asked not to") {
+    {
+      HighFive::File file(filename, HighFive::File::ReadWrite);
+      file.getAttribute(CollectorSink::revision_attribute_name()).write(std::string("another-build"));
+    }
+    {
+      CaptureCerr err;
+      const ReaderSource source(filename);
+      CHECK(err.str().find("another-build") != std::string::npos);
+    }
+    {
+      CaptureCerr err;
+      const ReaderSource source(filename, false);
+      CHECK(err.str().empty());
+    }
+  }
+  std::remove(filename.c_str());
+}

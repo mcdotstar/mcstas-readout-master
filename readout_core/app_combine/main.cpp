@@ -18,7 +18,8 @@ bool print_file_info(const std::string & filename) {
   std::cout << filename << ": valid, " << points << " point(s)";
   // Attempt to open via ReaderSource to get group/parameter names.
   try {
-    const ReaderSource source(filename);
+    // validation above has already warned about a file from another build
+    const ReaderSource source(filename, false);
     std::cout << ", collectors: [";
     bool first = true;
     for (const auto & reader : source.readers()) {
