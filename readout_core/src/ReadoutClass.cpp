@@ -6,12 +6,17 @@
 ///
 //===----------------------------------------------------------------------===//
 #include "ReadoutClass.h"
+#include "LongTof.h"
 
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <tuple>
+
+void Readout::report_long_tof() const {
+  if (verbosity >= 0) long_tof::report("Readout", long_tof_, period, fold_tof_, false);
+}
 
 void Readout::setPulseTime(const uint32_t PHI, const uint32_t PLO, const uint32_t PPHI, const uint32_t PPLO) {
   phi = PHI;
@@ -182,9 +187,12 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const double tof
     if (verbosity > 1) std::cout << "No readout added to buffer due to disabled network" << std::endl;
     return;
   }
-  // provided time-of-flight plus the current pulse time
-  auto t = efu_time(tof) + time;
-  // TODO implement t = (tof % period) + time -- such that we have realistic reference times
+  if (long_tof::is_long(tof, period) && long_tof_++ == 0 && verbosity >= 0) {
+    long_tof::report("Readout", long_tof_, period, fold_tof_, true);
+  }
+  // provided time-of-flight plus the current pulse time; folding attributes the
+  // event to the frame it would be detected in, as the real readout reports it
+  const auto t = fold_tof_ ? time + (efu_time(tof) % period) : time + efu_time(tof);
   lasthi = t.high();
   lastlo = t.low();
   // send the same event (possibly) multiple times, depending on the weighted counting rate

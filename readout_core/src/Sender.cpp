@@ -6,6 +6,7 @@
 ///
 //===----------------------------------------------------------------------===//
 #include "Sender.h"
+#include "LongTof.h"
 
 #include <chrono>
 #include <cstring>
@@ -222,10 +223,17 @@ void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t,
 }
 
 
+void Sender::report_long_tof() const {
+  if (verbosity >= 0) long_tof::report("Sender", long_tof_, period, fold_tof_, false);
+}
+
 void Sender::addReadout(const uint8_t Ring, const uint8_t FEN, const double tof, const double, const void *data) {
   // FIXME Make this class thread safe by adding a mutex lock
   // roll a full packet first, so the event time uses the packet's pulse time
   check_size_and_send();
+  if (long_tof::is_long(tof, period) && long_tof_++ == 0 && verbosity >= 0) {
+    long_tof::report("Sender", 1, period, fold_tof_, true);
+  }
   // provided time-of-flight plus the current pulse time; folding attributes the
   // event to the frame it would be detected in, as the real readout reports it
   const auto t = fold_tof_ ? time + (efu_time(tof) % period) : time + efu_time(tof);

@@ -37,6 +37,11 @@ extern "C" {
     obj->addReadout(ring, fen, time_of_flight, weight, data);
   }
 
+  void readout_fold_tof(readout_t * r_ptr, const int enable){
+    if (r_ptr == nullptr) return;
+    static_cast<Readout *>(r_ptr->obj)->fold_tof(enable != 0);
+  }
+
   // Send the current data buffer for the Readout object
   void readout_send(readout_t* r_ptr)
   {

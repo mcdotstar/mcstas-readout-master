@@ -57,6 +57,7 @@ public:
   ~Readout() {
     // ensure any buffered data is sent before the object is destroyed
     send();
+    report_long_tof();
   }
 
   /// Add a weighted readout: draws n ~ Poisson(weight) and buffers the event n
@@ -126,6 +127,14 @@ public:
   /// Also store every added readout to a legacy flat HDF5 file (see Writer).
   void dump_to(const std::string & filename, const std::string & dataset_name = "events");
 
+  /// Choose whether add-by-time-of-flight readouts are stamped at
+  /// pulse + (tof % period) — attributing each event to the frame it would be
+  /// detected in, as the real readout system reports it — instead of pulse + tof.
+  /// Either way, a time-of-flight of a period or more is counted and reported.
+  void fold_tof(const bool fold) { fold_tof_ = fold; }
+  /// How many readouts so far had a time-of-flight of at least one pulse period.
+  [[nodiscard]] uint64_t long_tof_count() const { return long_tof_; }
+
   void enable_network() {network = true;}
   void disable_network() {network = false;}
 
@@ -171,6 +180,9 @@ private:
 
   std::optional<Writer> writer{std::nullopt};
   bool network{true};
+  bool fold_tof_{false};
+  uint64_t long_tof_{0};
+  void report_long_tof() const;
   efu_time period, time;
   cluon::UDPSender sender;
 

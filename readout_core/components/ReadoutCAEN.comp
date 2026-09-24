@@ -25,7 +25,11 @@
 *
 * Reference timestamps are derived from `pulse_rate` and the simulation
 * wall-clock; the event time is the most recent reference time plus the
-* neutron time-of-flight.
+* neutron time-of-flight, folded into one pulse period (`fold_tof`, on by
+* default) as the real readout reports it. A time-of-flight of a period or more
+* is reported on stderr, folded or not: it usually means the instrument should
+* report times from the pulse the neutron arrives in, and an EFU rejects
+* unfolded times beyond its MaxTOFNS configuration value.
 *
 * Example: COMPONENT readout = ReadoutCAEN(
 *     ring="ring_id", tube="tube_id", a_name="left", b_name="right",
@@ -53,6 +57,7 @@
 * command_port: [1] EFU command TCP port
 * broadcast: [1]   flag controlling whether event packets are actually sent
 * pulse_rate: [Hz] reference-time pulse rate used to build EFU timestamps
+* fold_tof: [1]    flag: send tof mod (1/pulse_rate) rather than the full time-of-flight
 * noisy: [1]       flag: replace otherwise-dropped events with random noise
 * noise_level: [1] if noisy, fractional probability of noise
 * event_mode: [str] "p" draws n ~ Poisson(p); "pp" draws n ~ Poisson(p^2)
@@ -90,6 +95,7 @@ int port = 9000,
 int command_port = 10800,
 int broadcast = 1,
 pulse_rate = 14,
+int fold_tof = 1,
 int noisy=0,
 noise_level=0.1,
 string event_mode = "p",
@@ -133,6 +139,7 @@ if (ip == 0 || ip[0] == '\0'){
 readout_newPacket(readout_ptr);
 readout_verbose(readout_ptr, verbose);
 if (!broadcast) readout_disable_network(readout_ptr);
+readout_fold_tof(readout_ptr, fold_tof);
 
 if ((filename != NULL) && (filename[0] != '\0')){
 #if defined USE_MPI
