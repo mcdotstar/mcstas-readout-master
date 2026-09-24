@@ -15,8 +15,6 @@ from conftest import (
     _build_env,
     CAEN_USERVARS,
     CAEN_ORIGIN_EXTEND,
-    TTL_USERVARS,
-    TTL_ORIGIN_EXTEND,
     CDT_USERVARS,
     CDT_ORIGIN_EXTEND,
     VMM3_USERVARS,
@@ -211,78 +209,8 @@ class TestRunCollectorCAEN:
 
 
 # -----------------------------------------------------------------------
-# ReadoutTTLMonitor run
-# -----------------------------------------------------------------------
-@requires_run
-class TestRunReadoutTTLMonitor:
-    def test_run_broadcast_off(self):
-        """ReadoutTTLMonitor with broadcast=0 runs without error."""
-        result, dats = _compile_and_run(dedent(f"""
-            DEFINE INSTRUMENT test_ttl_run()
-            {TTL_USERVARS}
-            TRACE
-            SEARCH SHELL "readout-config --show compdir"
-            {TTL_ORIGIN_EXTEND}
-            COMPONENT monitor = ReadoutTTLMonitor(
-              ring="RING", fen="FEN",
-              position="A", identity="TUBE", value="B", tof="tof",
-              ip="127.0.0.1", port=9001, broadcast=0
-            ) AT (0, 0, 1) ABSOLUTE
-            END
-            """))
-        assert b"TRACE end" in result
-
-
-# -----------------------------------------------------------------------
 # Multi-component run
 # -----------------------------------------------------------------------
-# -----------------------------------------------------------------------
-# CollectorTTLMonitor run — description-based TTLMonitor component
-# -----------------------------------------------------------------------
-@requires_run
-class TestRunCollectorTTLMonitor:
-    def test_star_component_writes_sendable_layout(self, tmp_path):
-        """CollectorTTLMonitor stores records with canonical TTLMonitor layout."""
-        h5py = pytest.importorskip("h5py")
-
-        result, dats = _compile_and_run(dedent(f"""
-            DEFINE INSTRUMENT test_collector_ttl(string filename="ttl_test")
-            {TTL_USERVARS}
-            TRACE
-            SEARCH SHELL "readout-config --show compdir"
-            {TTL_ORIGIN_EXTEND}
-            COMPONENT collector = CollectorTTLMonitor(
-              ring="RING", fen="FEN",
-              position="A", identity="TUBE", value="B", tof="tof",
-              filename=filename, verbose=1
-            ) AT (0, 0, 1) ABSOLUTE
-            END
-            """), parameters="-n 50 filename=ttl_test", directory=str(tmp_path))
-        assert b"TRACE end" in result
-        from pathlib import Path
-        h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
-        assert len(h5_files) > 0
-
-        h5_path = h5_files[0]
-        assert Path(h5_path).exists(), f"HDF5 file not found: {h5_path}"
-        with h5py.File(str(h5_path), "r") as f:
-            assert "collector" in f, f"Missing 'collector' group; keys: {list(f.keys())}"
-            group = f["collector"]
-            for required in ("readouts", "cues", "weights", "normalizations"):
-                assert required in group, f"Missing '{required}' in collector group"
-            ds = group["readouts"]
-            assert ds.shape[0] == 50, f"Expected 50 records, got {ds.shape[0]}"
-            assert ds.dtype.names == ("ring", "FEN", "time", "weight", "channel", "pos", "adc")
-            assert ds.dtype.itemsize == 32, f"Expected itemsize 32, got {ds.dtype.itemsize}"
-            assert "description" in ds.attrs
-            assert "detector" not in ds.attrs
-            assert "readout" not in ds.attrs
-            # the detector identity (EFU packet-type byte at replay) is a GROUP attribute
-            assert "detector" in group.attrs
-            total = group["weights"][()].sum()
-            assert total > 0.0
-
-
 # -----------------------------------------------------------------------
 # CollectorCDT run — description-based CDT component
 # -----------------------------------------------------------------------
@@ -538,12 +466,6 @@ class TestRunMultiComponent:
               event_mode="p", a_name="A", b_name="B", tof="tof",
               ip="127.0.0.1", port=9000, broadcast=0
             ) AT (0, 0, 1) ABSOLUTE
-            
-            COMPONENT monitor = ReadoutTTLMonitor(
-              ring="RING", fen="FEN",
-              position="A", identity="TUBE", value="B", tof="tof",
-              ip="127.0.0.1", port=9001, broadcast=0
-            ) AT (0, 0, 2) ABSOLUTE
             
             COMPONENT collector = CollectorCAEN(
               ring="RING", fen="FEN", tube="TUBE",

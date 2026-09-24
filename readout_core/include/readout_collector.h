@@ -88,7 +88,7 @@ extern "C" {
    * \param data Pointer to the readout data structure, which should match the type specified when creating
    *             the Collector object. The structure of the data will be determined by the ReadoutType enum value given
    *             at creation, and should correspond to one of the defined readout structures
-   *             (e.g. CAEN_readout_t, TTLMonitor_readout_t, CDT_readout_t, VMM3_readout_t).
+   *             (e.g. CAEN_readout_t, CDT_readout_t, VMM3_readout_t, BM0_readout_t).
    *             If the type of the data does not match the expected structure for the Collector's readout type,
    *             the behavior is undefined (it may cause a crash or it may write incorrect data to the file).
    *             It is the responsibility of the caller to ensure that the data pointer is valid and points to a

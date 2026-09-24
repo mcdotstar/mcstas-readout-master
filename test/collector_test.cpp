@@ -47,25 +47,6 @@ TEST_CASE("Collector CAEN create, add, and read back", "[collector][CAEN]") {
   std::remove(filename.c_str());
 }
 
-TEST_CASE("Collector TTLMonitor create, add, and read back", "[collector][TTLMonitor]") {
-  auto filename = temp_h5("col_ttl_");
-  const int type = 0x10; // TTLMonitor
-  {
-    auto col = collector_new(filename.c_str(), "events", type, 1u);
-    REQUIRE(col != nullptr);
-    TTLMonitor_readout_t data{1, 5, 300};
-    collector_add(col, 0, 10, 0.1, 1.0, &data);
-    collector_free(col);
-  }
-  {
-    ReaderSource source(filename);
-    const auto & reader = source.reader("events");
-    CHECK(reader.readout_type() == ReadoutType::TTLMonitor);
-    CHECK(reader.size() == 1);
-  }
-  std::remove(filename.c_str());
-}
-
 TEST_CASE("Collector CDT create, add, and read back", "[collector][CDT]") {
   auto filename = temp_h5("col_cdt_");
   const int type = 0x60; // DREAM -> CDT

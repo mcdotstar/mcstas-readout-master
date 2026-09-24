@@ -6,8 +6,6 @@ const char * readout_type_description(const ReadoutType readout) {
   switch (readout) {
     case ReadoutType::CAEN:
       return "uint8_t ring; uint8_t FEN; double time; double weight; uint8_t channel; uint16_t a; uint16_t b; uint16_t c; uint16_t d;";
-    case ReadoutType::TTLMonitor:
-      return "uint8_t ring; uint8_t FEN; double time; double weight; uint8_t channel; uint8_t pos; uint16_t adc;";
     case ReadoutType::CDT:
       return "uint8_t ring; uint8_t FEN; double time; double weight; uint8_t om; uint8_t cathode; uint8_t anode;";
     case ReadoutType::VMM3:

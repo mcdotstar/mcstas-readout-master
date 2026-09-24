@@ -177,32 +177,6 @@ p = 1;
 %}
 """
 
-TTL_USERVARS = """\
-USERVARS %{
-int RING;
-int FEN;
-int TUBE;
-int A;
-int B;
-double tof;
-%}
-"""
-
-TTL_ORIGIN_EXTEND = """\
-COMPONENT origin = Arm() AT (0, 0, 0) ABSOLUTE
-EXTEND %{
-RING = 1;
-FEN = 2;
-TUBE = 3;
-A = 10;
-B = 1;
-tof = 0.001;
-x = 0; y = 0; z = 0;
-vx = 0; vy = 0; vz = 1000;
-p = 1;
-%}
-"""
-
 CDT_USERVARS = """\
 USERVARS %{
 int RING;

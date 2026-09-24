@@ -40,7 +40,7 @@ This installs `libreadout`, the `readout-config`, `readout-combine`, and
 ### 2. Collect
 
 Add a `Collector*` component matching your detector electronics
-(CAEN, TTLMonitor, CDT, VMM3, BM0, BM2, BMI) to the end of your instrument's
+(CAEN, CDT, VMM3, BM0, BM2, BMI) to the end of your instrument's
 `TRACE` section. Identifying values are read *by name* from particle variables
 (typically `USER_VARS` set in an `EXTEND` block):
 
@@ -80,7 +80,7 @@ defaults — in that order. See the
 ## Legacy runtime streaming
 
 The original per-ray streaming components remain available for use cases where the
-EFU runs alongside the simulation: `ReadoutCAEN` and `ReadoutTTLMonitor` make a
+EFU runs alongside the simulation: `ReadoutCAEN` makes a
 Poisson-distributed Monte Carlo choice per traced neutron and send packets
 immediately, and `ReadoutDiscreteCAEN` sends an exact number of weighted-sampled
 events at the end of the run. Their parameters are documented on the site and in

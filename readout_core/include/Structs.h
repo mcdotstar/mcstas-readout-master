@@ -56,18 +56,6 @@ PACK(struct CaenData {
        uint16_t AmplD;
      });
 
-/// \brief TTL beam-monitor readout, from the TTLMonitor ICD.
-PACK(struct TTLMonitorData {
-       uint8_t Ring;
-       uint8_t FEN;
-       uint16_t Length;
-       uint32_t TimeHigh;
-       uint32_t TimeLow;
-       uint8_t Pos;
-       uint8_t Channel;
-       uint16_t ADC;
-     });
-
 /// \brief CDT readout, from EFU src/modules/dream/readout/DataParser.h.
 /// Used by: DREAM, MAGIC, HEIMDAL.
 PACK(struct CDTData {
@@ -99,7 +87,10 @@ PACK(struct VMM3Data {
      });
 
 /// \brief Minimal beam-monitor readout for point monitors digitized via, e.g.,
-/// NI14125, NI128D, R5560; these all have Type == 0x01.
+/// NI14125, NI128D, R5560. All three beam-monitor layouts are the EFU's CbmReadout
+/// (src/modules/cbm/readout/Parser.h): `Type` selects EVENT_0D (1), EVENT_2D (2) or
+/// IBM (3) -- see cbmType_from_readoutType() -- and `Ring` is the fibre, 2N or 2N+1 for
+/// the EFU's configured MonitorRing N.
 PACK(struct BM0Data {
   uint8_t Ring;
   uint8_t FEN;

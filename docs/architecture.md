@@ -9,7 +9,7 @@ during the simulation.
 ## Collection
 
 Collection happens through the `Collector{ReadoutType}` component family
-(CAEN, TTLMonitor, CDT, VMM3, BM0, BM2, BMI — see the [component pages](@ref components)).
+(CAEN, CDT, VMM3, BM0, BM2, BMI — see the [component pages](@ref components)).
 Each component stores whole records through the description-based collector engine:
 the C-struct layout of one record is described by a canonical string
 (`readout_core/include/readout_type_descriptions.h`) parsed at runtime into an HDF5
@@ -19,8 +19,10 @@ Multiple components write independent named groups into one file, each with the
 cue-based layout `readouts`, `cues`, `weights`, `normalizations`, managed by the
 singleton CollectorSink (`readout_core/include/CollectorClass.h`), which also records
 instrument parameters. Routing information lives as group attributes: the detector
-identity (from the component's `ess_type` — it becomes the ESS packet-type byte that
-EFUs filter on at replay) and optional EFU address and port. The record layout itself
+identity (from the component's `ess_type` — for an instrument it becomes the ESS
+packet-type byte that EFUs filter on at replay; every beam monitor is sent in packets of
+the EFU's CBM type, `0x10`, with its format — 0-D, 2-D or IBM — in each readout's own
+type byte) and optional EFU address and port. The record layout itself
 carries no attributes: it is the dataset's own compound datatype.
 
 Users can collect arbitrary additional data by passing their own struct-description
@@ -63,7 +65,7 @@ and, for each point:
 
 ## Legacy runtime streaming
 
-The per-ray broadcasting components (`ReadoutCAEN`, `ReadoutTTLMonitor`,
+The per-ray broadcasting components (`ReadoutCAEN`,
 `ReadoutDiscreteCAEN`) remain for in-simulation streaming use cases where a running
 EFU is reachable during the simulation. They draw the Poisson sample per traced
 neutron at runtime instead of storing records for later replay.

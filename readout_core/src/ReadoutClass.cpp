@@ -6,12 +6,17 @@
 ///
 //===----------------------------------------------------------------------===//
 #include "ReadoutClass.h"
+#include "LongTof.h"
 
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <tuple>
+
+void Readout::report_long_tof() const {
+  if (verbosity >= 0) long_tof::report("Readout", long_tof_, period, fold_tof_, false);
+}
 
 void Readout::setPulseTime(const uint32_t PHI, const uint32_t PLO, const uint32_t PPHI, const uint32_t PPLO) {
   phi = PHI;
@@ -34,10 +39,12 @@ void Readout::newPacket() {
   memset(buffer, 0x00, sizeof(buffer));
   hp->Padding0 = 0;
   hp->Version = 0;
-  hp->CookieAndType = (Type << 24) + 0x535345;
+  // an EFU filters on this byte: every beam-monitor format shares the CBM packet type
+  hp->CookieAndType = (static_cast<uint32_t>(packetType_from_detectorType(Type)) << 24) + 0x535345;
   hp->OutputQueue = OutputQueue;
   hp->TotalLength = sizeof(struct PacketHeaderV0);
-  hp->SeqNum = SeqNum++;
+  // numbered when sent, not when started: update_time() starts a packet twice
+  hp->SeqNum = SeqNum;
   hp->TimeSource = 0;
   hp->PulseHigh = phi;
   hp->PulseLow = plo;
@@ -71,26 +78,6 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
   dp->AmplB = data->b;
   dp->AmplC = data->c;
   dp->AmplD = data->d;
-  DataSize += dp->Length;
-  hp->TotalLength = DataSize;
-}
-
-void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t, const TTLMonitor_readout_t *data) {
-  if (verbosity > 2){
-    std::cout << "Add to the packet Ring=" << static_cast<unsigned>(Ring) << " FEN=" << static_cast<unsigned>(FEN);
-    std::cout << " TimeHigh=" << t.high() << " TimeLow=" << t.low() << " Pos=" << static_cast<unsigned>(data->pos);
-    std::cout << " Channel=" << static_cast<unsigned>(data->channel) << " ADC=" << data->adc << std::endl;
-  }
-  check_size_and_send();
-  auto *dp = (struct TTLMonitorData *)(buffer + DataSize);
-  dp->Ring = Ring;
-  dp->FEN = FEN;
-  dp->Length = sizeof(struct TTLMonitorData);
-  dp->TimeHigh = t.high();
-  dp->TimeLow = t.low();
-  dp->Pos = data->pos;
-  dp->Channel = data->channel;
-  dp->ADC = data->adc;
   DataSize += dp->Length;
   hp->TotalLength = DataSize;
 }
@@ -136,6 +123,7 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
   dp->Length = sizeof(struct BM0Data);
   dp->TimeHigh = t.high();
   dp->TimeLow = t.low();
+  dp->Type = cbmType_from_readoutType(ReadoutType::BM0);
   dp->Channel = data->channel;
   DataSize += dp->Length;
   hp->TotalLength = DataSize;
@@ -149,6 +137,7 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
   dp->Length = sizeof(struct BM2Data);
   dp->TimeHigh = t.high();
   dp->TimeLow = t.low();
+  dp->Type = cbmType_from_readoutType(ReadoutType::BM2);
   dp->Channel = data->channel;
   dp->X = data->pos_x;
   dp->Y = data->pos_y;
@@ -168,6 +157,7 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
   dp->Length = sizeof(struct BMIData);
   dp->TimeHigh = t.high();
   dp->TimeLow = t.low();
+  dp->Type = cbmType_from_readoutType(ReadoutType::BMI);
   dp->Channel = data->channel;
   dp->Pack = pack;
   DataSize += dp->Length;
@@ -182,9 +172,12 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const double tof
     if (verbosity > 1) std::cout << "No readout added to buffer due to disabled network" << std::endl;
     return;
   }
-  // provided time-of-flight plus the current pulse time
-  auto t = efu_time(tof) + time;
-  // TODO implement t = (tof % period) + time -- such that we have realistic reference times
+  if (long_tof::is_long(tof, period) && long_tof_++ == 0 && verbosity >= 0) {
+    long_tof::report("Readout", long_tof_, period, fold_tof_, true);
+  }
+  // provided time-of-flight plus the current pulse time; folding attributes the
+  // event to the frame it would be detected in, as the real readout reports it
+  const auto t = fold_tof_ ? time + (efu_time(tof) % period) : time + efu_time(tof);
   lasthi = t.high();
   lastlo = t.low();
   // send the same event (possibly) multiple times, depending on the weighted counting rate
@@ -203,7 +196,6 @@ void Readout::addReadout(const uint8_t Ring, const uint8_t FEN, const efu_time t
   const auto type = readoutType_from_detectorType(Type);
   switch (type) {
     case ReadoutType::CAEN: return addReadout(Ring, FEN, t, static_cast<const CAEN_readout_t*>(data));
-    case ReadoutType::TTLMonitor: return addReadout(Ring, FEN, t, static_cast<const TTLMonitor_readout_t*>(data));
     case ReadoutType::CDT: return addReadout(Ring, FEN, t, static_cast<const CDT_readout_t*>(data));
     case ReadoutType::VMM3: return addReadout(Ring, FEN, t, static_cast<const VMM3_readout_t*>(data));
     case ReadoutType::BM0: return addReadout(Ring, FEN, t, static_cast<const BM0_readout_t*>(data));
@@ -224,6 +216,9 @@ int Readout::send() {
     if (verbosity > 1) std::cout << "No packet sent due to disabled network" << std::endl;
     return 0;
   }
+  // An EFU expects consecutive numbers per output queue, so a packet takes the next
+  // number only as it goes out -- as in Sender.
+  hp->SeqNum = SeqNum++;
   auto chr_ptr = reinterpret_cast<char *>(buffer);
   auto [bytes, error_code] = sender.send(std::string(chr_ptr, chr_ptr + DataSize));
   if (error_code < 0 && verbosity > -1){

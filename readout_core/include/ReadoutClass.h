@@ -30,7 +30,7 @@
  * exactly once); it can also mirror every stored record to a legacy flat
  * HDF5 file via dump_to(). The replay path uses Sender instead.
  */
-class Readout {
+class RL_API Readout {
 public:
   Readout(
       std::string IpAddress,
@@ -57,6 +57,7 @@ public:
   ~Readout() {
     // ensure any buffered data is sent before the object is destroyed
     send();
+    report_long_tof();
   }
 
   /// Add a weighted readout: draws n ~ Poisson(weight) and buffers the event n
@@ -67,7 +68,6 @@ public:
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const void * data);
   // Specializations for handled data types
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const CAEN_readout_t * data);
-  void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const TTLMonitor_readout_t * data);
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const CDT_readout_t * data);
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const VMM3_readout_t * data);
   void addReadout(uint8_t Ring, uint8_t FEN, efu_time t, const BM0_readout_t * data);
@@ -126,6 +126,24 @@ public:
   /// Also store every added readout to a legacy flat HDF5 file (see Writer).
   void dump_to(const std::string & filename, const std::string & dataset_name = "events");
 
+  /// Choose whether add-by-time-of-flight readouts are stamped at
+  /// pulse + (tof % period) — attributing each event to the frame it would be
+  /// detected in, as the real readout system reports it — instead of pulse + tof.
+  /// Either way, a time-of-flight of a period or more is counted and reported.
+  void fold_tof(const bool fold) { fold_tof_ = fold; }
+  /// How many readouts so far had a time-of-flight of at least one pulse period.
+  [[nodiscard]] uint64_t long_tof_count() const { return long_tof_; }
+
+  /// Send on this output queue (0 until set). An EFU keeps one packet sequence per
+  /// queue, so several processes sending to one EFU -- MPI ranks -- each need their own.
+  void output_queue(const int queue) {
+    OutputQueue = queue;
+    hp->OutputQueue = static_cast<uint8_t>(queue);
+  }
+  [[nodiscard]] int output_queue() const { return OutputQueue; }
+  /// The number the next packet will be sent with.
+  [[nodiscard]] int sequence_number() const { return SeqNum; }
+
   void enable_network() {network = true;}
   void disable_network() {network = false;}
 
@@ -171,6 +189,9 @@ private:
 
   std::optional<Writer> writer{std::nullopt};
   bool network{true};
+  bool fold_tof_{false};
+  uint64_t long_tof_{0};
+  void report_long_tof() const;
   efu_time period, time;
   cluon::UDPSender sender;
 

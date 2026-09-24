@@ -30,7 +30,9 @@
 * %P
 * INPUT PARAMETERS:
 *
-* ring: [str]       name of the particle variable holding the Ring (fibre) ID; required
+* ring: [str]       name of the particle variable holding the fibre ID; required. The EFU
+*                   reads fibres 2N and 2N+1 as its ring N, so for a cbm EFU configured with
+*                   "MonitorRing": N this must hold 2N or 2N+1
 * fen: [str]        name of the particle variable holding the Front End Node ID; empty uses fen_value
 * channel_name: [str] name of the particle variable holding the monitor channel; empty uses channel_value
 * tof: [str]        name of the particle variable holding the time-of-flight; "t" reads the ray time
@@ -42,7 +44,8 @@
 * filename: [str]   HDF5 output file; empty stores to "collected_events"; several collectors may share one file
 * dataset_name: [str] collector group name inside the file; empty uses the component instance name
 * verbose: [1]      -1: silent, 0: errors, 1: warnings, 2: info, 3: details
-* ess_type: [1]     ESS DetectorType byte stored with the group; 0xf0 (CBM0) is the only type
+* ess_type: [1]     library DetectorType stored with the group (replay sends CBM0, CBM1,
+*                   CBM2 and CBMI in packets of the EFU's CBM type, 0x10); 0xf0 (CBM0) is the only type
 *                   that maps to the BM0 readout layout
 * efu_address: [str] optional EFU address stored as a group attribute for replay routing
 * efu_port: [1]     optional EFU UDP port stored as a group attribute for replay routing

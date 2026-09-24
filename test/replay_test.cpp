@@ -140,22 +140,21 @@ TEST_CASE("Store and retrieve CAEN packets", "[c][CAEN][io]"){
 
 // Test filling a file, then reading back its contents and sending them to a UDP listener ...
 //
-TEST_CASE("Store, replay and receive TTLMonitor packets","[c][TTLMonitor][io]"){
+TEST_CASE("Store, replay and receive integrating beam-monitor packets","[c][CBM][io]"){
   // create a temporary filename where we can store an HDF5 file:
   namespace fs=std::filesystem;
   auto tdir = fs::temp_directory_path();
   fs::path filepath = tdir;
-  filepath /= fs::path(pid_filename("replay_ttlmonitor",".h5"));
+  filepath /= fs::path(pid_filename("replay_bmi",".h5"));
   auto filename = filepath.string();
 
   const uint16_t max{1000};
-  uint32_t monitor_type{0x10};
   int monitor_port{9004};
 
   auto stats = std::make_shared<UDPStats>();
 
   cluon::UDPReceiver monitor_receiver("127.0.0.1", monitor_port,
-    [stats,monitor_type](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+    [stats](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
       // data must contain [PacketHeaderV0, readout, readout, ...].
       auto ptr = data.data();
       auto * header = reinterpret_cast<PacketHeaderV0*>(ptr);
@@ -164,16 +163,20 @@ TEST_CASE("Store, replay and receive TTLMonitor packets","[c][TTLMonitor][io]"){
       auto type = (header->CookieAndType) >> 24;
       auto cookie =  (header->CookieAndType - (type << 24));
       REQUIRE(cookie == 0x535345);  // ESS identifier
-      REQUIRE(monitor_type == type);
+      // stored as CBMI, sent as the EFU's DetectorType::CBM
+      REQUIRE(type == CBM_PACKET_TYPE);
       ptr += sizeof(PacketHeaderV0);
-      size_t readout_size = sizeof(struct TTLMonitorData);
+      size_t readout_size = sizeof(struct BMIData);
       auto readouts = (header->TotalLength - sizeof(PacketHeaderV0)) / readout_size;
       for (size_t i=0; i < readouts; ++i){
-        auto *r = reinterpret_cast<TTLMonitorData *>(ptr + i * readout_size);
-        REQUIRE(r->Ring == 0);
-        REQUIRE(r->FEN == 100);
-        REQUIRE(r->Pos == 3);
+        auto *r = reinterpret_cast<BMIData *>(ptr + i * readout_size);
+        REQUIRE(r->Ring == 22);
+        REQUIRE(r->FEN == 1);
+        REQUIRE(r->Type == 3);  // CbmType::IBM
         REQUIRE((r->Channel == 1 || r->Channel == 0));
+        // the EFU's NormADC: a 24-bit little-endian ADC, then the MCA sum
+        REQUIRE((r->Pack >> 24) == 7);
+        REQUIRE((r->Pack & 0x00FFFFFF) < max + 1u);
       }
       stats->packets++;
       stats->readouts += readouts;
@@ -181,19 +184,18 @@ TEST_CASE("Store, replay and receive TTLMonitor packets","[c][TTLMonitor][io]"){
   REQUIRE(monitor_receiver.isRunning());
 
   char addr[] = "127.0.0.1";
-  auto * collector = collector_new(filename.c_str(), "events", static_cast<int>(monitor_type), 1u);
+  auto * collector = collector_new(filename.c_str(), "events", static_cast<int>(CBMI), 1u);
   REQUIRE(collector != nullptr);
-  TTLMonitor_readout_t ttl_data;
+  BMI_readout_t bmi_data;
+  bmi_data.sum = 7;
   for (uint16_t i=0; i<max; ++i){
-    uint8_t tube = 3;
-    double tof = static_cast<double>(i)/static_cast<double>(max);
-    ttl_data.pos = tube;
-    ttl_data.channel = 0;
-    ttl_data.adc = i;
-    collector_add(collector, 0, 100, tof, 0.0, static_cast<const void *>(&ttl_data));
-    ttl_data.channel = 1;
-    ttl_data.adc = max - i;
-    collector_add(collector, 0, 100, tof, 0.0, static_cast<const void *>(&ttl_data));
+    double tof = static_cast<double>(i)/static_cast<double>(max)/14.;
+    bmi_data.channel = 0;
+    bmi_data.adc = i;
+    collector_add(collector, 22, 1, tof, 0.0, static_cast<const void *>(&bmi_data));
+    bmi_data.channel = 1;
+    bmi_data.adc = max - i;
+    collector_add(collector, 22, 1, tof, 0.0, static_cast<const void *>(&bmi_data));
   }
   collector_free(collector);
 
@@ -201,7 +203,7 @@ TEST_CASE("Store, replay and receive TTLMonitor packets","[c][TTLMonitor][io]"){
   {
     ReaderSource source(filename);
     const auto & reader = source.reader("events");
-    REQUIRE(ReadoutType::TTLMonitor == reader.readout_type());
+    REQUIRE(ReadoutType::BMI == reader.readout_type());
     REQUIRE(2 * max == reader.size());
   }
   // send all events in order

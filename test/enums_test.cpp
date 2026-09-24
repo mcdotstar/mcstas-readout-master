@@ -7,7 +7,7 @@
 
 TEST_CASE("detectorType_from_int round-trips all known types", "[enums]") {
   const std::vector<std::pair<int, DetectorType>> known = {
-    {0x00, Reserved},   {0x10, TTLMonitor}, {0x30, LOKI},
+    {0x00, Reserved},   {0x30, LOKI},
     {0x32, TBL3H3},     {0x34, BIFROST},    {0x38, MIRACLES},
     {0x3c, CSPEC},       {0x40, TREX},       {0x44, NMX},
     {0x48, FREIA},       {0x49, TBLVMM},     {0x4c, ESTIA},
@@ -63,13 +63,32 @@ TEST_CASE("readoutType_from_detectorType maps beam monitors", "[enums]") {
   }
 }
 
-TEST_CASE("readoutType_from_detectorType maps TTLMonitor", "[enums]") {
-  CHECK(readoutType_from_detectorType(TTLMonitor) == ReadoutType::TTLMonitor);
+TEST_CASE("0x10 is the shared beam-monitor packet type, not a detector", "[enums]") {
+  // The EFU's cbm module takes every beam-monitor format in packets of type 0x10, so the
+  // byte alone cannot say which layout a caller means.
+  CHECK_THROWS_WITH(detectorType_from_int(CBM_PACKET_TYPE),
+                    Catch::Matchers::ContainsSubstring("CBM0"));
+}
+
+TEST_CASE("Every beam monitor is sent with the CBM packet type", "[enums]") {
+  for (auto dt : {CBM0, CBM1, CBM2, CBMI}) {
+    CHECK(packetType_from_detectorType(dt) == 0x10);
+  }
+  // instruments keep their own byte, BEER included
+  CHECK(packetType_from_detectorType(BIFROST) == 0x34);
+  CHECK(packetType_from_detectorType(BEER) == 0x50);
+}
+
+TEST_CASE("Beam-monitor readouts carry the EFU's CbmType", "[enums]") {
+  CHECK(cbmType_from_readoutType(ReadoutType::BM0) == 1);  // EVENT_0D
+  CHECK(cbmType_from_readoutType(ReadoutType::BM2) == 2);  // EVENT_2D
+  CHECK(cbmType_from_readoutType(ReadoutType::BMI) == 3);  // IBM
+  CHECK_THROWS_AS(cbmType_from_readoutType(ReadoutType::CAEN), std::runtime_error);
 }
 
 TEST_CASE("readoutType_from_int composes correctly", "[enums]") {
   CHECK(readoutType_from_int(0x34) == ReadoutType::CAEN);
-  CHECK(readoutType_from_int(0x10) == ReadoutType::TTLMonitor);
+  CHECK(readoutType_from_int(0xfa) == ReadoutType::BMI);
   CHECK(readoutType_from_int(0x60) == ReadoutType::CDT);
 }
 
@@ -77,7 +96,7 @@ TEST_CASE("readoutType_from_int composes correctly", "[enums]") {
 
 TEST_CASE("detectorType_name round-trips with detectorType_from_name", "[enums]") {
   const std::vector<DetectorType> all_types = {
-    TTLMonitor, LOKI, TBL3H3, BIFROST, MIRACLES, CSPEC, TREX, NMX,
+    LOKI, TBL3H3, BIFROST, MIRACLES, CSPEC, TREX, NMX,
     FREIA, TBLVMM, ESTIA, BEER, DREAM, MAGIC, HEIMDAL, CBM0, CBM1, CBM2, CBMI,
   };
   for (auto dt : all_types) {
@@ -88,7 +107,7 @@ TEST_CASE("detectorType_name round-trips with detectorType_from_name", "[enums]"
 
 TEST_CASE("readoutType_name round-trips with readoutType_from_name", "[enums]") {
   const std::vector<ReadoutType> all_types = {
-    ReadoutType::TTLMonitor, ReadoutType::CAEN, ReadoutType::VMM3,
+    ReadoutType::CAEN, ReadoutType::VMM3,
     ReadoutType::CDT, ReadoutType::BM0, ReadoutType::BM2, ReadoutType::BMI,
   };
   for (auto rt : all_types) {

@@ -14,8 +14,6 @@ from conftest import (
     _build_env,
     CAEN_USERVARS,
     CAEN_ORIGIN_EXTEND,
-    TTL_USERVARS,
-    TTL_ORIGIN_EXTEND,
 )
 
 
@@ -93,27 +91,6 @@ class TestCompileCollectorCAEN:
 
 
 # -----------------------------------------------------------------------
-# ReadoutTTLMonitor
-# -----------------------------------------------------------------------
-@requires_integration
-class TestCompileReadoutTTLMonitor:
-    def test_compile_basic(self):
-        _compile_instrument(dedent(f"""
-        DEFINE INSTRUMENT test_ttl_compile()
-        {TTL_USERVARS}
-        TRACE
-        SEARCH SHELL "readout-config --show compdir"
-        {TTL_ORIGIN_EXTEND}
-        COMPONENT monitor = ReadoutTTLMonitor(
-          ring="RING", fen="FEN",
-          position="A", identity="TUBE", value="B", tof="tof",
-          ip="127.0.0.1", port=9001, broadcast=0
-        ) AT (0, 0, 1) ABSOLUTE
-        END
-        """))
-
-
-# -----------------------------------------------------------------------
 # ReadoutDiscreteCAEN
 # -----------------------------------------------------------------------
 @requires_integration
@@ -142,7 +119,7 @@ class TestCompileReadoutDiscreteCAEN:
 @requires_integration
 class TestCompileMultiComponent:
     def test_compile_all_together(self):
-        """An instrument with ReadoutCAEN, ReadoutTTLMonitor, and CollectorCAEN."""
+        """An instrument with ReadoutCAEN and CollectorCAEN."""
         _compile_instrument(dedent(f"""
         DEFINE INSTRUMENT test_multi_compile(string filename="output")
         {CAEN_USERVARS}
@@ -155,12 +132,6 @@ class TestCompileMultiComponent:
           event_mode="p", a_name="A", b_name="B", tof="tof",
           ip="127.0.0.1", port=9000, broadcast=0
         ) AT (0, 0, 1) ABSOLUTE
-        
-        COMPONENT monitor = ReadoutTTLMonitor(
-          ring="RING", fen="FEN",
-          position="A", identity="TUBE", value="B", tof="tof",
-          ip="127.0.0.1", port=9001, broadcast=0
-        ) AT (0, 0, 2) ABSOLUTE
         
         COMPONENT collector = CollectorCAEN(
           ring="RING", fen="FEN", tube="TUBE",

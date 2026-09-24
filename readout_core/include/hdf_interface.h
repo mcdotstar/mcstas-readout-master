@@ -59,22 +59,6 @@ public:
   }
 };
 
-/// \brief TTL beam-monitor readout event: channel, position, ADC.
-class RL_API TTLMonitor_event: public Event {
-public:
-  uint8_t channel;
-  uint8_t pos;
-  uint16_t adc;
-  explicit TTLMonitor_event() = default;
-  TTLMonitor_event(uint8_t r, uint8_t f, double t, double w, const TTLMonitor_readout * p)
-  : Event(r, f, t, w), channel{p->channel}, pos{p->pos}, adc{p->adc} {}
-  template<class T> void add(T & readout) const {
-    auto r = TTLMonitor_readout{channel, pos, adc};
-    readout.addReadout(ring, fen, time, weight, static_cast<void *>(&r));
-//    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-};
-
 /// \brief CDT (DREAM-family) readout event: output module, cathode, anode.
 class RL_API CDT_event: public Event {
 public:
@@ -168,18 +152,6 @@ inline HighFive::CompoundType create_compound_caen_readout(){
   };
 }
 
-inline HighFive::CompoundType create_compound_ttlmonitor_readout(){
-  return {
-    {"ring",    HighFive::create_datatype<uint8_t>()},
-    {"FEN",     HighFive::create_datatype<uint8_t>()},
-    {"time",    HighFive::create_datatype<double>()},
-    {"weight",  HighFive::create_datatype<double>()},
-    {"channel", HighFive::create_datatype<uint8_t>()},
-    {"pos",     HighFive::create_datatype<uint8_t>()},
-    {"adc",     HighFive::create_datatype<uint16_t>()},
-  };
-}
-
 inline HighFive::CompoundType create_compound_dream_readout(){
   return {
     {"ring",    HighFive::create_datatype<uint8_t>()},
@@ -243,7 +215,6 @@ inline HighFive::CompoundType create_compound_bmi_readout(){
 
 namespace HighFive {
   template<> inline DataType create_datatype<CAEN_event>(){return create_compound_caen_readout();}
-  template<> inline DataType create_datatype<TTLMonitor_event>(){return create_compound_ttlmonitor_readout();}
   template<> inline DataType create_datatype<CDT_event>(){return create_compound_dream_readout();}
   template<> inline DataType create_datatype<VMM3_event>(){return create_compound_vmm3_readout();}
   template<> inline DataType create_datatype<BM0_event>(){return create_compound_bm0_readout();}
@@ -255,7 +226,6 @@ namespace HighFive {
 inline HighFive::CompoundType hdf_compound_type(const ReadoutType readout) {
   switch (readout) {
     case ReadoutType::CAEN: return create_compound_caen_readout();
-    case ReadoutType::TTLMonitor: return create_compound_ttlmonitor_readout();
     case ReadoutType::CDT: return create_compound_dream_readout();
     case ReadoutType::VMM3: return create_compound_vmm3_readout();
     case ReadoutType::BM0: return create_compound_bm0_readout();

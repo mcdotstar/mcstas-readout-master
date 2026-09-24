@@ -41,12 +41,6 @@ extern "C" {
     uint16_t d;
   };
 
-  struct TTLMonitor_readout {
-    uint8_t channel;
-    uint8_t pos;
-    uint16_t adc;
-  };
-
   struct CDT_readout {
     uint8_t om;
     uint8_t cathode;
@@ -79,7 +73,6 @@ extern "C" {
   };
 
   typedef struct CAEN_readout CAEN_readout_t;
-  typedef struct TTLMonitor_readout TTLMonitor_readout_t;
   typedef struct CDT_readout CDT_readout_t;
   typedef struct VMM3_readout VMM3_readout_t;
   typedef struct BM0_readout BM0_readout_t;

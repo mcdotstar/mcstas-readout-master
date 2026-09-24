@@ -60,8 +60,8 @@ TEST_CASE("SenderConfigs loads from a JSON file", "[sender-configs]") {
 {
   "senders": [
     {
-      "detector_type": "TTLMonitor",
-      "readout_type": "TTLMonitor",
+      "detector_type": "CBMI",
+      "readout_type": "BMI",
       "ip_address": "10.0.0.5",
       "udp_port": 7777,
       "tcp_port": 8889
@@ -79,8 +79,8 @@ TEST_CASE("SenderConfigs loads from a JSON file", "[sender-configs]") {
   const auto configs = SenderConfigs::from_file(temp_path);
   cleanup();
 
-  REQUIRE(configs.contains(DetectorType::TTLMonitor, ReadoutType::TTLMonitor));
-  const auto monitor = configs.at(DetectorType::TTLMonitor, ReadoutType::TTLMonitor);
+  REQUIRE(configs.contains(DetectorType::CBMI, ReadoutType::BMI));
+  const auto monitor = configs.at(DetectorType::CBMI, ReadoutType::BMI);
   CHECK(monitor.ip_address == "10.0.0.5");
   CHECK(monitor.udp_port == 7777);
   CHECK(monitor.tcp_port == 8889);

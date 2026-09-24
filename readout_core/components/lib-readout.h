@@ -21,7 +21,6 @@ void * particle_getvar_void(_class_particle* p, const char* name, int* signal);
 void lib_readout_error(const char * comp_type, const char* named, const char * message, const char* variable);
 
 void readout_caen_error(const char * named, const char * variable);
-void readout_ttlmonitor_error(const char * named, const char * variable);
 void collector_error(const char * named, const char * variable);
 void collector_chopper_error(const char * named, const char * message);
 

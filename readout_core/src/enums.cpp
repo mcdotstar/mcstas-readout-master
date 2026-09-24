@@ -5,7 +5,9 @@
 DetectorType detectorType_from_int(const int type){
   switch(type){
     case 0x00: return Reserved;
-    case 0x10: return TTLMonitor;
+    case CBM_PACKET_TYPE:
+      throw std::runtime_error("0x10 is the packet type of every Common Beam Monitor; "
+                               "name the format instead: CBM0, CBM1, CBM2 or CBMI");
     case 0x30: return LOKI;
     case 0x32: return TBL3H3;
     case 0x34: return BIFROST;
@@ -30,7 +32,6 @@ DetectorType detectorType_from_int(const int type){
 
 ReadoutType readoutType_from_detectorType(const DetectorType type){
   switch(type){
-    case TTLMonitor: return ReadoutType::TTLMonitor;
     case LOKI:
     case TBL3H3:
     case BIFROST:
@@ -53,13 +54,31 @@ ReadoutType readoutType_from_detectorType(const DetectorType type){
   }
 }
 
+uint8_t packetType_from_detectorType(const DetectorType type){
+  switch (type) {
+    case CBM0:
+    case CBM1:
+    case CBM2:
+    case CBMI: return CBM_PACKET_TYPE;
+    default: return static_cast<uint8_t>(type);
+  }
+}
+
+uint8_t cbmType_from_readoutType(const ReadoutType type){
+  switch (type) {
+    case ReadoutType::BM0: return 0x01;
+    case ReadoutType::BM2: return 0x02;
+    case ReadoutType::BMI: return 0x03;
+    default: throw std::runtime_error("Only beam-monitor readouts have a CBM type");
+  }
+}
+
 ReadoutType readoutType_from_int(const int int_type) {
   return readoutType_from_detectorType(detectorType_from_int(int_type));
 }
 
 std::string detectorType_name(DetectorType dt){
   switch (dt) {
-    case DetectorType::TTLMonitor: return "DetectorType::TTLMonitor";
     case DetectorType::LOKI: return "DetectorType::LOKI";
     case DetectorType::TBL3H3: return "DetectorType::TBL3H3";
     case DetectorType::BIFROST: return "DetectorType::BIFROST";
@@ -83,7 +102,6 @@ std::string detectorType_name(DetectorType dt){
 }
 std::string readoutType_name(ReadoutType rt){
   switch (rt){
-    case ReadoutType::TTLMonitor: return "ReadoutType::TTLMonitor";
     case ReadoutType::CAEN: return "ReadoutType::CAEN";
     case ReadoutType::VMM3: return "ReadoutType::VMM3";
     case ReadoutType::CDT: return "ReadoutType::CDT";
@@ -94,7 +112,6 @@ std::string readoutType_name(ReadoutType rt){
   }
 }
 DetectorType detectorType_from_name(const std::string & name){
-  if (name == "DetectorType::TTLMonitor") return DetectorType::TTLMonitor;
   if (name == "DetectorType::LOKI") return DetectorType::LOKI;
   if (name == "DetectorType::TBL3H3") return DetectorType::TBL3H3;
   if (name == "DetectorType::BIFROST") return DetectorType::BIFROST;
@@ -119,7 +136,6 @@ DetectorType detectorType_from_name(const std::string & name){
   throw std::runtime_error(s.str());
 }
 ReadoutType readoutType_from_name(const std::string & name){
-  if (name == "ReadoutType::TTLMonitor") return ReadoutType::TTLMonitor;
   if (name == "ReadoutType::CAEN") return ReadoutType::CAEN;
   if (name == "ReadoutType::VMM3") return ReadoutType::VMM3;
   if (name == "ReadoutType::CDT") return ReadoutType::CDT;
