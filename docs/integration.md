@@ -55,8 +55,10 @@ count. No per-node files are produced and no manual merge step is needed.
 
 The legacy streaming components behave differently:
 
-- `ReadoutCAEN` and `ReadoutTTLMonitor` require every node to have network
-  access to the EFU host. When HDF5 output is enabled (`filename=...`), each
+- `ReadoutCAEN` requires every node to have network
+  access to the EFU host. Each node sends on its own EFU output queue (rank
+  modulo 12, the EFU's queue count), so their packet sequence numbers do not
+  collide. When HDF5 output is enabled (`filename=...`), each
   node writes `filename.node_N.h5`; the master merges them into one file in
   `FINALLY` unless `merge_mpi=0`, deleting the per-node files unless
   `keep_mpi_unmerged=1`. This merge supports the legacy flat layout with

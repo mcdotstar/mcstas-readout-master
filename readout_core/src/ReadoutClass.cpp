@@ -42,7 +42,8 @@ void Readout::newPacket() {
   hp->CookieAndType = (Type << 24) + 0x535345;
   hp->OutputQueue = OutputQueue;
   hp->TotalLength = sizeof(struct PacketHeaderV0);
-  hp->SeqNum = SeqNum++;
+  // numbered when sent, not when started: update_time() starts a packet twice
+  hp->SeqNum = SeqNum;
   hp->TimeSource = 0;
   hp->PulseHigh = phi;
   hp->PulseLow = plo;
@@ -232,6 +233,9 @@ int Readout::send() {
     if (verbosity > 1) std::cout << "No packet sent due to disabled network" << std::endl;
     return 0;
   }
+  // An EFU expects consecutive numbers per output queue, so a packet takes the next
+  // number only as it goes out -- as in Sender.
+  hp->SeqNum = SeqNum++;
   auto chr_ptr = reinterpret_cast<char *>(buffer);
   auto [bytes, error_code] = sender.send(std::string(chr_ptr, chr_ptr + DataSize));
   if (error_code < 0 && verbosity > -1){

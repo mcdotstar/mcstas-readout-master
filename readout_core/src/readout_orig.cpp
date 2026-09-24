@@ -1,3 +1,4 @@
+#include <iostream>
 #include <string>
 
 #include "readout_orig.h"
@@ -35,6 +36,17 @@ extern "C" {
     if (r_ptr == nullptr) return;
     const auto obj = static_cast<Readout *>(r_ptr->obj);
     obj->addReadout(ring, fen, time_of_flight, weight, data);
+  }
+
+  int readout_output_queue(readout_t * r_ptr, const int queue){
+    if (r_ptr == nullptr) return -1;
+    if (queue < 0 || queue >= READOUT_OUTPUT_QUEUES) {
+      std::cerr << "readout_output_queue: " << queue << " is outside 0-"
+                << READOUT_OUTPUT_QUEUES - 1 << "; keeping the current queue" << std::endl;
+      return -1;
+    }
+    static_cast<Readout *>(r_ptr->obj)->output_queue(queue);
+    return queue;
   }
 
   void readout_fold_tof(readout_t * r_ptr, const int enable){

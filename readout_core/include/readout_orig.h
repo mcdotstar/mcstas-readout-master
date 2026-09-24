@@ -73,6 +73,15 @@ RL_API void readout_merge_files(const char * out_filename, const char ** in_file
 // Times of a period or more are reported on stderr either way.
 RL_API void readout_fold_tof(readout_t * r_ptr, int enable);
 
+// How many output queues an EFU distinguishes: the ESS readout parser keeps one packet
+// sequence per queue, numbered 0 to READOUT_OUTPUT_QUEUES-1.
+#define READOUT_OUTPUT_QUEUES 12
+
+// Send on output queue `queue` (0 by default). Processes sending to one EFU at the same
+// time -- MPI ranks -- need distinct queues or their sequence numbers interleave and the
+// EFU counts every switch as an error. Out-of-range values are refused, returning -1.
+RL_API int readout_output_queue(readout_t * r_ptr, int queue);
+
 // Allow disabling and enabling network communication (on by default)
 RL_API void readout_disable_network(readout_t * r_ptr);
 RL_API void readout_enable_network(readout_t * r_ptr);

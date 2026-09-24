@@ -196,6 +196,16 @@ if (pp) {
 SAVE
 %{
 readout_newPacket(readout_ptr);
+#if defined USE_MPI
+// One output queue per rank: an EFU keeps one packet sequence per queue, so ranks
+// sharing one interleave their numbers and every switch counts as an error.
+readout_output_queue(readout_ptr, mpi_node_rank % READOUT_OUTPUT_QUEUES);
+if (mpi_node_count > READOUT_OUTPUT_QUEUES) {
+  MPI_MASTER(fprintf(stderr, "Warning(%s): %d MPI processes share %d EFU output queues; "
+                     "expect packet sequence errors at the EFU\n",
+                     NAME_CURRENT_COMP, mpi_node_count, READOUT_OUTPUT_QUEUES););
+}
+#endif
 readout_verbose(readout_ptr, verbose);
 if (!broadcast) readout_disable_network(readout_ptr);
 

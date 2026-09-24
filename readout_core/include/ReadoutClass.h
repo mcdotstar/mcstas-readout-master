@@ -135,6 +135,16 @@ public:
   /// How many readouts so far had a time-of-flight of at least one pulse period.
   [[nodiscard]] uint64_t long_tof_count() const { return long_tof_; }
 
+  /// Send on this output queue (0 until set). An EFU keeps one packet sequence per
+  /// queue, so several processes sending to one EFU -- MPI ranks -- each need their own.
+  void output_queue(const int queue) {
+    OutputQueue = queue;
+    hp->OutputQueue = static_cast<uint8_t>(queue);
+  }
+  [[nodiscard]] int output_queue() const { return OutputQueue; }
+  /// The number the next packet will be sent with.
+  [[nodiscard]] int sequence_number() const { return SeqNum; }
+
   void enable_network() {network = true;}
   void disable_network() {network = false;}
 
