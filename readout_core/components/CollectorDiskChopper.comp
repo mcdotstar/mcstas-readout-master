@@ -72,6 +72,10 @@
 * filename: [str]  HDF5 output file; empty stores to "collected_events"; several collectors may share one file
 * dataset_name: [str] collector group name inside the file; empty uses the component instance name
 * verbose: [1]     -1: silent, 0: errors, 1: warnings, 2: info, 3: details
+* sink: [str]      "auto" (default), "nexus" or "hdf5". With the NeXus output file
+*                  (--format=NeXus) no collector file is made: the disc's parameters,
+*                  tdc_pv included, are already stored with the component in the NeXus
+*                  file (entry1/instrument/components/NNNN_name/parameters).
 *
 * %L
 * <a href="https://github.com/g5t/mcstas-readout">mcstas-readout-master</a>
@@ -96,7 +100,8 @@ int abs_out = 1,
 string tdc_pv = 0,
 string filename = 0,
 string dataset_name = 0,
-int verbose = 0
+int verbose = 0,
+string sink = "auto"
 )
 OUTPUT PARAMETERS ()
 DEPENDENCY "CMD(readout-config --show buildflags)"
@@ -185,10 +190,14 @@ INITIALIZE
     this_dataset_name = calloc(strlen(chosen) + 1, sizeof(char));
     strcpy(this_dataset_name, chosen);
 
+    /* INITIALIZE runs before rays are split over MPI nodes: the total number of rays */
     uint64_t normalization = (uint64_t)mcget_ncount();
+    collector_ptr = NULL;
+    int use_collector = (readout_sink_kind(sink, NAME_CURRENT_COMP) == READOUT_SINK_HDF5);
 #ifdef USE_MPI
-    normalization *= (uint64_t) mpi_node_count;
-    if (mpi_node_rank == mpi_node_root) {
+    if (mpi_node_rank == mpi_node_root && use_collector) {
+#else
+    if (use_collector) {
 #endif
     /* ess_type 0: this group has no detector identity and is not sendable */
     collector_ptr = collector_star_new(this_filename, this_dataset_name,
@@ -205,9 +214,7 @@ INITIALIZE
         collector_sink_string(key, tdc_pv, NULL, "top-dead-centre channel of this disc");
         free(key);
     }
-#ifdef USE_MPI
     }
-#endif
 
     if (verbose > 1) {
         printf("CollectorDiskChopper: %s: %d opening(s), beam at %g deg, %s\n",

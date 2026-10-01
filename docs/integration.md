@@ -50,8 +50,10 @@ remain available for in-simulation runtime event streaming use-cases.
 
 Collector components are MPI-aware: each node accumulates its own records,
 the records are gathered to the master node at the end of the run, and the
-master writes a single HDF5 file with the normalization scaled by the node
-count. No per-node files are produced and no manual merge step is needed.
+master writes a single file. The normalization is the total number of
+simulated rays, whatever the number of nodes, so `weight / normalization` is
+the same rate with and without MPI. No per-node files are produced and no
+manual merge step is needed.
 
 The legacy streaming components behave differently:
 
@@ -65,3 +67,42 @@ The legacy streaming components behave differently:
   exactly one collector group per file.
 - `ReadoutDiscreteCAEN` has no file output; its exact-count draw is made
   per node.
+
+## 7. Classic McStas and NeXus output
+
+The Collector components work with both McStas code generators: mccode-antlr
+and the classic `mcstas`/`mcrun` (McStas 3.3+, for `SEARCH SHELL` and `CMD()`
+dependencies). Every Collector has a `sink` parameter:
+
+- `sink="auto"` (default): with `mcrun --format=NeXus` the records go into the
+  McStas NeXus output file of the run (`mccode.h5`); otherwise into the
+  collector HDF5 file named by `filename`.
+- `sink="nexus"` / `sink="hdf5"`: force one of the two (`"nexus"` stops with an
+  error when the run does not produce NeXus output).
+
+With the NeXus sink no extra file is written. Each Collector stores its records
+next to the component's other NeXus data, one typed dataset per record field
+(the field names and types of the record description):
+
+```
+entry1/instrument/components/NNNN_<instance>/<dataset_name>   NXcollection, type="Readouts"
+    ring, FEN, time, weight, channel, ...      1-D, one entry per record
+    @description, @ess_type, @detector, @normalization, @records
+    @efu_address, @efu_port                    (when given)
+entry1/simulation/Param/...                    instrument parameters (written by McStas)
+```
+
+`readout-combine import --output run.h5 mccode.h5` turns that into an ordinary
+collector file (same record layout as the HDF5 sink, hence EFU-sendable), ready
+for `validate`, `append`/`concatenate` and `readout-replay`. A
+`CollectorDiskChopper` writes nothing with the NeXus sink: its parameters are
+stored with the component in the NeXus file, and the importer adds the
+`<name>_chopper_tdc` parameter from its `tdc_pv`.
+
+Whatever the sink, each Collector also reports a 0D monitor (number of records
+and their summed rate), so it shows up in `mccode.sim` and `mcplot`.
+
+Classic McStas notes: declare one variable per line in `USERVARS`, and keep in
+mind that the time read with `tof="t"` is the ray time at the Collector's
+position as the instrument has propagated it -- a Collector placed after a
+monitor with `restore_neutron=1` sees the ray as it was before that monitor.

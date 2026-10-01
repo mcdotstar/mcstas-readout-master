@@ -1,9 +1,14 @@
 #include "readout_collector.h"
 
+#include <cstdio>
 #include <filesystem>
+#include <map>
+#include <mutex>
 
 #include "CollectorClass.h"
 #include "readout_type_descriptions.h"
+#include "TypeDescriptionParser.h"
+#include "enums.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -71,6 +76,53 @@ const char * readout_description_for(const int ess_type) {
   const auto detector = detectorType_from_int(ess_type);
   const auto readout = readoutType_from_detectorType(detector);
   return readout_type_description(readout);
+}
+
+int readout_description_fields(const char * description, readout_field_t * fields, const int max_fields) {
+  if (description == nullptr || description[0] == '\0') return -1;
+  try {
+    const auto schema = parse_type_description(std::string(description));
+    const int n = static_cast<int>(schema.fields.size());
+    for (int i = 0; fields != nullptr && i < n && i < max_fields; ++i) {
+      const auto & f = schema.fields[static_cast<size_t>(i)];
+      readout_field_t & out = fields[i];
+      std::snprintf(out.name, sizeof(out.name), "%s", f.name.c_str());
+      std::snprintf(out.type, sizeof(out.type), "%s", f.type.c_str());
+      out.offset = f.offset;
+      out.element_size = f.element_size;
+      out.count = f.array_count > 0 ? f.array_count : 1;
+    }
+    return n;
+  } catch (const std::exception & ex) {
+    std::cerr << "readout_description_fields failed: " << ex.what() << std::endl;
+    return -1;
+  }
+}
+
+size_t readout_description_size(const char * description) {
+  if (description == nullptr || description[0] == '\0') return 0;
+  try {
+    return parse_type_description(std::string(description)).total_size;
+  } catch (const std::exception &) {
+    return 0;
+  }
+}
+
+const char * readout_detector_name(const int ess_type) {
+  static std::map<int, std::string> names;
+  static std::mutex names_mutex;
+  const std::lock_guard<std::mutex> lock(names_mutex);
+  auto it = names.find(ess_type);
+  if (it == names.end()) {
+    std::string name;
+    try {
+      name = detectorType_name(detectorType_from_int(ess_type));
+    } catch (const std::exception &) {
+      name = "";
+    }
+    it = names.emplace(ess_type, name).first;
+  }
+  return it->second.c_str();
 }
 
 int collector_sink_open(const char * filename) {

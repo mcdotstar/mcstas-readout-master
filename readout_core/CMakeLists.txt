@@ -52,6 +52,7 @@ endif()
 target_sources(${READOUT_LIBRARY_TARGET} PRIVATE
         src/readout_orig.cpp
         src/readout_collector.cpp
+        src/nexus_import.cpp
         src/readout_discrete.cpp
         src/Readout_merge.cpp
         src/ReadoutClass.cpp

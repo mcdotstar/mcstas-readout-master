@@ -4,6 +4,7 @@
 #include "args.hxx"
 #include "CollectorClass.h"
 #include "reader.h"
+#include "nexus_import.h"
 
 namespace {
 
@@ -133,6 +134,26 @@ int main(int argc, char * argv[]) {
       }
       if (!concatenate_collector_files(out, in)) {
         std::cerr << "concatenate: combination failed" << std::endl;
+        exit_code = 1;
+      }
+    });
+
+  // ---- import subcommand -------------------------------------------------
+  args::Command import_cmd(parser, "import",
+    "Convert the readout records of a McStas NeXus output file (Collector* components run with --format=NeXus) into a collector file",
+    [&exit_code](args::Subparser & sub) {
+      args::HelpFlag sub_help(sub, "help", "Display this help menu", {'h', "help"});
+      args::ValueFlag<std::string> output(sub, "OUTPUT", "Collector file to create", {'o', "output"});
+      args::Flag quiet(sub, "quiet", "Do not print what is imported", {'q', "quiet"});
+      args::Positional<std::string> input(sub, "file", "McStas NeXus output file (mccode.h5)");
+      sub.Parse();
+      if (!output || !input) {
+        std::cerr << "import: an input file and --output are required" << std::endl;
+        exit_code = 1;
+        return;
+      }
+      if (import_mccode_nexus(args::get(output), args::get(input), !quiet) <= 0) {
+        std::cerr << "import: nothing imported" << std::endl;
         exit_code = 1;
       }
     });
