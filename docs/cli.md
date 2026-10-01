@@ -29,6 +29,7 @@ Combine or validate collector HDF5 files.
 readout-combine validate FILE [FILE ...]
 readout-combine append --output OUTPUT FILE FILE [FILE ...]
 readout-combine concatenate --output OUTPUT FILE FILE [FILE ...]
+readout-combine import --output OUTPUT [--quiet] MCCODE_NEXUS_FILE
 ```
 
 - **validate** — check each file and print a summary: point count, collector
@@ -39,6 +40,12 @@ readout-combine concatenate --output OUTPUT FILE FILE [FILE ...]
 - **concatenate** — build one *multi-point* cue-based file from
   *different-point* files (consistent but not identical parameters, e.g. a
   scan). Same requirements as append.
+- **import** — convert the readout records that Collector components stored in
+  a McStas NeXus output file (`mccode.h5`, runs with `--format=NeXus`, see
+  [component integration](integration.md)) into a new collector file, which can
+  then be validated, combined and replayed. The instrument parameters of the
+  run become the file's parameters. Requires `--output`; the output must not
+  already exist.
 
 ## readout-replay
 

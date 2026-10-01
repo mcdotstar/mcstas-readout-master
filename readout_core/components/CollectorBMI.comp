@@ -57,6 +57,9 @@
 *                   that maps to the BMI readout layout
 * efu_address: [str] optional EFU address stored as a group attribute for replay routing
 * efu_port: [1]     optional EFU UDP port stored as a group attribute for replay routing
+* sink: [str]      where records are stored: "auto" (default) uses the McStas NeXus output file
+*                  when the simulation runs with --format=NeXus and the collector HDF5 file otherwise;
+*                  "nexus" or "hdf5" force one of them
 *
 * %L
 * The <a href="https://github.com/ess-dmsc/event-formation-unit">Event Formation Unit</a>
@@ -88,7 +91,8 @@ string dataset_name = 0,
 int verbose=0, // -1: silent, 0: errors, 1: warnings, 2: info, 3: details
 int ess_type=250, // 0xfa == 250: CBMI, the only DetectorType that maps to ReadoutType::BMI
 string efu_address = 0, // Optional EFU IP address for replay routing; leave 0/empty to omit from file
-int efu_port = 0         // Optional EFU UDP port for replay routing; leave 0 to omit from file
+int efu_port = 0,        // Optional EFU UDP port for replay routing; leave 0 to omit from file
+string sink = "auto"     // Where records go: "auto" (NeXus output file with --format=NeXus, else HDF5 file), "nexus" or "hdf5"
 )
 OUTPUT PARAMETERS ()
 DEPENDENCY "CMD(readout-config --show buildflags)"
@@ -114,7 +118,8 @@ struct collector_bmi_record {
 DECLARE
 %{
 array_t * array_ptr;
-collector_t * collector_ptr;
+readout_sink_t * sink_ptr;
+double ncount_total;
 
 int fen_present;
 int channel_present;
@@ -183,29 +188,13 @@ if (record_description == NULL) {
   collector_error(NAME_CURRENT_COMP, "No canonical record description for the given ess_type.");
 }
 
-uint64_t normalization = (uint64_t)mcget_ncount();
+// INITIALIZE runs before the rays are split over MPI nodes: this is the total number of rays,
+// the one sources normalise p to. weight = p * ncount_total, normalization = ncount_total.
+ncount_total = (double) mcget_ncount();
 
-#ifdef USE_MPI
-collector_ptr = NULL;
-normalization *= (uint64_t) mpi_node_count;
-if (mpi_node_rank == mpi_node_root) {
-#endif
-  collector_ptr = collector_star_new(this_filename, this_dataset_name, record_description, ess_type, normalization);
-  if (collector_ptr == NULL) {
-    collector_error(NAME_CURRENT_COMP, "Could not create the description-based Collector instance.");
-  }
-  if (collector_record_size(collector_ptr) != sizeof(struct collector_bmi_record)) {
-    collector_error(NAME_CURRENT_COMP, "Record layout mismatch between component struct and canonical description.");
-  }
-  if (efu_address != NULL && efu_address[0] != '\0' && efu_port > 0) {
-    collector_efu(collector_ptr, efu_address, efu_port);
-  }
-  if (collector_sink_users(this_filename) == 1){
-    collector_sink_parameters(NAME_CURRENT_COMP);
-  }
-#ifdef USE_MPI
-}
-#endif
+sink_ptr = readout_sink_new(sink, this_filename, this_dataset_name,
+  record_description, ess_type, (uint64_t) ncount_total, sizeof(struct collector_bmi_record),
+  efu_address, efu_port, NAME_CURRENT_COMP, INDEX_CURRENT_COMP, POS_A_CURRENT_COMP, ROT_A_CURRENT_COMP, verbose);
 
 array_ptr = new_array(sizeof(struct collector_bmi_record));
 
@@ -213,7 +202,7 @@ array_ptr = new_array(sizeof(struct collector_bmi_record));
 
 TRACE
 %{
-double weight = p * (double)(mcget_ncount()) * efficiency;
+double weight = p * ncount_total * efficiency;
 // Record a ray with probability keep_probability, and store its weight divided by that
 // probability so the expected total is unchanged. No draw at the default of 1, so a run
 // that does not thin uses the random-number stream exactly as before.
@@ -242,56 +231,8 @@ if (weight) {
 
 SAVE
 %{
-#if defined USE_MPI
-  MPI_Datatype mpi_collect_record_type;
-  MPI_Type_contiguous(sizeof(struct collector_bmi_record), MPI_BYTE, &mpi_collect_record_type);
-  MPI_Type_commit(&mpi_collect_record_type);
-
-  int world_size;
-  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-  int local_count = (int) array_size(array_ptr);
-  int global_count = 0;
-  int * recv_counts = NULL;
-  int * displacements = NULL;
-  struct collector_bmi_record * recv_buffer = NULL;
-
-  if (mpi_node_rank == mpi_node_root) {
-    recv_counts = (int *) malloc(world_size * sizeof(int));
-    displacements = (int *) malloc(world_size * sizeof(int));
-  }
-
-  MPI_Gather(&local_count, 1, MPI_INT, recv_counts, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-  if (mpi_node_rank == mpi_node_root) {
-    for (int i=0; i < world_size; i++){
-      displacements[i] = (i == 0) ? 0 : displacements[i-1] + recv_counts[i-1];
-      global_count += recv_counts[i];
-    }
-    recv_buffer = (struct collector_bmi_record *) malloc(global_count * sizeof(struct collector_bmi_record));
-  }
-
-  const uint8_t * local_data = array_data(array_ptr);
-  MPI_Gatherv((void *)local_data, local_count, mpi_collect_record_type, recv_buffer, recv_counts, displacements, mpi_collect_record_type, 0, MPI_COMM_WORLD);
-
-  if (mpi_node_rank == mpi_node_root) {
-    for (int i=0; i < global_count; i++){
-      struct collector_bmi_record * data = &recv_buffer[i];
-      collector_star_add(collector_ptr, data->rec_weight, (const void *)data);
-    }
-    free(recv_buffer);
-    free(recv_counts);
-    free(displacements);
-  }
-  MPI_Type_free(&mpi_collect_record_type);
-#else
-  size_t count = array_size(array_ptr);
-  struct collector_bmi_record data;
-  for (size_t i=0; i < count; i++){
-    array_get(array_ptr, i, (void *) &data);
-    collector_star_add(collector_ptr, data.rec_weight, (const void *)(&data));
-  }
-#endif
-array_clear(array_ptr);
+// all MPI nodes: gather the records on the master, which stores them (HDF5 file or NeXus output)
+readout_sink_save(sink_ptr, array_ptr);
 %}
 
 
@@ -301,10 +242,9 @@ if (array_size(array_ptr) != 0) {
   fprintf(stderr, "Warning: array still has %zu elements at FINALLY block of %s\n", array_size(array_ptr), NAME_CURRENT_COMP);
 }
 
-if (collector_ptr != NULL) {
-  collector_free(collector_ptr);
-  collector_ptr = NULL;
-}
+// closes the collector (HDF5 sink) on the master node
+readout_sink_free(sink_ptr);
+sink_ptr = NULL;
 
 delete_array(array_ptr);
 array_ptr = NULL;

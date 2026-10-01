@@ -17,7 +17,8 @@ Each collector group contains:
 - `weights` (sum of rate-weights per point)
 - `normalizations` (simulated-particle count per point)
 
-Record weights are stored with the source-term scaling removed (`p * ncount`),
+Record weights are stored with the source-term scaling removed (`p * N`, N being
+the total number of simulated rays over all MPI nodes),
 so the physical rate of a record — and of a point's summed `weights` entry — is
 its stored weight divided by the point's `normalizations` entry. Appending
 files sums both records and normalizations, which keeps that ratio (and hence

@@ -76,6 +76,37 @@ extern "C" {
    */
   RL_API const char * readout_description_for(int ess_type);
 
+  /** \brief One field of a parsed record description (see readout_description_fields()). */
+  typedef struct readout_field {
+    char name[64];        ///< field name as given in the description
+    char type[24];        ///< canonical C type, e.g. "uint8_t", "double"
+    size_t offset;        ///< byte offset of the field within one record
+    size_t element_size;  ///< size in bytes of one element
+    size_t count;         ///< number of elements: 1 for scalars, N for "type name[N];"
+  } readout_field_t;
+
+  /** \brief Parse a record description into its fields, with the same layout rules the Collector uses.
+   *
+   * Lets C code (e.g. McStas components writing records elsewhere than a Collector file)
+   * walk the records it stores field by field without re-implementing the parser.
+   *
+   * \param description a C struct field list, e.g. readout_description_for(ess_type)
+   * \param fields      output array, may be NULL when max_fields is 0
+   * \param max_fields  capacity of \p fields; at most this many entries are written
+   * \returns the number of fields in the description (possibly larger than max_fields),
+   *          or -1 if the description cannot be parsed
+   */
+  RL_API int readout_description_fields(const char * description, readout_field_t * fields, int max_fields);
+
+  /** \brief The size in bytes of one record of a description (including padding), 0 if it cannot be parsed. */
+  RL_API size_t readout_description_size(const char * description);
+
+  /** \brief Name of the ESS detector type for an ess_type integer, e.g. "DetectorType::BIFROST".
+   *
+   * The returned pointer stays valid for the lifetime of the program; "" for unknown types.
+   */
+  RL_API const char * readout_detector_name(int ess_type);
+
   RL_API int collector_sink_open(const char * filename);
   RL_API int collector_sink_users(const char * filename);
 
