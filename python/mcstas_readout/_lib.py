@@ -27,7 +27,7 @@ from pathlib import Path
 from .exceptions import ReadoutError
 
 # The readout_capi.h ABI generation this wrapper implements.
-ABI_VERSION = 2
+ABI_VERSION = 3
 
 # Status codes (enum readout_status in readout_capi.h)
 OK = 0
@@ -118,6 +118,7 @@ def _declare(lib: ctypes.CDLL) -> ctypes.CDLL:
         ("clear_subset", []),
         ("set_pulse_rate", [ctypes.c_double]),
         ("set_fold_tof", [ctypes.c_int]),
+        ("set_pulses_per_point", [ctypes.c_uint64]),
         ("set_senders_json", [ctypes.c_char_p]),
     ):
         fn = getattr(lib, f"readout_replay_{name}")

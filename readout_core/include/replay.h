@@ -96,6 +96,12 @@ struct RL_API ReplayConfig {
   /// Stamp each event at pulse + (tof % period) instead of pulse + tof, so
   /// long-time-of-flight events wrap into the frame they would be detected in
   bool fold_tof{false};
+  /// Spread each point's events over this many pulses, each sampled event going to one of
+  /// them at random, and send one empty pulse after the last point. 0 sends a point's
+  /// events as fast as they can go, under whichever pulses the wall clock passes. Set it
+  /// to an EFU's histogram aggregation (ESS beam monitors: 14) for one histogram per point;
+  /// a point then takes pulses_per_point / pulse_rate seconds to replay.
+  size_t pulses_per_point{0};
   /// When non-null, replay polls this flag at point and chunk boundaries and
   /// returns early (cleanly) once it is set. Caller-owned; must outlive replay().
   const std::atomic<bool> * stop{nullptr};

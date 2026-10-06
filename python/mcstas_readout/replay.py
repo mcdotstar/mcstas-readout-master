@@ -44,6 +44,10 @@ class ReplayConfig:
     pulse_rate: pulse repetition rate in Hz (ESS: 14).
     fold_tof: stamp events at pulse + (tof % period) so long-flight events wrap
         into the frame they would be detected in.
+    pulses_per_point: spread each point's events over this many pulses, each event
+        going to one at random, and end with an empty pulse; 0 sends a point's events
+        as fast as they go. An EFU summing that many pulses per histogram (ESS beam
+        monitors: 14) then publishes one per point.
     """
     counting_time: float | None = None
     seed: int = 0
@@ -55,6 +59,7 @@ class ReplayConfig:
     subset: ReplaySubset | None = None
     pulse_rate: float = 14.0
     fold_tof: bool = False
+    pulses_per_point: int = 0
 
 
 class ParameterPublisher(ABC):
@@ -162,6 +167,7 @@ class Replay:
             _lib.check(lib.readout_replay_clear_subset(handle))
         _lib.check(lib.readout_replay_set_pulse_rate(handle, float(config.pulse_rate)))
         _lib.check(lib.readout_replay_set_fold_tof(handle, 1 if config.fold_tof else 0))
+        _lib.check(lib.readout_replay_set_pulses_per_point(handle, int(config.pulses_per_point)))
         if config.senders_json is not None:
             _lib.check(lib.readout_replay_set_senders_json(handle, str(config.senders_json).encode()))
 

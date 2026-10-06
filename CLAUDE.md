@@ -47,6 +47,6 @@ structs.
 1. EPICS implementation of ParameterPublisher — requirements in ParameterPublisher.md; the
    transport lives in mccode-plumber, not here.
 2. Optional: fixed-count replay mode ("exactly N events") on the retained WRSWR reservoir
-   sampler (readout_core/src/IndexSampler.h, readout_core/src/ctream), and paced replay
-   (events spread over the counting time) if downstream consumers need realistic wall-clock
-   intervals.
+   sampler (readout_core/src/IndexSampler.h, readout_core/src/ctream), and replay paced
+   over the whole counting time if downstream consumers need realistic wall-clock
+   intervals. (`pulses_per_point` already paces each point over a fixed number of pulses.)

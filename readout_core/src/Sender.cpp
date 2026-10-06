@@ -70,7 +70,20 @@ void Sender::set_pulse(const uint64_t ns) {
   setPulseTime(time.high(), time.low(), prev.high(), prev.low());
 }
 
+void Sender::announce_pulse() {
+  auto time_lock = std::lock_guard(time_mutex);
+  if (DataSize > static_cast<int>(sizeof(struct PacketHeaderV0))) {
+    send();
+  }
+  newPacket();
+  send();
+  newPacket();
+}
+
 void Sender::maybe_advance_pulse() {
+  if (hold_pulse_) {
+    return;
+  }
   auto time_lock = std::lock_guard(time_mutex);
   const auto latest = grid.at_or_before(efu_time::now_nanoseconds());
   if (latest > pulse_ns) {

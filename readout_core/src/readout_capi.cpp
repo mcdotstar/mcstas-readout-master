@@ -226,6 +226,14 @@ int readout_replay_set_fold_tof(readout_replay_t * handle, const int enable) {
   });
 }
 
+int readout_replay_set_pulses_per_point(readout_replay_t * handle, const uint64_t pulses) {
+  return guarded([&]() -> int {
+    if (require_handle(handle)) return READOUT_ERROR;
+    handle->config.pulses_per_point = static_cast<size_t>(pulses);
+    return READOUT_OK;
+  });
+}
+
 int readout_replay_set_senders_json(readout_replay_t * handle, const char * json_text) {
   return guarded([&]() -> int {
     if (require_handle(handle)) return READOUT_ERROR;

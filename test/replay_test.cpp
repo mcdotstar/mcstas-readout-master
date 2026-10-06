@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <map>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -918,4 +919,94 @@ TEST_CASE("Folding time-of-flight wraps events into the pulse frame", "[replay][
   CHECK(folded.events.front() - folded.pulse < period);
 
   fs::remove(filepath);
+}
+
+namespace {
+
+/// Replay a two-point file of ``rays`` readouts per point with pacing; the packets and the publisher
+std::pair<std::vector<PacketRecord>, TimedPublisher> paced_replay(const std::string & base, const uint16_t rays,
+                                                                  const size_t pulses, int & received) {
+  namespace fs = std::filesystem;
+  const auto file_a = write_caen_point_file(base + "_a", 100.0, rays, 1.0);
+  const auto file_b = write_caen_point_file(base + "_b", 200.0, rays, 1.0);
+  auto multi_path = fs::temp_directory_path() / fs::path(pid_filename(base, ".h5"));
+  fs::remove(multi_path);
+  concatenate_collector_files(multi_path.string(), {file_a, file_b});
+
+  const int port = find_free_udp_port();
+  REQUIRE(port > 0);
+  auto stats = std::make_shared<UDPStats>();
+  auto log = std::make_shared<PacketLog>();
+  auto receiver = make_logging_receiver(port, stats, log);
+  REQUIRE(receiver.isRunning());
+
+  ReplayConfig config;
+  config.default_port = port;
+  config.pulse_rate = 50.0; // a 20 ms period keeps the paced replay short
+  config.pulses_per_point = pulses;
+  TimedPublisher publisher;
+  CHECK(replay(multi_path.string(), config, publisher));
+  received = settled_readouts(stats);
+  CHECK(stats->bad == 0);
+
+  fs::remove(fs::path(file_a));
+  fs::remove(fs::path(file_b));
+  fs::remove(multi_path);
+  return {log->records(), publisher};
+}
+
+} // namespace
+
+TEST_CASE("A paced replay spreads each point over its pulses", "[replay][pulse][paced]") {
+  const uint16_t rays{1000};
+  const size_t pulses{4};
+  int received{0};
+  const auto [records, publisher] = paced_replay("replay_paced", rays, pulses, received);
+  REQUIRE(received == 2 * rays);
+  const auto grid = pulse_grid::from_rate(50.0);
+
+  // the pulses the EFU is shown, in order -- each point's, then one more -- and how many
+  // events each carried; every packet of a pulse has the same header time
+  std::map<uint64_t, size_t> events_in;
+  for (const auto & record : records) {
+    events_in[record.pulse.total_nanoseconds()] += record.events.size();
+  }
+  std::vector<uint64_t> shown;
+  for (const auto & [ns, count] : events_in) {
+    shown.push_back(ns);
+  }
+  REQUIRE(shown.size() == 2 * pulses + 1);
+  for (const auto ns : shown) {
+    CHECK(on_grid(grid, ns));
+  }
+  // a point's pulses are consecutive ticks
+  for (size_t point = 0; point < 2; ++point) {
+    for (size_t k = 1; k < pulses; ++k) {
+      const auto gap = shown[point * pulses + k] - shown[point * pulses + k - 1];
+      CHECK(gap + one_tick_ns >= grid.period_ns());
+      CHECK(gap <= grid.period_ns() + one_tick_ns);
+    }
+  }
+  // the publisher hears of each point's first pulse
+  REQUIRE(publisher.pulse_times.size() == 2);
+  CHECK(efu_time::from_nanoseconds(publisher.pulse_times[0]).total_nanoseconds() == shown[0]);
+  CHECK(efu_time::from_nanoseconds(publisher.pulse_times[1]).total_nanoseconds() == shown[pulses]);
+  // every pulse of a point carries a share of its events, and the last pulse none
+  for (size_t i = 0; i < 2 * pulses; ++i) {
+    CHECK(events_in[shown[i]] > 0);
+  }
+  CHECK(events_in[shown.back()] == 0);
+}
+
+TEST_CASE("A paced replay shows the EFU every pulse, even an empty one", "[replay][pulse][paced]") {
+  // one readout a point, over four pulses: three of each point's pulses carry nothing
+  const size_t pulses{4};
+  int received{0};
+  const auto [records, publisher] = paced_replay("replay_paced_sparse", 1, pulses, received);
+  CHECK(received == 2);
+  std::set<uint64_t> shown;
+  for (const auto & record : records) {
+    shown.insert(record.pulse.total_ticks());
+  }
+  CHECK(shown.size() == 2 * pulses + 1);
 }

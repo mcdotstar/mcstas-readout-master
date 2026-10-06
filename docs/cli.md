@@ -58,6 +58,7 @@ readout-replay [options] FILE
 | `-e`, `--every EVERY` | Take every EVERYth stored readout (with `--count`) |
 | `--pulse-rate RATE` | Pulse (reference time) repetition rate in Hz; packet pulse times march forward on this grid (default 14, the ESS source frequency) |
 | `--fold-tof` | Stamp each event at pulse + (tof mod pulse period) instead of pulse + tof, wrapping long-time-of-flight events into the frame they would be detected in |
+| `--pulses-per-point PULSES` | Spread each point's events over PULSES pulses, each event going to one at random, and end with an empty pulse. Every EFU is shown every pulse, so one that sums PULSES pulses into a histogram (ESS beam monitors: 14) publishes exactly one per point. A point then takes PULSES / RATE seconds |
 | `-a`, `--addr ADDR` | Default EFU IP address |
 | `-p`, `--port PORT` | Default EFU UDP port |
 | `-c`, `--config CONFIG` | JSON file with per-(detector, readout) EFU endpoints |

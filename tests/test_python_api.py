@@ -180,6 +180,32 @@ def test_replay_reports_the_pulse_its_events_are_sent_against(tmp_path):
 
 
 @requires_library
+def test_a_paced_replay_takes_its_pulses(tmp_path):
+    """`pulses_per_point` reaches the library: a point takes that many pulse periods.
+
+    Unpaced, a one-point replay waits at most one period for its pulse. Paced over
+    eight pulses at 50 Hz, it has to span at least seven more, plus the empty pulse
+    after the last point -- 160 ms in all, where unpaced is done within 20 ms.
+    """
+    import time
+
+    import mcstas_readout as ro
+
+    class Recorder(RecordingPublisher, ro.ParameterPublisher):
+        pass
+
+    filename = write_caen_point_file(tmp_path / "point.h5", 100.0)
+    publisher = Recorder()
+    config = ro.ReplayConfig(pulse_rate=50.0, default_port=29876, pulses_per_point=8)
+    start = time.monotonic()
+    assert ro.replay(filename, config, publisher) is True
+    elapsed = time.monotonic() - start
+    assert elapsed >= 8 * 0.02
+    # still one pulse reported per point: the point's first
+    assert [point for point, _ in publisher.pulses] == [0]
+
+
+@requires_library
 def test_a_publisher_needs_no_pulse_ready(tmp_path):
     """The callback is optional: an existing publisher predating it still replays."""
     import mcstas_readout as ro

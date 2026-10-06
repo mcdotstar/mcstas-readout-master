@@ -38,7 +38,7 @@ extern "C" {
 
 /** Incremented whenever any signature in this header changes; foreign wrappers
  *  compare it against the value they were written for before calling anything else. */
-#define READOUT_CAPI_ABI_VERSION 2
+#define READOUT_CAPI_ABI_VERSION 3
 
 /// The READOUT_CAPI_ABI_VERSION the library was compiled with.
 RL_API int readout_capi_abi_version(void);
@@ -93,6 +93,8 @@ RL_API int readout_replay_clear_subset(readout_replay_t * handle);
 RL_API int readout_replay_set_pulse_rate(readout_replay_t * handle, double hz);
 /// Nonzero stamps events at pulse + (tof %% period), wrapping long-flight events into their detection frame.
 RL_API int readout_replay_set_fold_tof(readout_replay_t * handle, int enable);
+/// Spread each point's events over this many pulses, then end with an empty one; 0 does not pace.
+RL_API int readout_replay_set_pulses_per_point(readout_replay_t * handle, uint64_t pulses);
 /// Explicit EFU routing as a JSON document (see SenderConfigs); READOUT_ERROR with a parse message on invalid input.
 RL_API int readout_replay_set_senders_json(readout_replay_t * handle, const char * json_text);
 

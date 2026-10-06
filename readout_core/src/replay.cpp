@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <map>
+#include <variant>
 #include <optional>
 #include <ostream>
 #include <random>
@@ -104,9 +105,11 @@ std::map<SenderConfig, Sender> make_senders(const ReaderSource & source, const R
   return senders;
 }
 
-template<class EventT, std::vector<EventT> (Reader::*Get)(size_t, size_t) const>
-void stream_point(const Reader & reader, Sender & sender, const size_t point, const ReplayConfig & config,
-                  std::mt19937 & rng, std::optional<SubsetState> & subset) {
+/// Sample one collector group's readouts for one point, handing each event to be sent to
+/// ``deliver`` -- in stored order, or shuffled with config.random_order.
+template<class EventT, std::vector<EventT> (Reader::*Get)(size_t, size_t) const, class Deliver>
+void stream_point(const Reader & reader, const size_t point, const ReplayConfig & config,
+                  std::mt19937 & rng, std::optional<SubsetState> & subset, Deliver && deliver) {
   const auto offset = reader.point_offset(point);
   const auto count = reader.point_size(point);
   // stored weights carry the simulated-ray count (w_i = p_i * ncount, accumulated across
@@ -124,7 +127,7 @@ void stream_point(const Reader & reader, Sender & sender, const size_t point, co
     if (config.random_order) {
       buffered.push_back(event);
     } else {
-      event.add(sender);
+      deliver(event);
     }
   };
   const auto chunk = std::max<size_t>(config.chunk_size, 1);
@@ -161,23 +164,100 @@ void stream_point(const Reader & reader, Sender & sender, const size_t point, co
   if (config.random_order && !stop_requested(config)) {
     std::ranges::shuffle(buffered, rng);
     for (const auto & event : buffered) {
-      event.add(sender);
+      deliver(event);
     }
   }
 }
 
-void stream_reader_point(const Reader & reader, Sender & sender, const size_t point, const ReplayConfig & config,
-                         std::mt19937 & rng, std::optional<SubsetState> & subset) {
+/// stream_point for whichever readout type ``reader`` stores; ``deliver`` is called with
+/// each event as its own type, so it has to accept any of them.
+template<class Deliver>
+void stream_reader_point(const Reader & reader, const size_t point, const ReplayConfig & config,
+                         std::mt19937 & rng, std::optional<SubsetState> & subset, Deliver && deliver) {
   // dispatch on the datatype-verified type, never the (optional, unverified) attribute
   switch (reader.sendable_readout_type().value()) {
-    case ReadoutType::CAEN: return stream_point<CAEN_event, &Reader::get_CAEN>(reader, sender, point, config, rng, subset);
-    case ReadoutType::VMM3: return stream_point<VMM3_event, &Reader::get_VMM3>(reader, sender, point, config, rng, subset);
-    case ReadoutType::CDT: return stream_point<CDT_event, &Reader::get_CDT>(reader, sender, point, config, rng, subset);
-    case ReadoutType::BM0: return stream_point<BM0_event, &Reader::get_BM0>(reader, sender, point, config, rng, subset);
-    case ReadoutType::BM2: return stream_point<BM2_event, &Reader::get_BM2>(reader, sender, point, config, rng, subset);
-    case ReadoutType::BMI: return stream_point<BMI_event, &Reader::get_BMI>(reader, sender, point, config, rng, subset);
+    case ReadoutType::CAEN: return stream_point<CAEN_event, &Reader::get_CAEN>(reader, point, config, rng, subset, deliver);
+    case ReadoutType::VMM3: return stream_point<VMM3_event, &Reader::get_VMM3>(reader, point, config, rng, subset, deliver);
+    case ReadoutType::CDT: return stream_point<CDT_event, &Reader::get_CDT>(reader, point, config, rng, subset, deliver);
+    case ReadoutType::BM0: return stream_point<BM0_event, &Reader::get_BM0>(reader, point, config, rng, subset, deliver);
+    case ReadoutType::BM2: return stream_point<BM2_event, &Reader::get_BM2>(reader, point, config, rng, subset, deliver);
+    case ReadoutType::BMI: return stream_point<BMI_event, &Reader::get_BMI>(reader, point, config, rng, subset, deliver);
     default: throw std::runtime_error("Replay of this readout type is not implemented");
   }
+}
+
+/// One pulse's events for one collector group, whatever type they are
+using PulseEvents = std::variant<std::vector<CAEN_event>, std::vector<VMM3_event>, std::vector<CDT_event>,
+                                 std::vector<BM0_event>, std::vector<BM2_event>, std::vector<BMI_event>>;
+
+/// Put ``event`` in ``pulse``, which holds nothing yet or events of the same type
+template<class EventT>
+void hold(PulseEvents & pulse, const EventT & event) {
+  if (!std::holds_alternative<std::vector<EventT>>(pulse)) {
+    pulse = std::vector<EventT>{};
+  }
+  std::get<std::vector<EventT>>(pulse).push_back(event);
+}
+
+/// Begin one pulse at the same grid tick for every sender, and tell every EFU it began
+uint64_t begin_shared_pulse(std::map<SenderConfig, Sender> & senders, const bool announce) {
+  // Each beginning it in turn would wait for its own next tick, a period apart.
+  uint64_t tick{0};
+  for (const auto & [key, sender] : senders) {
+    tick = std::max(tick, sender.next_pulse());
+  }
+  for (auto & [key, sender] : senders) {
+    sender.begin_pulse_at(tick);
+    if (announce) {
+      sender.announce_pulse();
+    }
+  }
+  return tick;
+}
+
+/// Send one point's events spread over config.pulses_per_point pulses.
+///
+/// Each sampled event goes to one of the point's pulses at random, so each pulse carries an
+/// independent share -- by Poisson thinning, with counting_time, a Poisson count of its own.
+/// Every pulse begins at one grid tick for all senders and is announced to every EFU, even
+/// one with nothing to receive in it, so each EFU sees exactly pulses_per_point pulses per
+/// point. An EFU summing that many pulses into a histogram then publishes one per point.
+bool replay_paced_point(const ReaderSource & source, std::map<SenderConfig, Sender> & senders,
+                        const size_t point, const ReplayConfig & config, std::mt19937 & rng,
+                        std::optional<SubsetState> & subset, ParameterPublisher & publisher) {
+  const auto pulses = config.pulses_per_point;
+  std::uniform_int_distribution<size_t> which(0, pulses - 1);
+  // sampled before the first pulse begins, so sending a pulse is only sending
+  std::vector<std::pair<Sender *, std::vector<PulseEvents>>> groups;
+  for (const auto & reader : source.readers()) {
+    if (!reader.sendable_readout_type().has_value()) {
+      continue;
+    }
+    auto & group = groups.emplace_back(&senders.at(resolve_sender_config(reader, config)),
+                                       std::vector<PulseEvents>(pulses));
+    stream_reader_point(reader, point, config, rng, subset,
+                        [&](const auto & event) { hold(group.second[which(rng)], event); });
+  }
+  if (stop_requested(config)) {
+    return false;
+  }
+  for (size_t pulse = 0; pulse < pulses; ++pulse) {
+    const auto tick = begin_shared_pulse(senders, true);
+    if (pulse == 0 && !senders.empty()) {
+      publisher.pulse_ready(point, tick);
+    }
+    if (stop_requested(config)) {
+      return false;
+    }
+    for (auto & [sender, events] : groups) {
+      std::visit([&](const auto & held) {
+        for (const auto & event : held) {
+          event.add(*sender);
+        }
+      }, events[pulse]);
+    }
+  }
+  return true;
 }
 
 } // namespace
@@ -188,6 +268,10 @@ bool replay(const std::string & filename, const ReplayConfig & config, Parameter
   }
   const ReaderSource source(filename);
   auto senders = make_senders(source, config);
+  // a paced replay puts every event in the pulse it chose for it
+  for (auto & [key, sender] : senders) {
+    sender.hold_pulse(config.pulses_per_point > 0);
+  }
   const auto seed = config.seed ? config.seed : std::random_device{}();
   std::mt19937 rng{seed};
 
@@ -225,22 +309,21 @@ bool replay(const std::string & filename, const ReplayConfig & config, Parameter
     if (stop_requested(config)) {
       return false;
     }
+    if (config.pulses_per_point > 0) {
+      if (!replay_paced_point(source, senders, point, config, rng, subset, publisher)) {
+        return false;
+      }
+      continue;
+    }
     // start a fresh pulse only after the point's parameters are published, so
-    // the parameter timestamps precede the reference times of the point's events
-    // One tick for every sender, so all the point's events share a reference time.
-    // Each beginning it in turn would wait for its own next tick, a period apart.
-    uint64_t tick{0};
-    for (const auto & [key, sender] : senders) {
-      tick = std::max(tick, sender.next_pulse());
-    }
-    for (auto & [key, sender] : senders) {
-      sender.begin_pulse_at(tick);
-    }
+    // the parameter timestamps precede the reference times of the point's events;
+    // one tick for every sender, so all the point's events share a reference time
+    const auto tick = begin_shared_pulse(senders, false);
     // Every sender keeps the same epoch-anchored grid and has just begun the same
-    // pulse -- the next tick after the parameters were published -- so any one of
-    // them is the point's reference. With no senders there is no pulse to report.
+    // pulse -- the next tick after the parameters were published -- so it is the
+    // point's reference. With no senders there is no pulse to report.
     if (!senders.empty()) {
-      publisher.pulse_ready(point, senders.begin()->second.lastPulseNanoseconds());
+      publisher.pulse_ready(point, tick);
       if (stop_requested(config)) {
         return false;
       }
@@ -249,14 +332,19 @@ bool replay(const std::string & filename, const ReplayConfig & config, Parameter
       if (!reader.sendable_readout_type().has_value()) {
         continue;
       }
-      const auto cfg = resolve_sender_config(reader, config);
-      auto & sender = senders.at(cfg);
-      stream_reader_point(reader, sender, point, config, rng, subset);
+      auto & sender = senders.at(resolve_sender_config(reader, config));
+      stream_reader_point(reader, point, config, rng, subset,
+                          [&](const auto & event) { event.add(sender); });
     }
   }
 
   if (stop_requested(config)) {
     return false;
+  }
+  if (config.pulses_per_point > 0 && !senders.empty()) {
+    // One more pulse, with nothing in it: an EFU summing pulses into histograms
+    // publishes the last point's only when it sees the pulse after its last
+    begin_shared_pulse(senders, true);
   }
   if (subset.has_value() && subset->emitted < subset->spec.number) {
     throw std::runtime_error("Requested replay subset exceeds available events");
