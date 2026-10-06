@@ -109,6 +109,17 @@ public:
   void begin_pulse_at(uint64_t at);
   /// The tick begin_pulse() would begin: the first after now and after the current pulse.
   [[nodiscard]] uint64_t next_pulse() const;
+  /// Send the current pulse's header with no readouts, so the EFU sees the pulse even
+  /// when nothing is detected in it. An EFU summing a number of pulses into one
+  /// histogram counts the pulses it is shown, so a silent one would shift every later
+  /// histogram's boundaries.
+  void announce_pulse();
+  /// Send whatever is buffered for the current pulse now.
+  void flush();
+  /// Keep the pulse begun by begin_pulse()/begin_pulse_at() however long sending takes,
+  /// rather than moving on with the wall clock when a full buffer is sent. For a caller
+  /// that places every event in a pulse of its choosing.
+  void hold_pulse(const bool hold) { hold_pulse_ = hold; }
 
   /// Choose whether add-by-time-of-flight readouts are stamped at
   /// pulse + (tof % period) — attributing each event to the frame it would be
@@ -180,6 +191,7 @@ private:
   int tcp_port{8888};
   int verbosity{0};
   bool fold_tof_{false};
+  bool hold_pulse_{false};
   std::atomic<uint64_t> long_tof_{0};
   void report_long_tof() const;
 

@@ -26,6 +26,7 @@ int main(int argc, char * argv[]){
   args::Group timing_group(parser, "Reference time behavior", args::Group::Validators::DontCare);
   args::ValueFlag<double> rate_flag(timing_group, "RATE", "Pulse (reference time) repetition rate in Hz; packet pulse times march forward on this grid (default 14, the ESS source frequency)", {"pulse-rate"});
   args::Flag fold_flag(timing_group, "fold-tof", "Stamp each event at pulse + (tof mod pulse period) instead of pulse + tof, wrapping long-time-of-flight events into the frame they would be detected in", {"fold-tof"});
+  args::ValueFlag<size_t> paced_flag(timing_group, "PULSES", "Spread each point's events over PULSES pulses, then send PULSES empty ones; an EFU summing PULSES pulses per histogram (ESS beam monitors: 14) then publishes one per point, if started fresh or only shown replays paced the same way", {"pulses-per-point"});
 
   args::Group efu_group(parser, "Event Formation Unit connection", args::Group::Validators::DontCare);
   args::ValueFlag<std::string> address_flag(efu_group, "ADDR", "Default EFU IP address", {'a', "addr"});
@@ -58,6 +59,7 @@ int main(int argc, char * argv[]){
   config.random_order = static_cast<bool>(random_flag);
   if (rate_flag) config.pulse_rate = args::get(rate_flag);
   config.fold_tof = static_cast<bool>(fold_flag);
+  if (paced_flag) config.pulses_per_point = args::get(paced_flag);
   if (address_flag) config.default_address = args::get(address_flag);
   if (port_flag) config.default_port = args::get(port_flag);
   if (config_flag) {

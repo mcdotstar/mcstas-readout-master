@@ -54,7 +54,7 @@ completed = ro.replay("scan.h5", config, EpicsPublisher())
 ```
 
 `ReplayConfig` mirrors the C++ struct in replay.h field for field
-(`counting_time`, `seed`, `random_order`, `subset`, `pulse_rate`, `fold_tof`,
+(`counting_time`, `seed`, `random_order`, `subset`, `pulse_rate`, `fold_tof`, `pulses_per_point`,
 ...); explicit EFU routing is given as `senders_json`, the same JSON document
 `readout-replay --config` accepts. The publisher contract — per-point
 `publish` calls in name order, then `point_ready`, all before the point's

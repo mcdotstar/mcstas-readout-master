@@ -89,13 +89,17 @@ mechanism is available to C++ callers through `ReplayConfig::stop` (a caller-own
 
 ## Known limitations to plan around
 
-- **Events are not paced.** A point's events are sent as fast as UDP framing allows,
-  not spread over the counting time; parameter validity intervals in the written file
-  will be much shorter than the simulated counting time. (The reference *clock* is
-  paced — pulse times march on the configured `pulse_rate` grid as the wall clock
-  passes each tick — but the events themselves are not.) If the downstream consumers
-  need realistic wall-clock pacing, that is a replay feature to add (see below), not a
-  publisher concern.
+- **Events are paced only on request.** By default a point's events are sent as fast as
+  UDP framing allows, under whichever pulses the wall clock passes, so parameter
+  validity intervals in the written file are much shorter than the simulated counting
+  time. `pulses_per_point` (`--pulses-per-point`) spreads each point's events over that
+  many pulses and shows every EFU every one of them -- what an EFU summing a fixed number
+  of pulses into a histogram needs to publish one histogram per point, provided the EFU
+  was started fresh or has only been shown replays paced the same way (it starts a
+  histogram only where it published the last). It is not the
+  counting time: a point lasts `pulses_per_point / pulse_rate` seconds of wall clock
+  however long it was counted for. `pulse_ready` is still called once per point, for its
+  first pulse.
 - ~~**Pulse times are not passed to the publisher.**~~ Resolved: `pulse_ready(point,
   pulse_ns)` reports the reference time once the point's pulse has begun. It is a
   separate callback rather than an argument to `point_ready` because `point_ready` runs

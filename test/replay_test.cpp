@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <map>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -917,5 +918,143 @@ TEST_CASE("Folding time-of-flight wraps events into the pulse frame", "[replay][
   CHECK(folded.events.front() - folded.pulse == efu_time(tof) % period);
   CHECK(folded.events.front() - folded.pulse < period);
 
+  fs::remove(filepath);
+}
+
+namespace {
+
+/// Replay a two-point file of ``rays`` readouts per point with pacing; the packets and the publisher
+std::pair<std::vector<PacketRecord>, TimedPublisher> paced_replay(const std::string & base, const uint16_t rays,
+                                                                  const size_t pulses, int & received) {
+  namespace fs = std::filesystem;
+  const auto file_a = write_caen_point_file(base + "_a", 100.0, rays, 1.0);
+  const auto file_b = write_caen_point_file(base + "_b", 200.0, rays, 1.0);
+  auto multi_path = fs::temp_directory_path() / fs::path(pid_filename(base, ".h5"));
+  fs::remove(multi_path);
+  concatenate_collector_files(multi_path.string(), {file_a, file_b});
+
+  const int port = find_free_udp_port();
+  REQUIRE(port > 0);
+  auto stats = std::make_shared<UDPStats>();
+  auto log = std::make_shared<PacketLog>();
+  auto receiver = make_logging_receiver(port, stats, log);
+  REQUIRE(receiver.isRunning());
+
+  ReplayConfig config;
+  config.default_port = port;
+  config.pulse_rate = 50.0; // a 20 ms period keeps the paced replay short
+  config.pulses_per_point = pulses;
+  TimedPublisher publisher;
+  CHECK(replay(multi_path.string(), config, publisher));
+  received = settled_readouts(stats);
+  CHECK(stats->bad == 0);
+
+  fs::remove(fs::path(file_a));
+  fs::remove(fs::path(file_b));
+  fs::remove(multi_path);
+  return {log->records(), publisher};
+}
+
+} // namespace
+
+TEST_CASE("A paced replay spreads each point over its pulses", "[replay][pulse][paced]") {
+  const uint16_t rays{1000};
+  const size_t pulses{4};
+  int received{0};
+  const auto [records, publisher] = paced_replay("replay_paced", rays, pulses, received);
+  REQUIRE(received == 2 * rays);
+  const auto grid = pulse_grid::from_rate(50.0);
+
+  // the pulses the EFU is shown, in order -- each point's, then a point's worth more -- and how many
+  // events each carried; every packet of a pulse has the same header time
+  std::map<uint64_t, size_t> events_in;
+  for (const auto & record : records) {
+    events_in[record.pulse.total_nanoseconds()] += record.events.size();
+  }
+  std::vector<uint64_t> shown;
+  for (const auto & [ns, count] : events_in) {
+    shown.push_back(ns);
+  }
+  REQUIRE(shown.size() == 3 * pulses);
+  for (const auto ns : shown) {
+    CHECK(on_grid(grid, ns));
+  }
+  // a point's pulses are successive ticks: a whole number of periods apart, normally one,
+  // more where sending a pulse's share took longer than a period -- an EFU counts the
+  // pulses it is shown, not the ticks between them
+  for (size_t point = 0; point < 2; ++point) {
+    for (size_t k = 1; k < pulses; ++k) {
+      const auto gap = shown[point * pulses + k] - shown[point * pulses + k - 1];
+      CHECK(gap + one_tick_ns >= grid.period_ns());
+      CHECK(on_grid(grid, gap));
+    }
+  }
+  // the publisher hears of each point's first pulse
+  REQUIRE(publisher.pulse_times.size() == 2);
+  CHECK(efu_time::from_nanoseconds(publisher.pulse_times[0]).total_nanoseconds() == shown[0]);
+  CHECK(efu_time::from_nanoseconds(publisher.pulse_times[1]).total_nanoseconds() == shown[pulses]);
+  // every pulse of a point carries a share of its events, and the ones after none
+  for (size_t i = 0; i < 3 * pulses; ++i) {
+    CHECK((events_in[shown[i]] > 0) == (i < 2 * pulses));
+  }
+}
+
+TEST_CASE("A paced replay shows the EFU every pulse, even an empty one", "[replay][pulse][paced]") {
+  // one readout a point, over four pulses: three of each point's pulses carry nothing
+  const size_t pulses{4};
+  int received{0};
+  const auto [records, publisher] = paced_replay("replay_paced_sparse", 1, pulses, received);
+  CHECK(received == 2);
+  std::set<uint64_t> shown;
+  for (const auto & record : records) {
+    shown.insert(record.pulse.total_ticks());
+  }
+  CHECK(shown.size() == 3 * pulses);
+}
+
+TEST_CASE("Two senders to one EFU never show it a pulse it has left", "[replay][pulse][paced]") {
+  namespace fs = std::filesystem;
+  const int port = find_free_udp_port();
+  REQUIRE(port > 0);
+  // two detector types, so two senders, sharing one EFU -- as a cbm EFU reads monitors of
+  // two readout types
+  auto filepath = fs::temp_directory_path() / fs::path(pid_filename("replay_two_senders", ".h5"));
+  fs::remove(filepath);
+  {
+    Collector bifrost(filepath.string(), "bifrost", 0x34, 1u);
+    Collector cspec(filepath.string(), "cspec", 0x3c, 1u);
+    for (auto * collector : {&bifrost, &cspec}) {
+      collector->setEFU("127.0.0.1", port);
+      collector->addParameter("scan_val", 1.0, std::optional<std::string>("arb"), std::nullopt);
+    }
+    CAEN_readout_t data{};
+    for (uint16_t i = 0; i < 2000; ++i) {
+      data.channel = 1; data.a = i;
+      bifrost.addReadout(0, 0, 1e-4, 1.0, static_cast<const void *>(&data));
+      cspec.addReadout(0, 0, 1e-4, 1.0, static_cast<const void *>(&data));
+    }
+  }
+  // every packet's pulse, in the order they arrive
+  auto pulses = std::make_shared<std::vector<uint64_t>>();
+  auto mutex = std::make_shared<std::mutex>();
+  cluon::UDPReceiver receiver("127.0.0.1", port,
+    [pulses, mutex](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+      const auto * header = reinterpret_cast<const PacketHeaderV0 *>(data.data());
+      const std::lock_guard lock(*mutex);
+      pulses->push_back(efu_time(header->PulseHigh, header->PulseLow).total_ticks());
+    });
+  REQUIRE(receiver.isRunning());
+
+  ReplayConfig config;
+  config.default_port = port;
+  config.pulse_rate = 50.0;
+  config.pulses_per_point = 4;
+  CHECK(replay(filepath.string(), config));
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+  const std::lock_guard lock(*mutex);
+  REQUIRE(!pulses->empty());
+  CHECK(std::is_sorted(pulses->begin(), pulses->end()));
+  CHECK(std::set<uint64_t>(pulses->begin(), pulses->end()).size() == 2 * 4);
   fs::remove(filepath);
 }
