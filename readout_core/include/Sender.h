@@ -32,7 +32,8 @@
  * (begin_pulse()), or on destruction.
  *
  * The pulse (reference) times in the packet headers march forward on a fixed
- * grid with the configured period, anchored at the first pulse time: whenever
+ * grid with the configured period, anchored on the UNIX epoch (pulse_grid), so
+ * every Sender -- and mccode-plumber's mp-tdc -- agrees on when a pulse was: whenever
  * a full buffer forces a new packet, the pulse time advances to the latest
  * grid tick at or before the wall clock, so consecutive packets may share a
  * pulse time until the reference clock ticks. begin_pulse() waits for the next
@@ -43,24 +44,30 @@
 class RL_API Sender {
 public:
   Sender(
-      std::string IpAddress, const int UDPPort, const int TCPPort, const DetectorType detector_type, const ReadoutType readout_type, efu_time p = efu_time(1), efu_time t = efu_time()
+      std::string IpAddress, const int UDPPort, const int TCPPort, const DetectorType detector_type, const ReadoutType readout_type, const pulse_grid grid
   ): detector_type(detector_type),
      readout_type(readout_type),
      ipaddr(std::move(IpAddress)),
      port(UDPPort),
      tcp_port(TCPPort),
-     period(p),
-     time(t),
+     grid(grid),
+     period(grid.period()),
      sender{ipaddr, static_cast<uint16_t>(UDPPort)}
   {
-    // hp = reinterpret_cast<PacketHeaderV0 *>(&buffer[0]);
-    auto prev = time - period;
-    setPulseTime(time.high(), time.low(), prev.high(), prev.low());
+    // the latest pulse already past, as for a source that has been running all along
+    set_pulse(grid.at_or_before(efu_time::now_nanoseconds()));
     newPacket();
   }
 
-  explicit Sender(const SenderConfig & config, efu_time p = efu_time(1), efu_time t = efu_time())
-      : Sender(config.ip_address, config.udp_port, config.tcp_port, config.detector_type, config.readout_type, p, t) {}
+  Sender(
+      std::string IpAddress, const int UDPPort, const int TCPPort, const DetectorType detector_type, const ReadoutType readout_type, const efu_time p = efu_time(1)
+  ): Sender(std::move(IpAddress), UDPPort, TCPPort, detector_type, readout_type, pulse_grid::from_period(p)) {}
+
+  explicit Sender(const SenderConfig & config, const pulse_grid grid)
+      : Sender(config.ip_address, config.udp_port, config.tcp_port, config.detector_type, config.readout_type, grid) {}
+
+  explicit Sender(const SenderConfig & config, const efu_time p = efu_time(1))
+      : Sender(config, pulse_grid::from_period(p)) {}
 
   ~Sender() {
     // ensure any buffered readouts are sent before the object is destroyed
@@ -97,6 +104,11 @@ public:
   /// that tick as its pulse time. Everything sent afterwards carries reference
   /// times strictly later than any wall-clock instant preceding this call.
   void begin_pulse();
+  /// begin_pulse(), at the grid tick ``at`` (rounded up onto the grid), so that
+  /// several Senders can begin one and the same pulse.
+  void begin_pulse_at(uint64_t at);
+  /// The tick begin_pulse() would begin: the first after now and after the current pulse.
+  [[nodiscard]] uint64_t next_pulse() const;
 
   /// Choose whether add-by-time-of-flight readouts are stamped at
   /// pulse + (tof % period) — attributing each event to the frame it would be
@@ -108,6 +120,8 @@ public:
 
   // Query the current pulse and previous pulse times
   [[nodiscard]] std::pair<uint32_t, uint32_t> lastPulseTime() const;
+  /// The current pulse exactly, in nanoseconds since the UNIX epoch: a pulse_grid tick
+  [[nodiscard]] uint64_t lastPulseNanoseconds() const { return pulse_ns; }
   [[nodiscard]] std::pair<uint32_t, uint32_t> prevPulseTime() const;
   [[nodiscard]] std::pair<uint32_t, uint32_t> lastEventTime() const;
 
@@ -138,6 +152,9 @@ private:
   /// clock, when at least one period has elapsed since the current pulse.
   void maybe_advance_pulse();
 
+  /// Make ``ns``, a grid tick, the current pulse and the one before it the previous.
+  void set_pulse(uint64_t ns);
+
   // Packet header
   uint32_t phi{0}; // pulse and prev pulse high and low
   uint32_t plo{0};
@@ -166,7 +183,9 @@ private:
   std::atomic<uint64_t> long_tof_{0};
   void report_long_tof() const;
 
+  pulse_grid grid;
   efu_time period, time;
+  uint64_t pulse_ns{0};
   cluon::UDPSender sender;
 
   std::mutex time_mutex, send_mutex;

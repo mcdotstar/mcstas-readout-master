@@ -18,7 +18,7 @@ extern "C" {
   readout_t * readout_create(const char* address, const int port, const int command_port, const double source_frequency, int type){
     const std::string string_address(address);
     const auto r_ptr = static_cast<readout_t *>(malloc(sizeof(readout_t)));
-    r_ptr->obj = new Readout(string_address, port, command_port, type, efu_time(1/source_frequency), efu_time());
+    r_ptr->obj = new Readout(string_address, port, command_port, type, pulse_grid::from_rate(source_frequency));
     return r_ptr;
   }
 

@@ -89,7 +89,7 @@ SenderConfig resolve_sender_config(const Reader & reader, const ReplayConfig & c
 /// Readers that resolve to the same SenderConfig share one Sender (e.g. two groups
 /// aimed at the same EFU, or an explicit config override that collapses multiple groups).
 std::map<SenderConfig, Sender> make_senders(const ReaderSource & source, const ReplayConfig & config) {
-  const efu_time period(1.0 / config.pulse_rate);
+  const auto grid = pulse_grid::from_rate(config.pulse_rate);
   std::map<SenderConfig, Sender> senders;
   for (const auto & reader : source.readers()) {
     if (!reader.sendable_readout_type().has_value()) {
@@ -97,7 +97,7 @@ std::map<SenderConfig, Sender> make_senders(const ReaderSource & source, const R
     }
     const auto cfg = resolve_sender_config(reader, config);
     if (!senders.contains(cfg)) {
-      auto [it, inserted] = senders.emplace(std::piecewise_construct, std::forward_as_tuple(cfg), std::forward_as_tuple(cfg, period));
+      auto [it, inserted] = senders.emplace(std::piecewise_construct, std::forward_as_tuple(cfg), std::forward_as_tuple(cfg, grid));
       it->second.fold_tof(config.fold_tof);
     }
   }
@@ -227,15 +227,20 @@ bool replay(const std::string & filename, const ReplayConfig & config, Parameter
     }
     // start a fresh pulse only after the point's parameters are published, so
     // the parameter timestamps precede the reference times of the point's events
-    for (auto & [key, sender] : senders) {
-      sender.begin_pulse();
+    // One tick for every sender, so all the point's events share a reference time.
+    // Each beginning it in turn would wait for its own next tick, a period apart.
+    uint64_t tick{0};
+    for (const auto & [key, sender] : senders) {
+      tick = std::max(tick, sender.next_pulse());
     }
-    // Every sender's grid is anchored at its own construction, and they are all built
-    // in one loop, so their pulses agree to within that construction skew -- take the
-    // first as the point's reference. With no senders there is no pulse to report.
+    for (auto & [key, sender] : senders) {
+      sender.begin_pulse_at(tick);
+    }
+    // Every sender keeps the same epoch-anchored grid and has just begun the same
+    // pulse -- the next tick after the parameters were published -- so any one of
+    // them is the point's reference. With no senders there is no pulse to report.
     if (!senders.empty()) {
-      const auto pulse = efu_time(senders.begin()->second.lastPulseTime());
-      publisher.pulse_ready(point, pulse.total_nanoseconds());
+      publisher.pulse_ready(point, senders.begin()->second.lastPulseNanoseconds());
       if (stop_requested(config)) {
         return false;
       }

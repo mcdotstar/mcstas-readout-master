@@ -116,6 +116,24 @@ public:
     return static_cast<uint64_t>(_h) * nps + (static_cast<uint64_t>(_l) * nps) / ticks;
   }
 
+  /// Nanoseconds since the UNIX epoch, to the nearest tick
+  static efu_time from_nanoseconds(const uint64_t ns) {
+    constexpr uint64_t nps = 1000000000u;
+    auto high = ns / nps;
+    auto low = ((ns % nps) * ticks + nps / 2) / nps;
+    if (low >= ticks) {
+      ++high;
+      low -= ticks;
+    }
+    return {static_cast<uint32_t>(high), static_cast<uint32_t>(low)};
+  }
+
+  /// The system clock, in nanoseconds since the UNIX epoch
+  static uint64_t now_nanoseconds() {
+    using std::chrono::duration_cast, std::chrono::nanoseconds, std::chrono::system_clock;
+    return static_cast<uint64_t>(duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count());
+  }
+
   uint32_t operator/(const efu_time & other) const {
     return static_cast<uint32_t>(total_ticks() / other.total_ticks());
   }
@@ -146,6 +164,39 @@ public:
     os << "(" << dt->high() << "," << dt->low() << ")";
     return os;
   }
+};
+
+/** \brief The source's pulses: pulse k is at k periods after the UNIX epoch.
+ *
+ * Anchored on the epoch rather than on whenever a Readout or Sender happens to be
+ * created, so every one of them -- every MPI rank of a simulation, every replay --
+ * and anything else keeping the same grid, like mccode-plumber's mp-tdc, agree on
+ * when a pulse was. The period is a whole number of nanoseconds, round(1e9 / rate),
+ * which is also what the EFU takes an ESS pulse to be.
+ */
+class pulse_grid {
+  uint64_t period_ns_;
+public:
+  explicit pulse_grid(const uint64_t period_ns): period_ns_(period_ns) {
+    if (period_ns_ == 0) throw std::invalid_argument("pulse_grid period must be positive");
+  }
+  static pulse_grid from_rate(const double rate) {
+    if (!(rate > 0)) throw std::invalid_argument("pulse_grid rate must be positive");
+    return pulse_grid(static_cast<uint64_t>(std::llround(1e9 / rate)));
+  }
+  /// For a period given as a time: to the nearest nanosecond. efu_time(double)
+  /// truncates to a whole tick, so efu_time(1.0 / 14) is 2 ns short of an ESS
+  /// pulse; prefer from_rate.
+  static pulse_grid from_period(const efu_time & period) {
+    const auto ns = static_cast<double>(period.total_ticks()) * 1e9 / static_cast<double>(efu_time::ticks);
+    return pulse_grid(static_cast<uint64_t>(std::llround(ns)));
+  }
+  [[nodiscard]] uint64_t period_ns() const { return period_ns_; }
+  [[nodiscard]] efu_time period() const { return efu_time::from_nanoseconds(period_ns_); }
+  /// The latest pulse at or before ns
+  [[nodiscard]] uint64_t at_or_before(const uint64_t ns) const { return ns / period_ns_ * period_ns_; }
+  /// The first pulse strictly after ns
+  [[nodiscard]] uint64_t after(const uint64_t ns) const { return (ns / period_ns_ + 1) * period_ns_; }
 };
 
 #endif // MCSTAS_UDP_TRANSMIT_EFU_TIME_H
