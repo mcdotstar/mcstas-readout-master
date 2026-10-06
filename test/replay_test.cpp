@@ -807,16 +807,23 @@ TEST_CASE("Replay reference times follow each point's parameter publication", "[
     CHECK(records[i].pulse >= records[i - 1].pulse);
   }
   // each point's reported pulse is a tick of the epoch-anchored grid, exactly, and the
-  // one its packets carry
+  // one its first packet carries; later packets may carry a later tick, since an unpaced
+  // replay moves on with the clock if sending a point takes longer than a period
   const auto grid = pulse_grid::from_rate(config.pulse_rate);
   REQUIRE(publisher.pulse_times.size() == 2);
   for (const auto pulse_ns : publisher.pulse_times) {
     CHECK(pulse_ns % grid.period_ns() == 0);
   }
   seen = 0;
+  std::set<size_t> started;
   for (const auto & record : records) {
-    const auto reported = publisher.pulse_times[seen < rays ? 0 : 1];
-    CHECK(record.pulse == efu_time::from_nanoseconds(reported));
+    const size_t point = seen < rays ? 0 : 1;
+    const auto reported = efu_time::from_nanoseconds(publisher.pulse_times[point]);
+    if (started.insert(point).second) {
+      CHECK(record.pulse == reported);
+    }
+    CHECK(record.pulse >= reported);
+    CHECK(on_grid(grid, record.pulse.total_nanoseconds()));
     seen += record.events.size();
   }
 
