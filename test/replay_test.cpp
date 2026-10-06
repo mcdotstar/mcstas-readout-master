@@ -979,12 +979,14 @@ TEST_CASE("A paced replay spreads each point over its pulses", "[replay][pulse][
   for (const auto ns : shown) {
     CHECK(on_grid(grid, ns));
   }
-  // a point's pulses are consecutive ticks
+  // a point's pulses are successive ticks: a whole number of periods apart, normally one,
+  // more where sending a pulse's share took longer than a period -- an EFU counts the
+  // pulses it is shown, not the ticks between them
   for (size_t point = 0; point < 2; ++point) {
     for (size_t k = 1; k < pulses; ++k) {
       const auto gap = shown[point * pulses + k] - shown[point * pulses + k - 1];
       CHECK(gap + one_tick_ns >= grid.period_ns());
-      CHECK(gap <= grid.period_ns() + one_tick_ns);
+      CHECK(on_grid(grid, gap));
     }
   }
   // the publisher hears of each point's first pulse
