@@ -45,9 +45,10 @@ class ReplayConfig:
     fold_tof: stamp events at pulse + (tof % period) so long-flight events wrap
         into the frame they would be detected in.
     pulses_per_point: spread each point's events over this many pulses, each event
-        going to one at random, and end with an empty pulse; 0 sends a point's events
-        as fast as they go. An EFU summing that many pulses per histogram (ESS beam
-        monitors: 14) then publishes one per point.
+        going to one at random, then send as many empty pulses; 0 sends a point's
+        events as fast as they go. An EFU summing that many pulses per histogram (ESS
+        beam monitors: 14) then publishes one per point, if it was started fresh or
+        has only been shown replays paced the same way.
     """
     counting_time: float | None = None
     seed: int = 0

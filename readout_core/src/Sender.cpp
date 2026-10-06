@@ -70,6 +70,14 @@ void Sender::set_pulse(const uint64_t ns) {
   setPulseTime(time.high(), time.low(), prev.high(), prev.low());
 }
 
+void Sender::flush() {
+  auto time_lock = std::lock_guard(time_mutex);
+  if (DataSize > static_cast<int>(sizeof(struct PacketHeaderV0))) {
+    send();
+    newPacket();
+  }
+}
+
 void Sender::announce_pulse() {
   auto time_lock = std::lock_guard(time_mutex);
   if (DataSize > static_cast<int>(sizeof(struct PacketHeaderV0))) {

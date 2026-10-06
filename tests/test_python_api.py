@@ -184,8 +184,8 @@ def test_a_paced_replay_takes_its_pulses(tmp_path):
     """`pulses_per_point` reaches the library: a point takes that many pulse periods.
 
     Unpaced, a one-point replay waits at most one period for its pulse. Paced over
-    eight pulses at 50 Hz, it has to span at least seven more, plus the empty pulse
-    after the last point -- 160 ms in all, where unpaced is done within 20 ms.
+    eight pulses at 50 Hz, it spans those and eight empty ones after -- over 300 ms,
+    where unpaced is done within 20 ms.
     """
     import time
 
@@ -200,7 +200,7 @@ def test_a_paced_replay_takes_its_pulses(tmp_path):
     start = time.monotonic()
     assert ro.replay(filename, config, publisher) is True
     elapsed = time.monotonic() - start
-    assert elapsed >= 8 * 0.02
+    assert elapsed >= 15 * 0.02
     # still one pulse reported per point: the point's first
     assert [point for point, _ in publisher.pulses] == [0]
 

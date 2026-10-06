@@ -26,7 +26,7 @@ int main(int argc, char * argv[]){
   args::Group timing_group(parser, "Reference time behavior", args::Group::Validators::DontCare);
   args::ValueFlag<double> rate_flag(timing_group, "RATE", "Pulse (reference time) repetition rate in Hz; packet pulse times march forward on this grid (default 14, the ESS source frequency)", {"pulse-rate"});
   args::Flag fold_flag(timing_group, "fold-tof", "Stamp each event at pulse + (tof mod pulse period) instead of pulse + tof, wrapping long-time-of-flight events into the frame they would be detected in", {"fold-tof"});
-  args::ValueFlag<size_t> paced_flag(timing_group, "PULSES", "Spread each point's events over PULSES pulses, and end with an empty pulse; an EFU summing PULSES pulses per histogram then publishes one per point (ESS beam monitors: 14)", {"pulses-per-point"});
+  args::ValueFlag<size_t> paced_flag(timing_group, "PULSES", "Spread each point's events over PULSES pulses, then send PULSES empty ones; an EFU summing PULSES pulses per histogram (ESS beam monitors: 14) then publishes one per point, if started fresh or only shown replays paced the same way", {"pulses-per-point"});
 
   args::Group efu_group(parser, "Event Formation Unit connection", args::Group::Validators::DontCare);
   args::ValueFlag<std::string> address_flag(efu_group, "ADDR", "Default EFU IP address", {'a', "addr"});

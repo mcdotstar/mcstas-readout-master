@@ -114,6 +114,8 @@ public:
   /// histogram counts the pulses it is shown, so a silent one would shift every later
   /// histogram's boundaries.
   void announce_pulse();
+  /// Send whatever is buffered for the current pulse now.
+  void flush();
   /// Keep the pulse begun by begin_pulse()/begin_pulse_at() however long sending takes,
   /// rather than moving on with the wall clock when a full buffer is sent. For a caller
   /// that places every event in a pulse of its choosing.

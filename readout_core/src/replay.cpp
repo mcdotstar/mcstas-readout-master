@@ -203,8 +203,12 @@ void hold(PulseEvents & pulse, const EventT & event) {
 uint64_t begin_shared_pulse(std::map<SenderConfig, Sender> & senders, const bool announce) {
   // Each beginning it in turn would wait for its own next tick, a period apart.
   uint64_t tick{0};
-  for (const auto & [key, sender] : senders) {
+  for (auto & [key, sender] : senders) {
     tick = std::max(tick, sender.next_pulse());
+    // Everything of the pulse ending goes before anything of the next, from every
+    // sender: two sending to one EFU would otherwise show it the old pulse again after
+    // the new one, and an EFU counting pulses would count each of them three times.
+    sender.flush();
   }
   for (auto & [key, sender] : senders) {
     sender.begin_pulse_at(tick);
@@ -342,9 +346,18 @@ bool replay(const std::string & filename, const ReplayConfig & config, Parameter
     return false;
   }
   if (config.pulses_per_point > 0 && !senders.empty()) {
-    // One more pulse, with nothing in it: an EFU summing pulses into histograms
-    // publishes the last point's only when it sees the pulse after its last
-    begin_shared_pulse(senders, true);
+    // A point's worth of empty pulses. An EFU summing that many pulses into a histogram
+    // publishes the last point's on seeing the first of them, and starts its next
+    // histogram there -- and it starts a histogram nowhere else: its boundaries run on
+    // from every pulse it has been shown since it started. Left one pulse short of
+    // publishing again, it publishes this empty one on the next replay's first pulse,
+    // and so starts that replay's first histogram on its first point as well.
+    for (size_t pulse = 0; pulse < config.pulses_per_point; ++pulse) {
+      begin_shared_pulse(senders, true);
+      if (stop_requested(config)) {
+        return false;
+      }
+    }
   }
   if (subset.has_value() && subset->emitted < subset->spec.number) {
     throw std::runtime_error("Requested replay subset exceeds available events");

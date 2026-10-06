@@ -965,7 +965,7 @@ TEST_CASE("A paced replay spreads each point over its pulses", "[replay][pulse][
   REQUIRE(received == 2 * rays);
   const auto grid = pulse_grid::from_rate(50.0);
 
-  // the pulses the EFU is shown, in order -- each point's, then one more -- and how many
+  // the pulses the EFU is shown, in order -- each point's, then a point's worth more -- and how many
   // events each carried; every packet of a pulse has the same header time
   std::map<uint64_t, size_t> events_in;
   for (const auto & record : records) {
@@ -975,7 +975,7 @@ TEST_CASE("A paced replay spreads each point over its pulses", "[replay][pulse][
   for (const auto & [ns, count] : events_in) {
     shown.push_back(ns);
   }
-  REQUIRE(shown.size() == 2 * pulses + 1);
+  REQUIRE(shown.size() == 3 * pulses);
   for (const auto ns : shown) {
     CHECK(on_grid(grid, ns));
   }
@@ -991,11 +991,10 @@ TEST_CASE("A paced replay spreads each point over its pulses", "[replay][pulse][
   REQUIRE(publisher.pulse_times.size() == 2);
   CHECK(efu_time::from_nanoseconds(publisher.pulse_times[0]).total_nanoseconds() == shown[0]);
   CHECK(efu_time::from_nanoseconds(publisher.pulse_times[1]).total_nanoseconds() == shown[pulses]);
-  // every pulse of a point carries a share of its events, and the last pulse none
-  for (size_t i = 0; i < 2 * pulses; ++i) {
-    CHECK(events_in[shown[i]] > 0);
+  // every pulse of a point carries a share of its events, and the ones after none
+  for (size_t i = 0; i < 3 * pulses; ++i) {
+    CHECK((events_in[shown[i]] > 0) == (i < 2 * pulses));
   }
-  CHECK(events_in[shown.back()] == 0);
 }
 
 TEST_CASE("A paced replay shows the EFU every pulse, even an empty one", "[replay][pulse][paced]") {
@@ -1008,5 +1007,52 @@ TEST_CASE("A paced replay shows the EFU every pulse, even an empty one", "[repla
   for (const auto & record : records) {
     shown.insert(record.pulse.total_ticks());
   }
-  CHECK(shown.size() == 2 * pulses + 1);
+  CHECK(shown.size() == 3 * pulses);
+}
+
+TEST_CASE("Two senders to one EFU never show it a pulse it has left", "[replay][pulse][paced]") {
+  namespace fs = std::filesystem;
+  const int port = find_free_udp_port();
+  REQUIRE(port > 0);
+  // two detector types, so two senders, sharing one EFU -- as a cbm EFU reads monitors of
+  // two readout types
+  auto filepath = fs::temp_directory_path() / fs::path(pid_filename("replay_two_senders", ".h5"));
+  fs::remove(filepath);
+  {
+    Collector bifrost(filepath.string(), "bifrost", 0x34, 1u);
+    Collector cspec(filepath.string(), "cspec", 0x3c, 1u);
+    for (auto * collector : {&bifrost, &cspec}) {
+      collector->setEFU("127.0.0.1", port);
+      collector->addParameter("scan_val", 1.0, std::optional<std::string>("arb"), std::nullopt);
+    }
+    CAEN_readout_t data{};
+    for (uint16_t i = 0; i < 2000; ++i) {
+      data.channel = 1; data.a = i;
+      bifrost.addReadout(0, 0, 1e-4, 1.0, static_cast<const void *>(&data));
+      cspec.addReadout(0, 0, 1e-4, 1.0, static_cast<const void *>(&data));
+    }
+  }
+  // every packet's pulse, in the order they arrive
+  auto pulses = std::make_shared<std::vector<uint64_t>>();
+  auto mutex = std::make_shared<std::mutex>();
+  cluon::UDPReceiver receiver("127.0.0.1", port,
+    [pulses, mutex](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+      const auto * header = reinterpret_cast<const PacketHeaderV0 *>(data.data());
+      const std::lock_guard lock(*mutex);
+      pulses->push_back(efu_time(header->PulseHigh, header->PulseLow).total_ticks());
+    });
+  REQUIRE(receiver.isRunning());
+
+  ReplayConfig config;
+  config.default_port = port;
+  config.pulse_rate = 50.0;
+  config.pulses_per_point = 4;
+  CHECK(replay(filepath.string(), config));
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+  const std::lock_guard lock(*mutex);
+  REQUIRE(!pulses->empty());
+  CHECK(std::is_sorted(pulses->begin(), pulses->end()));
+  CHECK(std::set<uint64_t>(pulses->begin(), pulses->end()).size() == 2 * 4);
+  fs::remove(filepath);
 }

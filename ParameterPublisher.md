@@ -94,7 +94,9 @@ mechanism is available to C++ callers through `ReplayConfig::stop` (a caller-own
   validity intervals in the written file are much shorter than the simulated counting
   time. `pulses_per_point` (`--pulses-per-point`) spreads each point's events over that
   many pulses and shows every EFU every one of them -- what an EFU summing a fixed number
-  of pulses into a histogram needs to publish one histogram per point. It is not the
+  of pulses into a histogram needs to publish one histogram per point, provided the EFU
+  was started fresh or has only been shown replays paced the same way (it starts a
+  histogram only where it published the last). It is not the
   counting time: a point lasts `pulses_per_point / pulse_rate` seconds of wall clock
   however long it was counted for. `pulse_ready` is still called once per point, for its
   first pulse.

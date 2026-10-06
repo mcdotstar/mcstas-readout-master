@@ -97,10 +97,13 @@ struct RL_API ReplayConfig {
   /// long-time-of-flight events wrap into the frame they would be detected in
   bool fold_tof{false};
   /// Spread each point's events over this many pulses, each sampled event going to one of
-  /// them at random, and send one empty pulse after the last point. 0 sends a point's
-  /// events as fast as they can go, under whichever pulses the wall clock passes. Set it
-  /// to an EFU's histogram aggregation (ESS beam monitors: 14) for one histogram per point;
-  /// a point then takes pulses_per_point / pulse_rate seconds to replay.
+  /// them at random, then send as many empty pulses after the last point. 0 sends a
+  /// point's events as fast as they can go, under whichever pulses the wall clock passes.
+  /// Set it to an EFU's histogram aggregation (ESS beam monitors: 14) for one histogram per
+  /// point; a point then takes pulses_per_point / pulse_rate seconds to replay. The EFU
+  /// starts a histogram only where it published the last, so the histograms are a
+  /// replay's points only if the EFU was started fresh or has only been shown replays
+  /// paced the same way: the empty pulses at the end leave it ready for the next.
   size_t pulses_per_point{0};
   /// When non-null, replay polls this flag at point and chunk boundaries and
   /// returns early (cleanly) once it is set. Caller-owned; must outlive replay().
