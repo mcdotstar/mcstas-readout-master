@@ -8,6 +8,7 @@
 #include "Sender.h"
 #include "LongTof.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -62,31 +63,43 @@ void Sender::check_size_and_send() {
   }
 }
 
+void Sender::set_pulse(const uint64_t ns) {
+  pulse_ns = ns;
+  time = efu_time::from_nanoseconds(ns);
+  const auto prev = efu_time::from_nanoseconds(ns - grid.period_ns());
+  setPulseTime(time.high(), time.low(), prev.high(), prev.low());
+}
+
 void Sender::maybe_advance_pulse() {
   auto time_lock = std::lock_guard(time_mutex);
-  const auto now = efu_time();
-  if (now > time && (now - time) >= period) {
-    time = time + period * ((now - time) / period);
-    const auto prev = time - period;
-    setPulseTime(time.high(), time.low(), prev.high(), prev.low());
+  const auto latest = grid.at_or_before(efu_time::now_nanoseconds());
+  if (latest > pulse_ns) {
+    set_pulse(latest);
   }
 }
 
+uint64_t Sender::next_pulse() const {
+  // the next grid tick strictly after now, and after the current pulse
+  return std::max(grid.after(efu_time::now_nanoseconds()), pulse_ns + grid.period_ns());
+}
+
 void Sender::begin_pulse() {
+  begin_pulse_at(next_pulse());
+}
+
+void Sender::begin_pulse_at(const uint64_t at) {
   auto time_lock = std::lock_guard(time_mutex);
   if (DataSize > static_cast<int>(sizeof(struct PacketHeaderV0))) {
     send();
   }
-  auto now = efu_time();
-  // the next grid tick strictly after now; the grid is anchored at the first pulse time
-  const auto tick = (now > time) ? time + period * ((now - time) / period + 1u) : time + period;
+  // a grid tick, and never at or before the current pulse
+  const auto tick = std::max(grid.after(at - 1), pulse_ns + grid.period_ns());
+  auto now = efu_time::now_nanoseconds();
   while (now < tick) {
-    std::this_thread::sleep_for(std::chrono::nanoseconds((tick - now).total_nanoseconds()));
-    now = efu_time();
+    std::this_thread::sleep_for(std::chrono::nanoseconds(tick - now));
+    now = efu_time::now_nanoseconds();
   }
-  time = tick;
-  const auto prev = time - period;
-  setPulseTime(time.high(), time.low(), prev.high(), prev.low());
+  set_pulse(tick);
   newPacket();
 }
 

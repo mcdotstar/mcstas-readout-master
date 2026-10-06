@@ -37,14 +37,13 @@ efu_time stamped(const T & sender) {
 
 TEST_CASE("Readout folds a long time-of-flight into the pulse frame, and says so", "[readout][fold]") {
   const efu_time period(1.0 / 14.0);
-  const efu_time pulse(1'700'000'000u, 0u);
   const double tof{0.165};  // BIFROST, source to detector: more than two frames
   CAEN_readout_t data{};
 
   SECTION("folded") {
     CaptureCerr err;
     {
-      Readout readout("127.0.0.1", nobody, 0, 0x34, period, pulse);
+      Readout readout("127.0.0.1", nobody, 0, 0x34, period);
       readout.fold_tof(true);
       readout.addReadout(0, 0, tof, 1.0, &data);
       readout.addReadout(0, 0, tof, 1.0, &data);
@@ -61,7 +60,7 @@ TEST_CASE("Readout folds a long time-of-flight into the pulse frame, and says so
   SECTION("unfolded, as before") {
     CaptureCerr err;
     {
-      Readout readout("127.0.0.1", nobody, 0, 0x34, period, pulse);
+      Readout readout("127.0.0.1", nobody, 0, 0x34, period);
       readout.addReadout(0, 0, tof, 1.0, &data);
       CHECK(stamped(readout) == efu_time(tof));
       CHECK(readout.long_tof_count() == 1);
@@ -72,7 +71,7 @@ TEST_CASE("Readout folds a long time-of-flight into the pulse frame, and says so
   SECTION("a time within the frame is not remarked on") {
     CaptureCerr err;
     {
-      Readout readout("127.0.0.1", nobody, 0, 0x34, period, pulse);
+      Readout readout("127.0.0.1", nobody, 0, 0x34, period);
       readout.fold_tof(true);
       readout.addReadout(0, 0, 0.01, 1.0, &data);
       CHECK(stamped(readout) == efu_time(0.01));
@@ -84,7 +83,7 @@ TEST_CASE("Readout folds a long time-of-flight into the pulse frame, and says so
   SECTION("silent means silent") {
     CaptureCerr err;
     {
-      Readout readout("127.0.0.1", nobody, 0, 0x34, period, pulse);
+      Readout readout("127.0.0.1", nobody, 0, 0x34, period);
       readout.verbose(Verbosity::silent);
       readout.addReadout(0, 0, tof, 1.0, &data);
       CHECK(readout.long_tof_count() == 1);

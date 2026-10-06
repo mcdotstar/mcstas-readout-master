@@ -29,6 +29,9 @@
  * sends the event that many times (weight <= 0 marks a noise event, sent
  * exactly once); it can also mirror every stored record to a legacy flat
  * HDF5 file via dump_to(). The replay path uses Sender instead.
+ *
+ * Pulse (reference) times are ticks of an epoch-anchored pulse_grid, so every
+ * Readout -- one per MPI rank -- and mccode-plumber's mp-tdc agree on them.
  */
 class RL_API Readout {
 public:
@@ -36,23 +39,29 @@ public:
       std::string IpAddress,
         const int UDPPort,
         const int TCPPort,
-        const int Type=0x34,
-        efu_time p = efu_time(1),
-        efu_time t = efu_time()
+        const int Type,
+        const pulse_grid grid
   ): Type(detectorType_from_int(Type)),
      ipaddr(std::move(IpAddress)),
      port(UDPPort),
      tcp_port(TCPPort),
-     period(p),
-     time(t),
+     grid(grid),
+     period(grid.period()),
      sender{ipaddr, static_cast<uint16_t>(UDPPort)}
   {
 //    sockOpen(ipaddr, port);
     hp = (PacketHeaderV0*)&buffer[0];
-    auto prev = time - period;
-    setPulseTime(time.high(), time.low(), prev.high(), prev.low());
+    set_pulse(grid.at_or_before(efu_time::now_nanoseconds()));
     newPacket();
   }
+
+  Readout(
+      std::string IpAddress,
+        const int UDPPort,
+        const int TCPPort,
+        const int Type=0x34,
+        const efu_time p = efu_time(1)
+  ): Readout(std::move(IpAddress), UDPPort, TCPPort, Type, pulse_grid::from_period(p)) {}
 
   ~Readout() {
     // ensure any buffered data is sent before the object is destroyed
@@ -84,18 +93,11 @@ public:
   /// starting a new packet; keeps (now - prev) within the 5-period window
   /// required by the ESS CAEN EFUs.
   void update_time(){
-    auto now = efu_time();
-    if ((now - time) >= &period){
-      now = time + period * ((now - time) / period);
-    }
-    // The ESS Caen EFUs require (now - prev) <= 5 * rep; so we should fake it
-    if ((now - time) > (period * 5u)) {
-      time = now - period;
-    }
     send();
-    setPulseTime(now.high(), now.low(), time.high(), time.low());
+    // the latest pulse on the grid; the previous one a period before it, as for a
+    // continuously pulsed source (the CAEN EFUs reject a gap of more than five)
+    set_pulse(grid.at_or_before(efu_time::now_nanoseconds()));
     newPacket();
-    time = now;
   }
 
   // Query the current pulse and previous pulse times
@@ -192,8 +194,16 @@ private:
   bool fold_tof_{false};
   uint64_t long_tof_{0};
   void report_long_tof() const;
+  pulse_grid grid;
   efu_time period, time;
   cluon::UDPSender sender;
+
+  /// Make ``ns``, a grid tick, the current pulse and the one before it the previous.
+  void set_pulse(const uint64_t ns) {
+    time = efu_time::from_nanoseconds(ns);
+    const auto prev = efu_time::from_nanoseconds(ns - grid.period_ns());
+    setPulseTime(time.high(), time.low(), prev.high(), prev.low());
+  }
 
   std::mt19937 random_engine{std::default_random_engine{}()};
 };

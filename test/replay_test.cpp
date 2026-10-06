@@ -693,9 +693,20 @@ cluon::UDPReceiver make_logging_receiver(const int port, std::shared_ptr<UDPStat
 class TimedPublisher final : public ParameterPublisher {
 public:
   std::vector<efu_time> ready_times;
+  std::vector<uint64_t> pulse_times;
   void publish(size_t, const std::string &, const std::string &, const std::optional<std::string> &) override {}
   void point_ready(size_t) override { ready_times.emplace_back(); }
+  void pulse_ready(size_t, const uint64_t pulse_ns) override { pulse_times.push_back(pulse_ns); }
 };
+
+/// The most a nanosecond instant can move by on its way to the nearest readout-clock tick
+constexpr uint64_t one_tick_ns{12};
+
+/// Within a tick of a pulse of ``grid``: a multiple of its period since the epoch
+bool on_grid(const pulse_grid & grid, const uint64_t ns) {
+  const auto off = ns % grid.period_ns();
+  return std::min(off, grid.period_ns() - off) <= one_tick_ns;
+}
 
 } // namespace
 
@@ -731,14 +742,17 @@ TEST_CASE("Sender pulse times march forward on the period grid", "[sender][pulse
   for (size_t i = 0; i < records.size(); ++i) {
     CHECK(records[i].seq == i);
   }
+  const auto grid = pulse_grid::from_period(period);
   const auto first = records.front().pulse;
   std::set<uint64_t> distinct;
   for (const auto & record : records) {
-    // pulse times stay on the period grid anchored at the first pulse ...
+    // pulse times stay on the period grid anchored on the epoch ...
     CHECK(record.pulse >= first);
-    CHECK((record.pulse - first).total_ticks() % period.total_ticks() == 0);
-    // ... with the previous pulse always exactly one period earlier
-    CHECK(record.pulse - record.prev == period);
+    CHECK(on_grid(grid, record.pulse.total_nanoseconds()));
+    // ... with the previous pulse always one period earlier
+    const auto gap = record.pulse.total_nanoseconds() - record.prev.total_nanoseconds();
+    CHECK(gap + one_tick_ns >= grid.period_ns());
+    CHECK(gap <= grid.period_ns() + one_tick_ns);
     distinct.insert(record.pulse.total_ticks());
   }
   // ... never decreasing ...
@@ -792,10 +806,65 @@ TEST_CASE("Replay reference times follow each point's parameter publication", "[
   for (size_t i = 1; i < records.size(); ++i) {
     CHECK(records[i].pulse >= records[i - 1].pulse);
   }
+  // each point's reported pulse is a tick of the epoch-anchored grid, exactly, and the
+  // one its packets carry
+  const auto grid = pulse_grid::from_rate(config.pulse_rate);
+  REQUIRE(publisher.pulse_times.size() == 2);
+  for (const auto pulse_ns : publisher.pulse_times) {
+    CHECK(pulse_ns % grid.period_ns() == 0);
+  }
+  seen = 0;
+  for (const auto & record : records) {
+    const auto reported = publisher.pulse_times[seen < rays ? 0 : 1];
+    CHECK(record.pulse == efu_time::from_nanoseconds(reported));
+    seen += record.events.size();
+  }
 
   fs::remove(fs::path(file_a));
   fs::remove(fs::path(file_b));
   fs::remove(multi_path);
+}
+
+TEST_CASE("The pulse grid is anchored on the epoch", "[pulse][grid]") {
+  const auto grid = pulse_grid::from_rate(14.0);
+  // what mccode-plumber's mp-tdc and the EFU take an ESS pulse to be
+  CHECK(grid.period_ns() == 71428571u);
+  CHECK(grid.at_or_before(71428571u * 5u + 3u) == 71428571u * 5u);
+  CHECK(grid.at_or_before(71428571u * 5u) == 71428571u * 5u);
+  CHECK(grid.after(71428571u * 5u) == 71428571u * 6u);
+  CHECK(pulse_grid::from_rate(50.0).period_ns() == 20000000u);
+  // a period given as a time has already been truncated to a whole tick
+  const auto truncated = pulse_grid::from_period(efu_time(0.02)).period_ns();
+  CHECK(truncated <= 20000000u);
+  CHECK(truncated + one_tick_ns >= 20000000u);
+  CHECK_THROWS(pulse_grid::from_rate(0.0));
+}
+
+TEST_CASE("Nanoseconds convert to the nearest readout-clock tick", "[pulse][time]") {
+  for (const uint64_t ns : {uint64_t{0}, uint64_t{1791288173257871156}, uint64_t{1791288173999999999},
+                            uint64_t{71428571}}) {
+    const auto t = efu_time::from_nanoseconds(ns);
+    CHECK(t.low() < efu_time::ticks);
+    const auto back = t.total_nanoseconds();
+    CHECK((back > ns ? back - ns : ns - back) <= one_tick_ns);
+  }
+}
+
+TEST_CASE("Senders made at different times share one pulse grid", "[sender][pulse][grid]") {
+  const auto grid = pulse_grid::from_rate(50.0);
+  Sender first("127.0.0.1", 47998, 0, DetectorType::BIFROST, ReadoutType::CAEN, grid);
+  std::this_thread::sleep_for(std::chrono::milliseconds(7)); // not a whole period
+  Sender second("127.0.0.1", 47998, 0, DetectorType::BIFROST, ReadoutType::CAEN, grid);
+  for (const auto * sender : {&first, &second}) {
+    CHECK(sender->lastPulseNanoseconds() % grid.period_ns() == 0);
+    CHECK(efu_time(sender->lastPulseTime()) == efu_time::from_nanoseconds(sender->lastPulseNanoseconds()));
+  }
+  // begun together, they begin the same pulse
+  const auto tick = std::max(first.next_pulse(), second.next_pulse());
+  first.begin_pulse_at(tick);
+  second.begin_pulse_at(tick);
+  CHECK(first.lastPulseNanoseconds() == second.lastPulseNanoseconds());
+  CHECK(first.lastPulseNanoseconds() % grid.period_ns() == 0);
 }
 
 TEST_CASE("Folding time-of-flight wraps events into the pulse frame", "[replay][pulse][fold]") {
