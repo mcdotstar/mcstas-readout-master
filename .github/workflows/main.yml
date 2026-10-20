@@ -137,4 +137,20 @@ jobs:
       - name: Run integration tests
         env:
           READOUT_BUILD_DIR: ${{ github.workspace }}/build
+
+          # Force UCX away from unsupported network transports on GH-hosted runners
+          UCX_TLS: sm,self
+          UCX_NET_DEVICES: none
+
+          # Open MPI: local-only, loopback/shared-memory
+          OMPI_MCA_btl: self,vader
+          OMPI_MCA_btl_tcp_if_include: lo
+
+          # MPICH: prefer shared memory / loopback
+          MPICH_OFI_PROVIDER: tcp
+          MPICH_FABRICS: shm
+
+          # Intel MPI: shared memory only
+          I_MPI_FABRICS: shm
+          I_MPI_TCP_NETMASK: 127.0.0.1
         run: python -m pytest tests/ -v --tb=short
