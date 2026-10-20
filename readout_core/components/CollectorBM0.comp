@@ -106,6 +106,7 @@ DECLARE
 %{
 array_t * array_ptr;
 collector_t * collector_ptr;
+double ncount_total; // the whole run's ray count, from INITIALIZE
 
 int fen_present;
 int channel_present;
@@ -164,11 +165,15 @@ if (record_description == NULL) {
   collector_error(NAME_CURRENT_COMP, "No canonical record description for the given ess_type.");
 }
 
-uint64_t normalization = (uint64_t)mcget_ncount();
+// INITIALIZE runs before McStas splits the rays over MPI nodes, so this is the whole run's
+// ray count -- the one sources normalise p to. Every node weighs its rays by it in TRACE (where
+// mcget_ncount() is the node's share), and it is the normalization, so weight / normalization
+// is the rate whatever the number of nodes.
+ncount_total = (double) mcget_ncount();
+uint64_t normalization = (uint64_t) ncount_total;
 
 #ifdef USE_MPI
 collector_ptr = NULL;
-normalization *= (uint64_t) mpi_node_count;
 if (mpi_node_rank == mpi_node_root) {
 #endif
   collector_ptr = collector_star_new(this_filename, this_dataset_name, record_description, ess_type, normalization);
@@ -194,7 +199,7 @@ array_ptr = new_array(sizeof(struct collector_bm0_record));
 
 TRACE
 %{
-double weight = p * (double)(mcget_ncount()) * efficiency;
+double weight = p * ncount_total * efficiency;
 // Record a ray with probability keep_probability, and store its weight divided by that
 // probability so the expected total is unchanged. No draw at the default of 1, so a run
 // that does not thin uses the random-number stream exactly as before.
