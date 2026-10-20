@@ -322,3 +322,40 @@ class TestMPICollectorCAEN:
             pm = is_present_count('collector+-', f)
             pp = is_present_count('collector++', f)
             assert mm + mp + pm + pp == total_rays
+
+    @mpi_compiled_test
+    def test_mpi_rate_independent_of_node_count(self, tmp_path):
+        """weight / normalization is the run's rate whatever the number of MPI nodes.
+
+        Every ray reaches the collector with p = 1, so the rate is the number of rays
+        traced: the whole run's ray count. Before the fix it fell as 1/nodes^2 -- each
+        node weighed its rays by its own share of the count, and the normalization was
+        the whole count times the number of nodes.
+        """
+        h5py = pytest.importorskip("h5py")
+        ncount = 6000  # a multiple of every node count, so no rays are lost to rounding
+        rates = {}
+        for nranks in (1, 2, 3):
+            directory = tmp_path / f"np{nranks}"
+            directory.mkdir()  # McStas makes only the last level of --dir
+            result, dats = _mpi_compile_and_run(f"""
+                DEFINE INSTRUMENT test_mpi_rate(string filename="mpi_rate")
+                {CAEN_USERVARS}
+                TRACE
+                SEARCH SHELL "readout-config --show compdir"
+                {CAEN_ORIGIN_EXTEND}
+                COMPONENT collector = CollectorCAEN(
+                  ring="RING", fen="FEN", tube="TUBE",
+                  a_name="A", b_name="B", tof="tof",
+                  filename=filename
+                ) AT (0, 0, 1) ABSOLUTE
+                END
+            """, parameters=f"-n {ncount} filename=mpi_rate", nranks=nranks,
+                directory=str(directory))
+            h5_files = [f for f in dats.unrecognized if Path(f).suffix == ".h5"]
+            assert h5_files, "Expected HDF5 output from CollectorCAEN"
+            with h5py.File(str(h5_files[0]), "r") as f:
+                group = f["collector"]
+                assert group["readouts"].shape[0] == ncount
+                rates[nranks] = group["weights"][()].sum() / group["normalizations"][()].sum()
+        assert rates == {n: pytest.approx(ncount) for n in rates}, rates
