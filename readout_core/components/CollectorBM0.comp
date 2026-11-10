@@ -160,38 +160,13 @@ if (this_filename == NULL || this_filename[0] == '\0') {
   collector_error(NAME_CURRENT_COMP, "Filename is empty after processing, cannot create Collector instance.");
 }
 
-const char * record_description = readout_description_for(ess_type);
-if (record_description == NULL) {
-  collector_error(NAME_CURRENT_COMP, "No canonical record description for the given ess_type.");
-}
-
 // INITIALIZE runs before McStas splits the rays over MPI nodes, so this is the whole run's
 // ray count -- the one sources normalise p to. Every node weighs its rays by it in TRACE (where
 // mcget_ncount() is the node's share), and it is the normalization, so weight / normalization
 // is the rate whatever the number of nodes.
 ncount_total = (double) mcget_ncount();
-uint64_t normalization = (uint64_t) ncount_total;
-
-#ifdef USE_MPI
-collector_ptr = NULL;
-if (mpi_node_rank == mpi_node_root) {
-#endif
-  collector_ptr = collector_star_new(this_filename, this_dataset_name, record_description, ess_type, normalization);
-  if (collector_ptr == NULL) {
-    collector_error(NAME_CURRENT_COMP, "Could not create the description-based Collector instance.");
-  }
-  if (collector_record_size(collector_ptr) != sizeof(struct collector_bm0_record)) {
-    collector_error(NAME_CURRENT_COMP, "Record layout mismatch between component struct and canonical description.");
-  }
-  if (efu_address != NULL && efu_address[0] != '\0' && efu_port > 0) {
-    collector_efu(collector_ptr, efu_address, efu_port);
-  }
-  if (collector_sink_users(this_filename) == 1){
-    collector_sink_parameters(NAME_CURRENT_COMP);
-  }
-#ifdef USE_MPI
-}
-#endif
+collector_ptr = collector_shared_new(NAME_CURRENT_COMP, this_filename, this_dataset_name, ess_type,
+  (uint64_t) ncount_total, sizeof(struct collector_bm0_record), efu_address, efu_port);
 
 array_ptr = new_array(sizeof(struct collector_bm0_record));
 
@@ -226,56 +201,9 @@ if (weight) {
 
 SAVE
 %{
-#if defined USE_MPI
-  MPI_Datatype mpi_collect_record_type;
-  MPI_Type_contiguous(sizeof(struct collector_bm0_record), MPI_BYTE, &mpi_collect_record_type);
-  MPI_Type_commit(&mpi_collect_record_type);
-
-  int world_size;
-  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-  int local_count = (int) array_size(array_ptr);
-  int global_count = 0;
-  int * recv_counts = NULL;
-  int * displacements = NULL;
-  struct collector_bm0_record * recv_buffer = NULL;
-
-  if (mpi_node_rank == mpi_node_root) {
-    recv_counts = (int *) malloc(world_size * sizeof(int));
-    displacements = (int *) malloc(world_size * sizeof(int));
-  }
-
-  MPI_Gather(&local_count, 1, MPI_INT, recv_counts, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-  if (mpi_node_rank == mpi_node_root) {
-    for (int i=0; i < world_size; i++){
-      displacements[i] = (i == 0) ? 0 : displacements[i-1] + recv_counts[i-1];
-      global_count += recv_counts[i];
-    }
-    recv_buffer = (struct collector_bm0_record *) malloc(global_count * sizeof(struct collector_bm0_record));
-  }
-
-  const uint8_t * local_data = array_data(array_ptr);
-  MPI_Gatherv((void *)local_data, local_count, mpi_collect_record_type, recv_buffer, recv_counts, displacements, mpi_collect_record_type, 0, MPI_COMM_WORLD);
-
-  if (mpi_node_rank == mpi_node_root) {
-    for (int i=0; i < global_count; i++){
-      struct collector_bm0_record * data = &recv_buffer[i];
-      collector_star_add(collector_ptr, data->rec_weight, (const void *)data);
-    }
-    free(recv_buffer);
-    free(recv_counts);
-    free(displacements);
-  }
-  MPI_Type_free(&mpi_collect_record_type);
-#else
-  size_t count = array_size(array_ptr);
-  struct collector_bm0_record data;
-  for (size_t i=0; i < count; i++){
-    array_get(array_ptr, i, (void *) &data);
-    collector_star_add(collector_ptr, data.rec_weight, (const void *)(&data));
-  }
-#endif
-array_clear(array_ptr);
+// every MPI node: gather the records on the master, which adds them to the collector
+collector_shared_save(collector_ptr, array_ptr, sizeof(struct collector_bm0_record),
+  offsetof(struct collector_bm0_record, rec_weight));
 %}
 
 

@@ -52,3 +52,77 @@ void collector_sink_parameters(char * named) {
     }
   }
 }
+
+collector_t * collector_shared_new(char * component, const char * filename, const char * dataset,
+                                   int ess_type, uint64_t normalization, size_t record_size,
+                                   const char * efu_address, int efu_port) {
+  collector_t * collector = NULL;
+  const char * description = readout_description_for(ess_type);
+  if (description == NULL) {
+    collector_error(component, "No canonical record description for the given ess_type.");
+  }
+#ifdef USE_MPI
+  if (mpi_node_rank != mpi_node_root) return NULL;
+#endif
+  collector = collector_star_new(filename, dataset, description, ess_type, normalization);
+  if (collector == NULL) {
+    collector_error(component, "Could not create the description-based Collector instance.");
+  }
+  if (collector_record_size(collector) != record_size) {
+    collector_error(component, "Record layout mismatch between component struct and canonical description.");
+  }
+  if (efu_address != NULL && efu_address[0] != '\0' && efu_port > 0) {
+    collector_efu(collector, efu_address, efu_port);
+  }
+  /* several collectors may share one file: the first to open it records the parameters */
+  if (collector_sink_users(filename) == 1) {
+    collector_sink_parameters(component);
+  }
+  return collector;
+}
+
+void collector_shared_save(const collector_t * collector, array_t * array, size_t record_size,
+                           size_t weight_offset) {
+  const uint8_t * records = array_data(array);
+  size_t count = array_size(array);
+  uint8_t * gathered = NULL;
+  int store = 1;
+#ifdef USE_MPI
+  MPI_Datatype record_type;
+  int local_count = (int) count, global_count = 0;
+  int * counts = NULL;
+  int * displacements = NULL;
+  store = mpi_node_rank == mpi_node_root;
+  MPI_Type_contiguous((int) record_size, MPI_BYTE, &record_type);
+  MPI_Type_commit(&record_type);
+  if (store) {
+    counts = (int *) calloc(mpi_node_count, sizeof(int));
+    displacements = (int *) calloc(mpi_node_count, sizeof(int));
+  }
+  MPI_Gather(&local_count, 1, MPI_INT, counts, 1, MPI_INT, mpi_node_root, MPI_COMM_WORLD);
+  if (store) {
+    for (int i = 0; i < mpi_node_count; ++i) {
+      displacements[i] = global_count;
+      global_count += counts[i];
+    }
+    gathered = (uint8_t *) malloc((global_count > 0 ? global_count : 1) * record_size);
+  }
+  MPI_Gatherv((void *) records, local_count, record_type,
+              gathered, counts, displacements, record_type, mpi_node_root, MPI_COMM_WORLD);
+  MPI_Type_free(&record_type);
+  free(counts);
+  free(displacements);
+  records = gathered;
+  count = (size_t) global_count;
+#endif
+  if (store) {
+    for (size_t i = 0; i < count; ++i) {
+      const uint8_t * record = records + i * record_size;
+      double weight;
+      memcpy(&weight, record + weight_offset, sizeof weight);
+      collector_star_add(collector, weight, (const void *) record);
+    }
+  }
+  free(gathered);
+  array_clear(array);
+}
