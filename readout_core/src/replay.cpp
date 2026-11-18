@@ -2,6 +2,7 @@
 #include <map>
 #include <variant>
 #include <optional>
+#include <type_traits>
 #include <ostream>
 #include <random>
 #include <sstream>
@@ -154,6 +155,20 @@ void stream_point(const Reader & reader, const size_t point, const ReplayConfig 
           copies = distribution(rng);
         } else {
           copies = 0;
+        }
+      }
+      if constexpr (std::is_same_v<EventT, BMI_event>) {
+        if (config.merge_ibm && copies > 1 && event.adc > 0) {
+          // as few readouts as the 24-bit ADC allows, each counting for k copies
+          const size_t per = std::max<size_t>(0xFFFFFFu / event.adc, 1);
+          auto merged = event;
+          while (copies > 0) {
+            const auto k = std::min(copies, per);
+            merged.adc = static_cast<uint32_t>(event.adc * k);
+            emit(merged);
+            copies -= k;
+          }
+          continue;
         }
       }
       for (size_t k = 0; k < copies; ++k) {

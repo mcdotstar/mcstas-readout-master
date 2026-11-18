@@ -234,6 +234,14 @@ int readout_replay_set_pulses_per_point(readout_replay_t * handle, const uint64_
   });
 }
 
+int readout_replay_set_merge_ibm(readout_replay_t * handle, const int enable) {
+  return guarded([&]() -> int {
+    if (require_handle(handle)) return READOUT_ERROR;
+    handle->config.merge_ibm = enable != 0;
+    return READOUT_OK;
+  });
+}
+
 int readout_replay_set_senders_json(readout_replay_t * handle, const char * json_text) {
   return guarded([&]() -> int {
     if (require_handle(handle)) return READOUT_ERROR;

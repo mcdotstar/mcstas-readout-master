@@ -1058,3 +1058,72 @@ TEST_CASE("Two senders to one EFU never show it a pulse it has left", "[replay][
   CHECK(std::set<uint64_t>(pulses->begin(), pulses->end()).size() == 2 * 4);
   fs::remove(filepath);
 }
+
+namespace {
+
+struct IbmTotals {
+  std::mutex mutex;
+  size_t readouts{0};
+  uint64_t adc{0};
+};
+
+/// Replay a file of BMI rays (ADC 1 and 3, MCA sum 1) with a counting time; what arrives.
+std::pair<size_t, uint64_t> replay_ibm(const std::string & filename, const bool merge) {
+  const int port = find_free_udp_port();
+  REQUIRE(port > 0);
+  auto totals = std::make_shared<IbmTotals>();
+  cluon::UDPReceiver receiver("127.0.0.1", port,
+    [totals](std::string && data, std::string &&, std::chrono::system_clock::time_point &&) noexcept {
+      const auto * header = reinterpret_cast<const PacketHeaderV0 *>(data.data());
+      const auto count = (header->TotalLength - sizeof(PacketHeaderV0)) / sizeof(BMIData);
+      const auto * readout = reinterpret_cast<const BMIData *>(data.data() + sizeof(PacketHeaderV0));
+      std::lock_guard lock(totals->mutex);
+      for (size_t i = 0; i < count; ++i) {
+        totals->adc += readout[i].Pack & 0x00FFFFFF;
+      }
+      totals->readouts += count;
+    });
+  REQUIRE(receiver.isRunning());
+  ReplayConfig config;
+  config.default_port = port;
+  config.counting_time = 50.0;  // a mean of 50 copies of each ray
+  config.seed = 1234;
+  config.merge_ibm = merge;
+  REQUIRE(replay(filename, config));
+  size_t previous{0};
+  for (int i = 0; i < 40; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::lock_guard lock(totals->mutex);
+    if (i > 0 && totals->readouts == previous) break;
+    previous = totals->readouts;
+  }
+  std::lock_guard lock(totals->mutex);
+  return {totals->readouts, totals->adc};
+}
+
+} // namespace
+
+TEST_CASE("Merged integrating-monitor copies carry the same ADC total", "[replay][CBM][merge]") {
+  namespace fs = std::filesystem;
+  const auto path = fs::temp_directory_path() / fs::path(pid_filename("replay_merge_ibm", ".h5"));
+  fs::remove(path);
+  const uint16_t rays{200};
+  {
+    Collector collector(path.string(), "monitor", CBMI, 1u);
+    BMI_readout_t data{};
+    data.sum = 1;
+    for (uint16_t i = 0; i < rays; ++i) {
+      data.channel = 0;
+      data.adc = i % 2 ? 3 : 1;
+      collector.addReadout(22, 0, static_cast<double>(i) / rays / 14., 1.0, static_cast<const void *>(&data));
+    }
+  }
+  const auto [each, each_adc] = replay_ibm(path.string(), false);
+  const auto [merged, merged_adc] = replay_ibm(path.string(), true);
+  // the same seed draws the same copies: unmerged, every copy is a readout of its ray's ADC
+  CHECK(each > 40u * rays);
+  CHECK(each_adc > each);  // half the rays have ADC 3
+  CHECK(merged <= rays);
+  CHECK(merged_adc == each_adc);
+  fs::remove(path);
+}
