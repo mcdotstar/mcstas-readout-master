@@ -49,6 +49,9 @@ class ReplayConfig:
         events as fast as they go. An EFU summing that many pulses per histogram (ESS
         beam monitors: 14) then publishes one per point, if it was started fresh or
         has only been shown replays paced the same way.
+    merge_ibm: send an integrating beam monitor's ray drawn n times as one readout with
+        n times its ADC. An EFU histogramming the monitor (DA00) makes the same histogram
+        from far fewer readouts; leave it off for one writing the monitor's events (EV44).
     """
     counting_time: float | None = None
     seed: int = 0
@@ -61,6 +64,7 @@ class ReplayConfig:
     pulse_rate: float = 14.0
     fold_tof: bool = False
     pulses_per_point: int = 0
+    merge_ibm: bool = False
 
 
 class ParameterPublisher(ABC):
@@ -169,6 +173,7 @@ class Replay:
         _lib.check(lib.readout_replay_set_pulse_rate(handle, float(config.pulse_rate)))
         _lib.check(lib.readout_replay_set_fold_tof(handle, 1 if config.fold_tof else 0))
         _lib.check(lib.readout_replay_set_pulses_per_point(handle, int(config.pulses_per_point)))
+        _lib.check(lib.readout_replay_set_merge_ibm(handle, 1 if config.merge_ibm else 0))
         if config.senders_json is not None:
             _lib.check(lib.readout_replay_set_senders_json(handle, str(config.senders_json).encode()))
 

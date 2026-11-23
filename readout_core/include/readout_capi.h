@@ -95,6 +95,8 @@ RL_API int readout_replay_set_pulse_rate(readout_replay_t * handle, double hz);
 RL_API int readout_replay_set_fold_tof(readout_replay_t * handle, int enable);
 /// Spread each point's events over this many pulses, then end with an empty one; 0 does not pace.
 RL_API int readout_replay_set_pulses_per_point(readout_replay_t * handle, uint64_t pulses);
+/// Nonzero sends an integrating monitor's ray drawn n times as one readout with n times its ADC.
+RL_API int readout_replay_set_merge_ibm(readout_replay_t * handle, int enable);
 /// Explicit EFU routing as a JSON document (see SenderConfigs); READOUT_ERROR with a parse message on invalid input.
 RL_API int readout_replay_set_senders_json(readout_replay_t * handle, const char * json_text);
 

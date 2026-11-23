@@ -119,6 +119,7 @@ def _declare(lib: ctypes.CDLL) -> ctypes.CDLL:
         ("set_pulse_rate", [ctypes.c_double]),
         ("set_fold_tof", [ctypes.c_int]),
         ("set_pulses_per_point", [ctypes.c_uint64]),
+        ("set_merge_ibm", [ctypes.c_int]),
         ("set_senders_json", [ctypes.c_char_p]),
     ):
         fn = getattr(lib, f"readout_replay_{name}")

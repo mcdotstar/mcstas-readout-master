@@ -105,6 +105,12 @@ struct RL_API ReplayConfig {
   /// replay's points only if the EFU was started fresh or has only been shown replays
   /// paced the same way: the empty pulses at the end leave it ready for the next.
   size_t pulses_per_point{0};
+  /// Send an integrating beam monitor's (BMI) ray drawn n times as one readout whose ADC is
+  /// n times the stored one, not as n readouts. An EFU adding each IBM readout's ADC into a
+  /// histogram (DA00) makes the same histogram from far fewer readouts; one writing IBM
+  /// readouts as events (EV44) would record fewer, larger ones. A paced replay puts the
+  /// merged readout in one pulse, so only histograms summing a point's pulses are unchanged.
+  bool merge_ibm{false};
   /// When non-null, replay polls this flag at point and chunk boundaries and
   /// returns early (cleanly) once it is set. Caller-owned; must outlive replay().
   const std::atomic<bool> * stop{nullptr};
