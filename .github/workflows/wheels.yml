@@ -3,7 +3,7 @@ name: Wheels
 on:
   pull_request:
   release:
-    types: [created, edited, published]
+    types: [published]
   workflow_dispatch:
 
 concurrency:
@@ -33,8 +33,8 @@ jobs:
       matrix:
         variant:
           - { os: ubuntu-latest, platform: 'manylinux' }
-          - { os: macos-15-intel, platform: 'macosx' }
-          - { os: macos-15, platform: 'macosx' }
+          - { os: macos-26-intel, platform: 'macosx' }
+          - { os: macos-26, platform: 'macosx' }
     steps:
       - uses: actions/checkout@v6
         with:
